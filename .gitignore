@@ -1,0 +1,12 @@
+bin/
+obj/
+node_modules/
+dist/
+storage/
+.env
+artifacts/
+logs/
+*.binlog
+build-*.log
+*.png
+src/Recurvos.WhatsAppWorker/.wwebjs_cache/

@@ -1,0 +1,192 @@
+@model Recurvos.Infrastructure.Templates.InvoiceTemplateModel
+@{
+    var currency = Recurvos.Infrastructure.Templates.InvoiceTemplateSupport.NormalizeCurrency(Model.Currency);
+    string Money(decimal amount) => Recurvos.Infrastructure.Templates.InvoiceTemplateSupport.FormatMoney(amount, currency);
+    var hasPaymentDetails =
+        !string.IsNullOrWhiteSpace(Model.BankName) ||
+        !string.IsNullOrWhiteSpace(Model.BankAccountName) ||
+        !string.IsNullOrWhiteSpace(Model.BankAccount) ||
+        !string.IsNullOrWhiteSpace(Model.PaymentLink);
+    var hasPaymentQr = !string.IsNullOrWhiteSpace(Model.PaymentQrDataUrl);
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Invoice @Model.InvoiceNumber</title>
+    <style>
+        body { margin: 0; padding: 24px; background: #eef2f7; color: #0f172a; font-family: "Segoe UI", Arial, sans-serif; }
+        .sheet { width: 210mm; min-height: 297mm; max-width: 100%; margin: 0 auto; background: #fff; padding: 18mm 16mm; }
+        .header { display: flex; justify-content: space-between; gap: 28px; align-items: flex-start; }
+        .issuer { max-width: 55%; }
+        .issuer img { max-width: 180px; max-height: 56px; margin-bottom: 18px; object-fit: contain; display: block; }
+        .issuer-name { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
+        .issuer-meta { color: #475569; line-height: 1.7; }
+        .invoice-meta { min-width: 240px; text-align: right; }
+        .title { font-size: 34px; font-weight: 800; letter-spacing: .08em; margin: 0 0 20px; }
+        .meta-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; margin-bottom: 10px; }
+        .meta-label { color: #64748b; text-transform: uppercase; font-size: 11px; letter-spacing: .08em; text-align: left; }
+        .meta-value { font-weight: 600; }
+        .section { margin-top: 26px; }
+        .section-title { margin: 0 0 12px; color: #64748b; text-transform: uppercase; font-size: 12px; letter-spacing: .08em; }
+        .bill-to { border-top: 1px solid #dbe3ef; padding-top: 16px; max-width: 52%; line-height: 1.7; }
+        .bill-to-name { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        thead th { text-align: left; padding: 12px 10px; border-bottom: 1px solid #cbd5e1; color: #64748b; text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
+        tbody td { padding: 14px 10px; border-bottom: 1px solid #e2e8f0; }
+        th.num, td.num { text-align: right; white-space: nowrap; }
+        .totals { width: 320px; margin-left: auto; margin-top: 18px; }
+        .total-row { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; }
+        .total-row.final { margin-top: 8px; padding-top: 12px; border-top: 1px solid #cbd5e1; font-size: 16px; font-weight: 700; }
+        .payment { display: grid; grid-template-columns: minmax(0, 1fr) 108px; gap: 18px; align-items: start; }
+        .payment-details { display: grid; gap: 8px; }
+        .payment-row { display: grid; grid-template-columns: 92px 1fr; gap: 14px; }
+        .payment-label { color: #64748b; font-size: 12px; }
+        .payment-value { color: #0f172a; line-height: 1.6; word-break: break-word; }
+        .payment-qr { width: 108px; height: 108px; border: 1px solid #dbe3ef; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .payment-qr img { width: 100%; height: 100%; object-fit: contain; }
+        .footer { margin-top: 18px; padding-top: 12px; border-top: 1px solid #dbe3ef; color: #64748b; font-size: 12px; line-height: 1.7; }
+        .footer p { margin: 0 0 6px; }
+    </style>
+</head>
+<body>
+    <article class="sheet">
+        <header class="header">
+            <div class="issuer">
+                @if (!string.IsNullOrWhiteSpace(Model.LogoDataUrl))
+                {
+                    <img src="@Model.LogoDataUrl" alt="Company logo" />
+                }
+                <div class="issuer-name">@Model.IssuerName</div>
+                <div class="issuer-meta">
+                @if (!string.IsNullOrWhiteSpace(Model.IssuerRegistrationNumber))
+                {
+                    <div>Registration No: @Model.IssuerRegistrationNumber</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.IssuerSstNumber))
+                {
+                    <div>SST Registration No: @Model.IssuerSstNumber</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.IssuerEmail))
+                {
+                    <div>@Model.IssuerEmail</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.IssuerAddress))
+                {
+                    <div>@Model.IssuerAddress</div>
+                }
+                </div>
+            </div>
+            <div class="invoice-meta">
+                <h1 class="title">INVOICE</h1>
+                <div class="meta-row"><div class="meta-label">Invoice No</div><div class="meta-value">@Model.InvoiceNumber</div></div>
+                <div class="meta-row"><div class="meta-label">Invoice Date</div><div class="meta-value">@Model.InvoiceDateUtc.ToString("dd MMM yyyy")</div></div>
+                <div class="meta-row"><div class="meta-label">Due Date</div><div class="meta-value">@Model.DueDateUtc.ToString("dd MMM yyyy")</div></div>
+                <div class="meta-row"><div class="meta-label">Currency</div><div class="meta-value">@currency</div></div>
+            </div>
+        </header>
+
+        <section class="section">
+            <h2 class="section-title">Bill To</h2>
+            <div class="bill-to">
+                <div class="bill-to-name">@Model.CustomerName</div>
+                @if (!string.IsNullOrWhiteSpace(Model.CustomerCompany))
+                {
+                    <div>@Model.CustomerCompany</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.CustomerAddress))
+                {
+                    <div>@Model.CustomerAddress</div>
+                }
+            </div>
+        </section>
+
+        <section class="section">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Description</th>
+                        <th class="num">Quantity</th>
+                        <th class="num">Unit Price</th>
+                        <th class="num">Line Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model.Items)
+                    {
+                        <tr>
+                            <td>@item.Description</td>
+                            <td class="num">@item.Quantity.ToString("0.##")</td>
+                            <td class="num">@Money(item.UnitPrice)</td>
+                            <td class="num">@Money(item.LineTotal)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+
+        <section class="section">
+            <div class="totals">
+                <div class="total-row"><span>Subtotal</span><span>@Money(Model.Subtotal)</span></div>
+                @if (Model.ShowTaxSection)
+                {
+                    <div class="total-row"><span>@Model.TaxLabel</span><span>@Money(Model.TaxTotal)</span></div>
+                }
+                <div class="total-row final"><span>Total</span><span>@Money(Model.AmountDue)</span></div>
+            </div>
+        </section>
+
+        @if (hasPaymentDetails || hasPaymentQr)
+        {
+            <section class="section">
+                <h2 class="section-title">Payment</h2>
+                <div class="payment">
+                    @if (hasPaymentDetails)
+                    {
+                        <div class="payment-details">
+                            @if (!string.IsNullOrWhiteSpace(Model.BankName))
+                            {
+                                <div class="payment-row"><div class="payment-label">Bank</div><div class="payment-value">@Model.BankName</div></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(Model.BankAccountName))
+                            {
+                                <div class="payment-row"><div class="payment-label">Account Name</div><div class="payment-value">@Model.BankAccountName</div></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(Model.BankAccount))
+                            {
+                                <div class="payment-row"><div class="payment-label">Account No</div><div class="payment-value">@Model.BankAccount</div></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(Model.PaymentLink))
+                            {
+                                <div class="payment-row"><div class="payment-label">Pay Online</div><div class="payment-value">@Model.PaymentLink</div></div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div></div>
+                    }
+                    @if (hasPaymentQr)
+                    {
+                        <div class="payment-qr">
+                            <img src="@Model.PaymentQrDataUrl" alt="Payment QR" />
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+
+        <footer class="footer">
+            @if (!string.IsNullOrWhiteSpace(Model.Notes))
+            {
+                <p>@Model.Notes</p>
+            }
+            @if (Model.SystemGeneratedFlag)
+            {
+                <p>This is a system generated invoice.</p>
+            }
+        </footer>
+    </article>
+</body>
+</html>
