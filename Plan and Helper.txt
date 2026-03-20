@@ -1,0 +1,247 @@
+Basic (49)
+Company up to 1
+Product unlimited
+Plan unlimited
+Customer 500
+Auto Invoice generation
+Auto Invoice Notification (Email)
+Generate WhatsApp friendly reminder (Copy and Paste)
+Payment Record screen for customer to upload their payment
+
+Growth (79)
+Company 3
+Product
+Plan
+Customer 5000
+Auto Invoice
+Auto Invoice Notification (Email)
+Generate WhatsApp friendly reminder (Copy and Paste)
+Generate WhatsApp friendly reminder (Browser copy and paste, click send to send)
+Configurable WhatsApp content
+Payment Record screen for customer to upload their payment
+
+
+Premium (199)
+Company up to 5
+Product
+Plan
+Customer 50000
+Auto Invoice
+Auto Invoice Notification (Email)
+Auto Invoice Notification (Whatsapp) limited to 5000 messages per month
+Generate WhatsApp friendly reminder (Copy and Paste)
+Generate WhatsApp friendly reminder (Browser copy and paste, click send to send)
+Configurable WhatsApp message
+Generate Payment Link
+Payment Record screen for customer to upload their payment
+Finance reports, export in CSV (Invoices, Payments, Refunds, Credit Notes)
+Payment Gateway Configuration
+
+
+http://localhost:7001/hangfire
+
+
+esfx ajbq uoor myxz
+
+
+
+https://dash.cloudflare.com/a5b150edb791a6be6f55b83440bcf1ac/registrar/register/success
+recurvos.com
+
+  -- 1. Find the subscriber company
+  SELECT
+      u."Email" AS user_email,
+      c."Id" AS company_id,
+      c."Name",
+      c."SelectedPackage",
+      c."PackageStatus",
+      c."PackageGracePeriodEndsAtUtc"
+  FROM "Users" u
+  JOIN "Companies" c ON c."Id" = u."CompanyId"
+  WHERE lower(u."Email") = lower('subscriber@example.com');
+
+  -- 2. Force package status into past due
+  UPDATE "Companies"
+  SET
+      "PackageStatus" = 'pending_payment',
+      "PackageGracePeriodEndsAtUtc" = TIMESTAMPTZ '2026-03-01 00:00:00+00',
+      "PendingPackageCode" = NULL
+  WHERE "Id" = 'PUT-COMPANY-ID-HERE';
+
+
+
+
+
+• Plan
+
+  1. Prepare the VPS
+
+  - Create a non-root deploy user.
+  - Install git, nginx, docker, docker compose.
+  - Open ports 80 and 443.
+  - Point DNS:
+      - app.yourdomain.com
+      - api.yourdomain.com
+      - staging-app.yourdomain.com
+      - staging-api.yourdomain.com
+
+  2. Create server structure
+
+  - Folders:
+
+  /srv/recurvos/prod
+  /srv/recurvos/staging
+  /srv/recurvos-storage/prod
+  /srv/recurvos-storage/staging
+
+  - Keep prod and staging fully separate.
+
+  3. Decide Git flow
+
+  - Branches:
+      - main = production
+      - develop = staging
+      - feature/* = normal fixes/features
+      - hotfix/* = urgent prod fixes
+  - Flow:
+      - bug
+      - create branch
+      - fix
+      - PR to develop
+      - test on staging
+      - merge to main
+      - deploy production
+
+  4. Containerize the app
+
+  - Use Docker Compose.
+  - Separate compose files or separate projects for:
+      - prod
+      - staging
+  - Each stack should have:
+      - web
+      - api
+      - whatsapp worker
+  - PostgreSQL can be:
+      - one server with two DBs
+      - or separate containers
+
+  5. Create separate environment files
+
+  - Example:
+      - /srv/recurvos/prod/.env
+      - /srv/recurvos/staging/.env
+  - Production env:
+      - production DB
+      - production storage path
+      - production domains
+      - production SMTP/Billplz
+  - Staging env:
+      - staging DB
+      - staging storage path
+      - staging subdomains
+      - staging SMTP/Billplz sandbox
+      - email shield on
+
+  6. Set up databases
+
+  - Create:
+      - recurvos_prod
+      - recurvos_staging
+  - Never share them.
+
+  7. Set up reverse proxy
+
+  - Use nginx with 4 server names:
+      - app.yourdomain.com
+      - api.yourdomain.com
+      - staging-app.yourdomain.com
+      - staging-api.yourdomain.com
+  - Proxy each one to the right container/service port.
+
+  8. Add SSL
+
+  - Use Let’s Encrypt with certbot.
+  - Issue certs for all 4 hostnames.
+
+  9. First manual deployment
+
+  - Clone repo into:
+      - /srv/recurvos/prod/repo
+      - /srv/recurvos/staging/repo
+  - Checkout:
+      - prod -> main
+      - staging -> develop
+  - Start both stacks manually.
+  - Verify:
+      - staging web/api works
+      - production web/api works
+
+  10. Lock staging safely
+
+  - Turn on staging safeguards:
+      - email shield
+      - local capture if needed
+      - Billplz sandbox
+      - no real WhatsApp sends if possible
+
+  11. Add deployment scripts
+
+  - Example:
+      - deploy-staging.sh
+      - deploy-prod.sh
+  - Each script should:
+      - git fetch
+      - checkout branch
+      - pull latest
+      - build/recreate containers
+      - run migrations/startup
+      - restart services
+
+  12. Add GitHub Actions later
+
+  - On develop:
+      - run build/tests
+      - SSH to VPS
+      - run deploy-staging.sh
+  - On main:
+      - run build/tests
+      - SSH to VPS
+      - run deploy-prod.sh
+
+  13. Daily usage workflow
+
+  - Create branch from develop
+  - Fix bug
+  - Push branch
+  - Open PR
+  - Merge to develop
+  - Staging auto-deploy
+  - Test
+  - Merge to main
+  - Production deploy
+
+  14. Production safety rules
+
+  - Do backups for prod DB
+  - Keep separate logs for prod/staging
+  - Never test payment gateway live first
+  - Never use staging SMTP/Billplz values in prod
+
+  Recommended order this week
+
+  1. VPS base setup
+  2. DNS
+  3. Docker Compose
+  4. staging stack
+  5. production stack
+  6. nginx + SSL
+  7. manual deploy
+  8. GitHub Actions
+
+  If you want, next I can give you:
+
+  - exact folder structure
+  - sample docker-compose.yml
+  - sample .env.staging and .env.prod
+  - sample nginx config
