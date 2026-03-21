@@ -110,6 +110,8 @@ public sealed record UpdatePlatformPackageRequest(
     int DisplayOrder,
     IReadOnlyCollection<string> Features,
     IReadOnlyCollection<string> TrustPoints);
+public sealed record FactoryResetRequest(string ConfirmationText);
+public sealed record FactoryResetResult(DateTime ResetAtUtc, string Message);
 public sealed record AssignSubscriberPackageRequest(string PackageCode);
 public sealed record CreatePlatformAdminRequest(string FullName, string Email, string Password);
 public sealed record UpdatePlatformUserRequest(string Role, bool IsActive);
@@ -192,6 +194,7 @@ public interface IPlatformService
     Task<IReadOnlyCollection<EmailDispatchLogDto>> GetEmailLogsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<FailedWhatsAppNotificationDto>> GetFailedWhatsAppNotificationsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<AuditLogEntryDto>> GetAuditLogsAsync(int take = 100, CancellationToken cancellationToken = default);
+    Task<FactoryResetResult> FactoryResetAsync(FactoryResetRequest request, CancellationToken cancellationToken = default);
 }
 
 public interface ISubscriberPackageBillingService

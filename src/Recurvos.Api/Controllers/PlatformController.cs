@@ -109,6 +109,19 @@ public sealed class PlatformController(IPlatformService platformService, IInvoic
     public async Task<ActionResult<IReadOnlyCollection<AuditLogEntryDto>>> GetAuditLogs([FromQuery] int take = 100, CancellationToken cancellationToken = default) =>
         Ok(await platformService.GetAuditLogsAsync(take, cancellationToken));
 
+    [HttpPost("factory-reset")]
+    public async Task<ActionResult<FactoryResetResult>> FactoryReset(FactoryResetRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await platformService.FactoryResetAsync(request, cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
     [HttpPut("packages/{id:guid}")]
     public async Task<ActionResult<PlatformPackageDto>> UpdatePackage(Guid id, UpdatePlatformPackageRequest request, CancellationToken cancellationToken)
     {

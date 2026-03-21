@@ -13,7 +13,8 @@ public sealed class PlatformService(
     ICurrentUserService currentUserService,
     ISubscriberPackageBillingService subscriberPackageBillingService,
     IPasswordHasher passwordHasher,
-    IAuthService authService) : IPlatformService
+    IAuthService authService,
+    DbSeeder dbSeeder) : IPlatformService
 {
     public async Task<PlatformDashboardSummaryDto> GetDashboardSummaryAsync(CancellationToken cancellationToken = default)
     {
@@ -488,6 +489,25 @@ public sealed class PlatformService(
             .FirstAsync(x => x.Id == id, cancellationToken);
 
         return MapPackage(refreshed);
+    }
+
+    public async Task<FactoryResetResult> FactoryResetAsync(FactoryResetRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsurePlatformOwner();
+
+        if (!string.Equals(request.ConfirmationText?.Trim(), "FACTORY RESET", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Type FACTORY RESET to continue.");
+        }
+
+        dbContext.ChangeTracker.Clear();
+        await dbContext.Database.EnsureDeletedAsync(cancellationToken);
+        await dbContext.Database.MigrateAsync(cancellationToken);
+        await dbSeeder.SeedAsync(cancellationToken);
+
+        return new FactoryResetResult(
+            DateTime.UtcNow,
+            "Factory reset completed. The database is recreated and demo seed data is loaded.");
     }
 
     private void EnsurePlatformOwner()

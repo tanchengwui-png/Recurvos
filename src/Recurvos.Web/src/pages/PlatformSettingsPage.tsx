@@ -27,7 +27,7 @@ function formatDocumentNumber(prefix: string, sequence: number, padding: number)
 
 export function PlatformSettingsPage() {
   const [editingEnvironment, setEditingEnvironment] = useState<"staging" | "production">("staging");
-  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "billplz" | "feedback" | "whatsapp" | "upload">("issuer");
+  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "billplz" | "feedback" | "whatsapp" | "upload" | "reset">("issuer");
   const [runtimeProfile, setRuntimeProfile] = useState<PlatformRuntimeProfile | null>(null);
   const [issuerSettings, setIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
   const [savedIssuerSettings, setSavedIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
@@ -51,6 +51,7 @@ export function PlatformSettingsPage() {
   const [billplzTestMessage, setBillplzTestMessage] = useState("");
   const [billplzTestError, setBillplzTestError] = useState("");
   const [isTestingBillplz, setIsTestingBillplz] = useState(false);
+  const [resetConfirmationText, setResetConfirmationText] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
   const issuerDirty = issuerSettings !== null
@@ -273,6 +274,7 @@ export function PlatformSettingsPage() {
             <button type="button" className={`platform-settings-nav-link ${activeSection === "feedback" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("feedback")}>Owner email</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "whatsapp" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("whatsapp")}>WhatsApp</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "upload" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("upload")}>Upload policy</button>
+            <button type="button" className={`platform-settings-nav-link ${activeSection === "reset" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("reset")}>Factory reset</button>
           </nav>
         </section>
         </aside>
@@ -971,6 +973,58 @@ export function PlatformSettingsPage() {
         </section>
       ) : null}
       {activeSection === "whatsapp" && !whatsAppSettings ? renderSectionUnavailable("WhatsApp", "Platform WhatsApp settings are not available right now.") : null}
+
+      {activeSection === "reset" ? (
+        <section id="platform-factory-reset" className="card settings-form-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Danger zone</p>
+              <h3 className="section-title">Factory reset and seed demo data</h3>
+              <p className="muted form-intro">This permanently wipes current database data, recreates schema, and seeds demo accounts/content again.</p>
+            </div>
+            <span className="status-pill status-pill-inactive">Destructive</span>
+          </div>
+          <div className="form-stack">
+            <HelperText tone="error">All subscriber records, invoices, payments, users, and settings in this environment will be replaced by seeded data.</HelperText>
+            <HelperText>After reset, sign in again with the seeded owner account (`owner@recurvo.com`).</HelperText>
+            <label className="form-label">
+              Type <code>FACTORY RESET</code> to enable
+              <input
+                className="text-input"
+                value={resetConfirmationText}
+                onChange={(event) => setResetConfirmationText(event.target.value)}
+                placeholder="FACTORY RESET"
+              />
+            </label>
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={resetConfirmationText.trim() !== "FACTORY RESET"}
+              onClick={() => setConfirmState({
+                title: "Factory reset platform database",
+                description: "This will permanently delete current data and re-seed demo data. Continue?",
+                action: async () => {
+                  try {
+                    const result = await api.post<{ resetAtUtc: string; message: string }>("/platform/factory-reset", {
+                      confirmationText: resetConfirmationText.trim(),
+                    });
+                    setMessage(`${result.message} (${new Date(result.resetAtUtc).toLocaleString()})`);
+                    setError("");
+                    setResetConfirmationText("");
+                    setConfirmState(null);
+                  } catch (saveError) {
+                    setError(saveError instanceof Error ? saveError.message : "Unable to run factory reset.");
+                    setMessage("");
+                    setConfirmState(null);
+                  }
+                },
+              })}
+            >
+              Run factory reset
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       </div>
       </div>
