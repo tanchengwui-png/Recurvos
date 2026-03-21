@@ -7,11 +7,13 @@ public static class InvoiceHtmlTemplateRenderer
     public static string Render(InvoiceTemplateModel model)
     {
         var currency = InvoiceTemplateSupport.NormalizeCurrency(model.Currency);
+        var paymentGatewayLink = !string.IsNullOrWhiteSpace(model.PaymentGatewayLink) ? model.PaymentGatewayLink : model.PaymentLink;
         var hasPaymentDetails =
             !string.IsNullOrWhiteSpace(model.BankName) ||
             !string.IsNullOrWhiteSpace(model.BankAccountName) ||
             !string.IsNullOrWhiteSpace(model.BankAccount) ||
-            !string.IsNullOrWhiteSpace(model.PaymentLink);
+            !string.IsNullOrWhiteSpace(paymentGatewayLink) ||
+            !string.IsNullOrWhiteSpace(model.PaymentConfirmationLink);
         var hasPaymentQr = !string.IsNullOrWhiteSpace(model.PaymentQrDataUrl);
         var builder = new StringBuilder();
 
@@ -144,7 +146,11 @@ public static class InvoiceHtmlTemplateRenderer
                 AppendPaymentDetail(builder, "Bank", model.BankName);
                 AppendPaymentDetail(builder, "Account Name", model.BankAccountName);
                 AppendPaymentDetail(builder, "Account No", model.BankAccount);
-                AppendPaymentDetail(builder, "Pay Online", model.PaymentLink);
+                AppendPaymentDetail(builder, "Pay Online", paymentGatewayLink);
+                AppendPaymentDetail(builder, "After Payment", string.IsNullOrWhiteSpace(model.PaymentConfirmationLink)
+                    ? null
+                    : "Once payment is completed, click the confirmation link below to upload your proof of payment.");
+                AppendPaymentDetail(builder, "Payment Confirmation", model.PaymentConfirmationLink);
                 builder.Append("</div>");
             }
             else

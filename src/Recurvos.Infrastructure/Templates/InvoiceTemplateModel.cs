@@ -32,6 +32,8 @@ public sealed class InvoiceTemplateModel
     public string? BankName { get; init; }
     public string? BankAccountName { get; init; }
     public string? BankAccount { get; init; }
+    public string? PaymentGatewayLink { get; init; }
+    public string? PaymentConfirmationLink { get; init; }
     public string? PaymentLink { get; init; }
     public string? PaymentQrDataUrl { get; init; }
     public string? ReferenceNumber { get; init; }

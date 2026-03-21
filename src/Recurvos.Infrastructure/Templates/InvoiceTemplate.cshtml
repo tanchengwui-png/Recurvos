@@ -2,11 +2,13 @@
 @{
     var currency = Recurvos.Infrastructure.Templates.InvoiceTemplateSupport.NormalizeCurrency(Model.Currency);
     string Money(decimal amount) => Recurvos.Infrastructure.Templates.InvoiceTemplateSupport.FormatMoney(amount, currency);
+    var paymentGatewayLink = !string.IsNullOrWhiteSpace(Model.PaymentGatewayLink) ? Model.PaymentGatewayLink : Model.PaymentLink;
     var hasPaymentDetails =
         !string.IsNullOrWhiteSpace(Model.BankName) ||
         !string.IsNullOrWhiteSpace(Model.BankAccountName) ||
         !string.IsNullOrWhiteSpace(Model.BankAccount) ||
-        !string.IsNullOrWhiteSpace(Model.PaymentLink);
+        !string.IsNullOrWhiteSpace(paymentGatewayLink) ||
+        !string.IsNullOrWhiteSpace(Model.PaymentConfirmationLink);
     var hasPaymentQr = !string.IsNullOrWhiteSpace(Model.PaymentQrDataUrl);
 }
 <!DOCTYPE html>
@@ -157,9 +159,14 @@
                             {
                                 <div class="payment-row"><div class="payment-label">Account No</div><div class="payment-value">@Model.BankAccount</div></div>
                             }
-                            @if (!string.IsNullOrWhiteSpace(Model.PaymentLink))
+                            @if (!string.IsNullOrWhiteSpace(paymentGatewayLink))
                             {
-                                <div class="payment-row"><div class="payment-label">Pay Online</div><div class="payment-value">@Model.PaymentLink</div></div>
+                                <div class="payment-row"><div class="payment-label">Pay Online</div><div class="payment-value">@paymentGatewayLink</div></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(Model.PaymentConfirmationLink))
+                            {
+                                <div class="payment-row"><div class="payment-label">After Payment</div><div class="payment-value">Once payment is completed, click the confirmation link below to upload your proof of payment.</div></div>
+                                <div class="payment-row"><div class="payment-label">Payment Confirmation</div><div class="payment-value">@Model.PaymentConfirmationLink</div></div>
                             }
                         </div>
                     }

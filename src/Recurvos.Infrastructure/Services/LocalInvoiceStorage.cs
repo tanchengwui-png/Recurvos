@@ -48,7 +48,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         DateTime? periodEndUtc,
         IEnumerable<(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
-        string currency)
+        string currency,
+        string? paymentConfirmationLink = null)
         => InvoicePdfTemplate.Render(CreateTemplateModel(
             companyName,
             companyRegistrationNumber,
@@ -76,7 +77,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             periodEndUtc,
             items,
             total,
-            currency));
+            currency,
+            paymentConfirmationLink));
 
     public static string CreateHtml(
         string companyName,
@@ -105,7 +107,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         DateTime? periodEndUtc,
         IEnumerable<(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
-        string currency)
+        string currency,
+        string? paymentConfirmationLink = null)
         => InvoiceHtmlTemplateRenderer.Render(CreateTemplateModel(
             companyName,
             companyRegistrationNumber,
@@ -133,7 +136,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             periodEndUtc,
             items,
             total,
-            currency));
+            currency,
+            paymentConfirmationLink));
 
     public static InvoiceTemplateModel CreateTemplateModel(
         string companyName,
@@ -162,7 +166,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         DateTime? periodEndUtc,
         IEnumerable<(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
-        string currency)
+        string currency,
+        string? paymentConfirmationLink = null)
     {
         var normalizedCurrency = InvoiceTemplateSupport.NormalizeCurrency(currency);
         var logoDataUrl = InvoiceTemplateSupport.ToDataUrl(companyLogo, "image/png");
@@ -194,6 +199,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             BankName = bankName,
             BankAccountName = bankAccountName,
             BankAccount = bankAccount,
+            PaymentGatewayLink = paymentLink,
+            PaymentConfirmationLink = paymentConfirmationLink,
             PaymentLink = paymentLink,
             PaymentQrDataUrl = paymentQrDataUrl,
             Subtotal = total,

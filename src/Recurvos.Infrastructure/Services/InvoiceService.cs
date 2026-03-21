@@ -686,7 +686,7 @@ public sealed class InvoiceService(
                 invoiceSettings?.BankName,
                 invoiceSettings?.BankAccountName,
                 invoiceSettings?.BankAccount,
-                invoiceSettings?.PaymentLink,
+                null,
                 await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
                 taxProfile.IsEnabled,
                 taxProfile.Name,
@@ -1327,7 +1327,8 @@ public sealed class InvoiceService(
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
-        var latestPaymentLink = await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
+        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
+        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
 
         var pdf = LocalInvoiceStorage.CreatePdf(
             company.Name,
@@ -1340,7 +1341,7 @@ public sealed class InvoiceService(
             invoiceSettings?.BankName,
             invoiceSettings?.BankAccountName,
             invoiceSettings?.BankAccount,
-            latestPaymentLink ?? invoiceSettings?.PaymentLink,
+            paymentGatewayLink,
             await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
             invoice.IsTaxEnabled,
             invoice.TaxName,
@@ -1356,7 +1357,8 @@ public sealed class InvoiceService(
             invoice.PeriodEndUtc,
             invoice.LineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
             invoice.Subtotal,
-            invoice.Currency);
+            invoice.Currency,
+            paymentConfirmationLink);
 
         invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(invoice.CompanyId, invoice.InvoiceNumber, pdf, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1383,6 +1385,11 @@ public sealed class InvoiceService(
 
     private async Task<string?> ResolveGatewayPaymentLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {
+        if (!await CanShowGatewayPaymentLinkAsync(invoice.CompanyId, cancellationToken))
+        {
+            return null;
+        }
+
         var paymentLink = await dbContext.Payments
             .Where(x => x.InvoiceId == invoice.Id && !string.IsNullOrWhiteSpace(x.PaymentLinkUrl))
             .OrderByDescending(x => x.CreatedAtUtc)
@@ -1394,8 +1401,7 @@ public sealed class InvoiceService(
             return paymentLink;
         }
 
-        if (invoice.AmountDue > 0
-            && await featureEntitlementService.CompanyHasFeatureAsync(invoice.CompanyId, PlatformFeatureKeys.PaymentLinkGeneration, cancellationToken))
+        if (invoice.AmountDue > 0)
         {
             return await TryCreateGatewayPaymentLinkAsync(invoice, cancellationToken);
         }
@@ -1405,8 +1411,7 @@ public sealed class InvoiceService(
 
     private async Task<string?> ResolvePaymentConfirmationLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {
-        if (invoice.AmountDue > 0
-            && await featureEntitlementService.CompanyHasFeatureAsync(invoice.CompanyId, PlatformFeatureKeys.PublicPaymentConfirmation, cancellationToken))
+        if (invoice.AmountDue > 0)
         {
             return await EnsurePaymentConfirmationLinkAsync(invoice, cancellationToken);
         }
@@ -1421,6 +1426,27 @@ public sealed class InvoiceService(
         invoice.PaymentConfirmationTokenIssuedAtUtc = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         return $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payment-confirmation?token={Uri.EscapeDataString(rawToken)}";
+    }
+
+    private async Task<bool> CanShowGatewayPaymentLinkAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        if (!await featureEntitlementService.CompanyHasFeatureAsync(companyId, PlatformFeatureKeys.PaymentLinkGeneration, cancellationToken))
+        {
+            return false;
+        }
+
+        var settings = await EnsureCompanyInvoiceSettingsAsync(companyId, cancellationToken);
+        if (settings is null
+            || !string.Equals(settings.PaymentGatewayProvider, "billplz", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var signatureRequired = settings.SubscriberBillplzRequireSignatureVerification ?? true;
+        return !string.IsNullOrWhiteSpace(settings.SubscriberBillplzApiKey)
+            && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzCollectionId)
+            && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzBaseUrl)
+            && (!signatureRequired || !string.IsNullOrWhiteSpace(settings.SubscriberBillplzXSignatureKey));
     }
 
     private async Task<string?> TryCreateGatewayPaymentLinkAsync(Invoice invoice, CancellationToken cancellationToken)
@@ -1509,7 +1535,7 @@ public sealed class InvoiceService(
             invoiceSettings?.BankName,
             invoiceSettings?.BankAccountName,
             invoiceSettings?.BankAccount,
-            invoiceSettings?.PaymentLink,
+            null,
             await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
             taxProfile.IsEnabled,
             taxProfile.Name,
@@ -1603,7 +1629,7 @@ public sealed class InvoiceService(
             invoiceSettings?.BankName,
             invoiceSettings?.BankAccountName,
             invoiceSettings?.BankAccount,
-            invoiceSettings?.PaymentLink,
+            null,
             await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
             taxProfile.IsEnabled,
             taxProfile.Name,

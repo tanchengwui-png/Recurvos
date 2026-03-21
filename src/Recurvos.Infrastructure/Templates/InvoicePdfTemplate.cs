@@ -10,11 +10,13 @@ public static class InvoicePdfTemplate
     {
         QuestPDF.Settings.License = LicenseType.Community;
         var currency = InvoiceTemplateSupport.NormalizeCurrency(model.Currency);
+        var paymentGatewayLink = !string.IsNullOrWhiteSpace(model.PaymentGatewayLink) ? model.PaymentGatewayLink : model.PaymentLink;
         var hasPaymentDetails =
             !string.IsNullOrWhiteSpace(model.BankName) ||
             !string.IsNullOrWhiteSpace(model.BankAccountName) ||
             !string.IsNullOrWhiteSpace(model.BankAccount) ||
-            !string.IsNullOrWhiteSpace(model.PaymentLink);
+            !string.IsNullOrWhiteSpace(paymentGatewayLink) ||
+            !string.IsNullOrWhiteSpace(model.PaymentConfirmationLink);
         var hasPaymentQr = !string.IsNullOrWhiteSpace(model.PaymentQrDataUrl);
 
         return Document.Create(container =>
@@ -158,7 +160,11 @@ public static class InvoicePdfTemplate
                                             AddPaymentDetail(details, "Bank", model.BankName);
                                             AddPaymentDetail(details, "Account Name", model.BankAccountName);
                                             AddPaymentDetail(details, "Account No", model.BankAccount);
-                                            AddPaymentDetail(details, "Pay Online", model.PaymentLink);
+                                            AddPaymentDetail(details, "Pay Online", paymentGatewayLink);
+                                            AddPaymentDetail(details, "After Payment", string.IsNullOrWhiteSpace(model.PaymentConfirmationLink)
+                                                ? null
+                                                : "Once payment is completed, click the confirmation link below to upload your proof of payment.");
+                                            AddPaymentDetail(details, "Payment Confirmation", model.PaymentConfirmationLink);
                                         });
                                     }
                                     else
