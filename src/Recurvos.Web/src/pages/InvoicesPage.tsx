@@ -8,6 +8,7 @@ import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
+import { getAuth } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { BillingReadiness, CompanyInvoiceSettings, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
