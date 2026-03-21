@@ -583,6 +583,8 @@ public sealed class InvoiceService(
             .Where(x => x.Status != SubscriptionStatus.Cancelled
                 && x.Status != SubscriptionStatus.Paused
                 && x.Items.Any(i =>
+                    (i.BillingType == BillingType.OneTime && !i.EndedAtUtc.HasValue && i.CurrentPeriodStartUtc != null && i.CurrentPeriodStartUtc <= DateTime.UtcNow)
+                    || 
                     (i.NextBillingUtc != null && i.NextBillingUtc <= DateTime.UtcNow && !i.EndedAtUtc.HasValue)
                     || (i.CurrentPeriodEndUtc != null && i.CurrentPeriodEndUtc <= DateTime.UtcNow && !i.AutoRenew && !i.EndedAtUtc.HasValue)));
 
@@ -616,7 +618,8 @@ public sealed class InvoiceService(
             SubscriptionService.SyncAggregateSnapshot(subscription);
 
             var dueItems = subscription.Items
-                .Where(item => SubscriptionService.IsItemDue(item, DateTime.UtcNow))
+                .Where(item => SubscriptionService.IsItemDue(item, DateTime.UtcNow)
+                    || SubscriptionService.IsOneTimeItemReadyForBilling(item, DateTime.UtcNow))
                 .ToList();
 
             if (dueItems.Count == 0)
@@ -721,6 +724,15 @@ public sealed class InvoiceService(
                 }
             }
 
+            foreach (var oneTimeItem in eligibleDueItems.Where(x => x.BillingType == BillingType.OneTime))
+            {
+                oneTimeItem.AutoRenew = false;
+                oneTimeItem.NextBillingUtc = null;
+                oneTimeItem.EndedAtUtc = invoice.IssueDateUtc;
+            }
+
+            SubscriptionService.SyncAggregateSnapshot(subscription);
+
             created++;
         }
 
@@ -764,6 +776,8 @@ public sealed class InvoiceService(
                 && x.Status != SubscriptionStatus.Cancelled
                 && x.Status != SubscriptionStatus.Paused
                 && x.Items.Any(i =>
+                    (i.BillingType == BillingType.OneTime && !i.EndedAtUtc.HasValue && i.CurrentPeriodStartUtc != null && i.CurrentPeriodStartUtc <= DateTime.UtcNow)
+                    ||
                     (i.NextBillingUtc != null && i.NextBillingUtc <= DateTime.UtcNow && !i.EndedAtUtc.HasValue)
                     || (i.CurrentPeriodEndUtc != null && i.CurrentPeriodEndUtc <= DateTime.UtcNow && !i.AutoRenew && !i.EndedAtUtc.HasValue)))
             .ToListAsync(cancellationToken);
@@ -772,7 +786,8 @@ public sealed class InvoiceService(
         foreach (var subscription in subscriptions)
         {
             var dueItems = subscription.Items
-                .Where(item => SubscriptionService.IsItemDue(item, DateTime.UtcNow))
+                .Where(item => SubscriptionService.IsItemDue(item, DateTime.UtcNow)
+                    || SubscriptionService.IsOneTimeItemReadyForBilling(item, DateTime.UtcNow))
                 .ToList();
 
             if (dueItems.Count == 0)
@@ -836,8 +851,10 @@ public sealed class InvoiceService(
                     x.SubscriptionItemId == dueItem.Id
                     && x.Invoice != null
                     && x.Invoice.Status != InvoiceStatus.Voided
-                    && x.Invoice.PeriodStartUtc == dueItem.CurrentPeriodStartUtc
-                    && x.Invoice.PeriodEndUtc == dueItem.CurrentPeriodEndUtc,
+                    && (dueItem.BillingType == BillingType.OneTime
+                        ? true
+                        : x.Invoice.PeriodStartUtc == dueItem.CurrentPeriodStartUtc
+                          && x.Invoice.PeriodEndUtc == dueItem.CurrentPeriodEndUtc),
                     cancellationToken);
 
             if (!cycleAlreadyInvoiced)
@@ -1572,9 +1589,11 @@ public sealed class InvoiceService(
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(subscription.CompanyId, cancellationToken);
         var company = subscription.Company ?? await dbContext.Companies.FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
         var eligibleItems = new List<SubscriptionItem>();
-        foreach (var item in subscription.Items.Where(x => x.BillingType == BillingType.Recurring && !x.EndedAtUtc.HasValue))
+        foreach (var item in subscription.Items.Where(x =>
+                     !x.EndedAtUtc.HasValue
+                     && (x.BillingType == BillingType.Recurring || x.BillingType == BillingType.OneTime)))
         {
-            if (!item.CurrentPeriodStartUtc.HasValue || !item.CurrentPeriodEndUtc.HasValue)
+            if (!item.CurrentPeriodStartUtc.HasValue)
             {
                 continue;
             }
@@ -1585,8 +1604,10 @@ public sealed class InvoiceService(
                     x.SubscriptionItemId == item.Id
                     && x.Invoice != null
                     && x.Invoice.Status != InvoiceStatus.Voided
-                    && x.Invoice.PeriodStartUtc == item.CurrentPeriodStartUtc
-                    && x.Invoice.PeriodEndUtc == item.CurrentPeriodEndUtc,
+                    && (item.BillingType == BillingType.OneTime
+                        ? true
+                        : x.Invoice.PeriodStartUtc == item.CurrentPeriodStartUtc
+                          && x.Invoice.PeriodEndUtc == item.CurrentPeriodEndUtc),
                     cancellationToken);
 
             if (!cycleAlreadyInvoiced)
@@ -1708,6 +1729,16 @@ public sealed class InvoiceService(
         {
             await TrySendInvoiceWhatsAppAsync(invoice, subscriptionCustomer, cancellationToken);
         }
+
+        foreach (var oneTimeItem in eligibleItems.Where(x => x.BillingType == BillingType.OneTime))
+        {
+            oneTimeItem.AutoRenew = false;
+            oneTimeItem.NextBillingUtc = null;
+            oneTimeItem.EndedAtUtc = issueDateUtc;
+        }
+
+        SubscriptionService.SyncAggregateSnapshot(subscription);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return new GeneratedSubscriptionInvoice(invoice, pdf);
     }

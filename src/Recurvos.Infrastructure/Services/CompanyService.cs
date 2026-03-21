@@ -182,7 +182,7 @@ public sealed class CompanyService(
 
         return await dbContext.ProductPlans
             .Include(x => x.Product)
-            .Where(x => x.CompanyId == companyId && x.IsActive && x.BillingType == BillingType.Recurring)
+            .Where(x => x.CompanyId == companyId && x.IsActive)
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.PlanName)
             .Select(x => new ProductPlanDto(
@@ -198,7 +198,6 @@ public sealed class CompanyService(
                 x.Currency,
                 x.UnitAmount,
                 x.TrialDays,
-                x.SetupFeeAmount,
                 x.TaxBehavior,
                 x.IsDefault,
                 x.IsActive,

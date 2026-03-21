@@ -52,11 +52,6 @@ public sealed class SubscriptionService(
             throw new InvalidOperationException("All subscription items must belong to the same company.");
         }
 
-        if (plans.Any(x => x.BillingType != BillingType.Recurring))
-        {
-            throw new InvalidOperationException("Subscriptions require recurring plans.");
-        }
-
         var companyId = companyIds[0];
         await billingReadinessService.EnsureReadyAsync(companyId, "subscription creation", cancellationToken);
         var startUtc = request.StartDateUtc.Kind == DateTimeKind.Utc ? request.StartDateUtc : request.StartDateUtc.ToUniversalTime();
@@ -514,7 +509,15 @@ public sealed class SubscriptionService(
     internal static bool IsItemDue(SubscriptionItem item, DateTime nowUtc) =>
         !item.EndedAtUtc.HasValue && item.NextBillingUtc.HasValue && item.NextBillingUtc.Value <= nowUtc;
 
+    internal static bool IsOneTimeItemReadyForBilling(SubscriptionItem item, DateTime nowUtc) =>
+        item.BillingType == BillingType.OneTime
+        && !item.EndedAtUtc.HasValue
+        && item.CurrentPeriodStartUtc.HasValue
+        && item.CurrentPeriodStartUtc.Value <= nowUtc;
+
     internal static bool ShouldEndWithoutRenewal(SubscriptionItem item, DateTime nowUtc) =>
+        item.BillingType != BillingType.OneTime
+        &&
         !item.EndedAtUtc.HasValue
         && item.CurrentPeriodEndUtc.HasValue
         && item.CurrentPeriodEndUtc.Value <= nowUtc

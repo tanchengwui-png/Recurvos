@@ -42,11 +42,6 @@ public static class ProductPlanValidators
             errors.Add("Trial days must be zero or more.");
         }
 
-        if (request.SetupFeeAmount < 0)
-        {
-            errors.Add("Setup fee amount must be zero or more.");
-        }
-
         if (string.IsNullOrWhiteSpace(request.Currency))
         {
             errors.Add("Currency is required.");

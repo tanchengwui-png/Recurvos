@@ -37,7 +37,6 @@ public sealed class ProductPlanUpsertRequest
 
     public decimal UnitAmount { get; set; }
     public int TrialDays { get; set; }
-    public decimal SetupFeeAmount { get; set; }
     public TaxBehavior TaxBehavior { get; set; } = TaxBehavior.Unspecified;
     public bool IsDefault { get; set; }
     public bool IsActive { get; set; } = true;
@@ -67,7 +66,6 @@ public sealed record ProductPlanDto(
     string Currency,
     decimal UnitAmount,
     int TrialDays,
-    decimal SetupFeeAmount,
     TaxBehavior TaxBehavior,
     bool IsDefault,
     bool IsActive,

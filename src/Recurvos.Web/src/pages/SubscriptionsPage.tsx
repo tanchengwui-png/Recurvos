@@ -160,7 +160,7 @@ export function SubscriptionsPage() {
 
     if (form.items.length === 0) {
       setConfirmState(null);
-      setError("Add at least one recurring plan before creating a subscription.");
+      setError("Add at least one plan before creating a subscription.");
       return;
     }
 
@@ -665,7 +665,7 @@ export function SubscriptionsPage() {
             <div>
               <p className="eyebrow">Create subscription</p>
               <h3 className="section-title">Start customer billing</h3>
-              <p className="muted form-intro">Pick the customer and plans to start recurring billing.</p>
+              <p className="muted form-intro">Pick the customer and plans to start billing. One-time items are billed on the first invoice only.</p>
             </div>
           </div>
           <form id="subscription-create-form" className="form-stack" onSubmit={createSubscription}>
@@ -727,7 +727,7 @@ export function SubscriptionsPage() {
                 })}
               </div>
             ) : (
-              <HelperText>Add one or more plans. Mixed monthly and yearly items are allowed.</HelperText>
+              <HelperText>Add one or more plans. Mixed recurring and one-time items are allowed.</HelperText>
             )}
             <label className="form-label">
               Start date

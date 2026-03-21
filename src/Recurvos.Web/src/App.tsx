@@ -10,6 +10,7 @@ import { FinancePage } from "./pages/FinancePage";
 import { FeedbackPage } from "./pages/FeedbackPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
+import { LandingPage } from "./pages/LandingPage";
 import { InfoPage } from "./pages/InfoPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
@@ -44,6 +45,10 @@ function PrivateRoutes() {
 function HomeRoute() {
   const auth = getAuth();
   return auth?.isPlatformOwner ? <PlatformDashboardPage /> : <DashboardPage />;
+}
+
+function RootRoute() {
+  return getAuth() ? <Navigate to="/app" replace /> : <LandingPage />;
 }
 
 function TenantRoute({ children }: { children: ReactElement }) {
@@ -119,6 +124,7 @@ function AppRoutes() {
   return (
     <>
       <Routes location={backgroundLocation ?? location}>
+        <Route path="/" element={<RootRoute />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
@@ -132,7 +138,7 @@ function AppRoutes() {
         {renderInfoRoute("/terms")}
         {renderInfoRoute("/support")}
         <Route element={<PrivateRoutes />}>
-          <Route path="/" element={<HomeRoute />} />
+          <Route path="/app" element={<HomeRoute />} />
           <Route path="/subscribers" element={<PlatformRoute><PlatformSubscribersPage /></PlatformRoute>} />
           <Route path="/platform/users" element={<PlatformRoute><PlatformUsersPage /></PlatformRoute>} />
           <Route path="/platform/documents" element={<PlatformRoute><PlatformDocumentPreviewPage /></PlatformRoute>} />
