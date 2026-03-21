@@ -254,6 +254,7 @@ public sealed class InvoiceService(
             company.Email,
             invoiceSettings?.ShowCompanyAddressOnReceipt == true ? company.Address : null,
             request.CustomerName.Trim(),
+            null,
             receiptNumber,
             invoiceNumber,
             request.Description.Trim(),
@@ -527,6 +528,7 @@ public sealed class InvoiceService(
                 company.Email,
                 invoiceSettings?.ShowCompanyAddressOnReceipt == true ? company.Address : null,
                 invoice.Customer.Name,
+                invoice.Customer.BillingAddress,
                 receiptNumber,
                 invoice.InvoiceNumber,
                 description,
@@ -539,7 +541,7 @@ public sealed class InvoiceService(
 
             var receiptRoot = Path.Combine(StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory), invoice.CompanyId.ToString("N"), "receipts");
             Directory.CreateDirectory(receiptRoot);
-            var receiptPath = Path.Combine(receiptRoot, $"{invoice.InvoiceNumber}-receipt.pdf");
+            var receiptPath = Path.Combine(receiptRoot, $"{receiptNumber}.pdf");
             await File.WriteAllBytesAsync(receiptPath, receiptBytes, cancellationToken);
             payment.ReceiptPdfPath = receiptPath.Replace("\\", "/");
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -551,7 +553,8 @@ public sealed class InvoiceService(
             return null;
         }
 
-        return (await File.ReadAllBytesAsync(filePath, cancellationToken), $"{invoice.InvoiceNumber}-receipt.pdf", "application/pdf");
+        var fileName = Path.GetFileName(filePath);
+        return (await File.ReadAllBytesAsync(filePath, cancellationToken), string.IsNullOrWhiteSpace(fileName) ? $"{invoice.InvoiceNumber}-receipt.pdf" : fileName, "application/pdf");
     }
 
     public Task<int> CountDueInvoicesForCurrentCompanyAsync(CancellationToken cancellationToken = default)

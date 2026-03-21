@@ -516,6 +516,7 @@ public sealed class SubscriberPackageBillingService(
                 issuerProfile.BillingEmail,
                 invoiceSettings.ShowCompanyAddressOnReceipt ? issuerProfile.Address : null,
                 invoice.Customer.Name,
+                invoice.Customer.BillingAddress,
                 receiptNumber,
                 invoice.InvoiceNumber,
                 packageName,
@@ -525,7 +526,7 @@ public sealed class SubscriberPackageBillingService(
                 payment.PaidAtUtc!.Value,
                 payment.ExternalPaymentId ?? payment.GatewayTransactionId ?? payment.GatewaySettlementRef,
                 invoice.AmountDue);
-            payment.ReceiptPdfPath = await SaveReceiptPdfAsync(invoice.CompanyId, invoice.InvoiceNumber, receiptBytes, cancellationToken);
+            payment.ReceiptPdfPath = await SaveReceiptPdfAsync(invoice.CompanyId, receiptNumber, receiptBytes, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
             filePath = ResolveStoredPath(payment.ReceiptPdfPath);
         }
@@ -535,7 +536,8 @@ public sealed class SubscriberPackageBillingService(
             return null;
         }
 
-        return (await File.ReadAllBytesAsync(filePath, cancellationToken), $"{invoice.InvoiceNumber}-receipt.pdf", "application/pdf");
+        var fileName = Path.GetFileName(filePath);
+        return (await File.ReadAllBytesAsync(filePath, cancellationToken), string.IsNullOrWhiteSpace(fileName) ? $"{invoice.InvoiceNumber}-receipt.pdf" : fileName, "application/pdf");
     }
 
     private async Task<Customer> EnsureBillingCustomerAsync(Guid platformOwnerUserId, Company subscriberCompany, CancellationToken cancellationToken)
@@ -849,11 +851,11 @@ public sealed class SubscriberPackageBillingService(
         return path.Replace("\\", "/");
     }
 
-    private async Task<string> SaveReceiptPdfAsync(Guid companyId, string invoiceNumber, byte[] pdf, CancellationToken cancellationToken)
+    private async Task<string> SaveReceiptPdfAsync(Guid companyId, string receiptNumber, byte[] pdf, CancellationToken cancellationToken)
     {
         var receiptRoot = Path.Combine(StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory), companyId.ToString("N"), "receipts");
         Directory.CreateDirectory(receiptRoot);
-        var path = Path.Combine(receiptRoot, $"{invoiceNumber}-receipt.pdf");
+        var path = Path.Combine(receiptRoot, $"{receiptNumber}.pdf");
         await File.WriteAllBytesAsync(path, pdf, cancellationToken);
         return path.Replace("\\", "/");
     }

@@ -61,7 +61,7 @@ public sealed class AuthService(
             RegistrationNumber = normalizedRegistrationNumber,
             Email = normalizedCompanyEmail,
             Phone = string.Empty,
-            Address = string.Empty,
+            Address = string.IsNullOrWhiteSpace(request.BillingAddress) ? string.Empty : request.BillingAddress.Trim(),
             IsActive = true,
             IsPlatformAccount = false,
             SelectedPackage = normalizedPackageCode,

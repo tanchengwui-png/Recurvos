@@ -27,6 +27,7 @@ export function OnboardingPage() {
     companyName: "",
     registrationNumber: "",
     companyEmail: "",
+    billingAddress: "",
     fullName: "",
     email: "",
     password: "",
@@ -170,6 +171,21 @@ export function OnboardingPage() {
               onChange={(event) => setForm((current) => ({ ...current, companyEmail: event.target.value }))}
             />
             <small className="muted">Used on invoices and billing communication for the business.</small>
+          </>
+        </FormLabel>
+
+        <FormLabel htmlFor="billingAddress">
+          Billing address
+          <>
+            <textarea
+              id="billingAddress"
+              className="text-input"
+              rows={3}
+              placeholder="Street, city, postcode, state"
+              value={form.billingAddress}
+              onChange={(event) => setForm((current) => ({ ...current, billingAddress: event.target.value }))}
+            />
+            <small className="muted">Shown on invoices and receipts for your subscribers.</small>
           </>
         </FormLabel>
 
