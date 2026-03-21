@@ -164,7 +164,7 @@ public static class InvoicePdfTemplate
                                             AddPaymentDetail(details, "After Payment", string.IsNullOrWhiteSpace(model.PaymentConfirmationLink)
                                                 ? null
                                                 : "Once payment is completed, click the confirmation link below to upload your proof of payment.");
-                                            AddPaymentDetail(details, "Payment Confirmation", model.PaymentConfirmationLink);
+                                            AddPaymentDetail(details, "Payment Confirmation", model.PaymentConfirmationLink, "Open payment confirmation page", true);
                                         });
                                     }
                                     else
@@ -229,7 +229,12 @@ public static class InvoicePdfTemplate
         }
     }
 
-    private static void AddPaymentDetail(ColumnDescriptor column, string label, string? value)
+    private static void AddPaymentDetail(
+        ColumnDescriptor column,
+        string label,
+        string? value,
+        string? displayValue = null,
+        bool isHyperlink = false)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -239,7 +244,16 @@ public static class InvoicePdfTemplate
         column.Item().Row(row =>
         {
             row.ConstantItem(102).Text(label).FontSize(9).FontColor("#64748B");
-            row.RelativeItem().Text(value).FontColor("#0F172A");
+            if (isHyperlink)
+            {
+                row.RelativeItem().Text(text =>
+                {
+                    text.Hyperlink(displayValue ?? value, value).FontColor(Colors.Blue.Darken2).Underline();
+                });
+                return;
+            }
+
+            row.RelativeItem().Text(displayValue ?? value).FontColor("#0F172A");
         });
     }
 

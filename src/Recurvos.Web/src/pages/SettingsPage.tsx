@@ -47,6 +47,7 @@ const DEFAULT_WHATSAPP_TEMPLATE = [
 ].join("\n");
 
 type SettingsTab = "documents" | "payment" | "whatsapp" | "reminders";
+type PaymentSettingsTab = "manual" | "qr" | "gateway" | "tax";
 
 export function SettingsPage() {
   const [rules, setRules] = useState<DunningRule[]>([]);
@@ -64,6 +65,7 @@ export function SettingsPage() {
   const [paymentQrFile, setPaymentQrFile] = useState<File | null>(null);
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("documents");
+  const [activePaymentTab, setActivePaymentTab] = useState<PaymentSettingsTab>("manual");
 
   const invoiceSettingsDirty = invoiceSettings !== null
     && savedInvoiceSettings !== null
@@ -143,6 +145,28 @@ export function SettingsPage() {
       intro: "Manage the reminder schedule that follows the invoice due date for unpaid invoices.",
     },
   }[activeTab];
+  const activePaymentTabMeta = {
+    manual: {
+      eyebrow: "Manual collection",
+      title: "Banking and due dates",
+      intro: "Keep the basic payment instructions in one place for bank transfer or manual collection.",
+    },
+    qr: {
+      eyebrow: "Invoice QR",
+      title: "QR upload",
+      intro: "Upload the QR image shown on invoices so customers can scan instead of typing account details.",
+    },
+    gateway: {
+      eyebrow: "Online payment",
+      title: "Gateway setup",
+      intro: "Configure subscriber-owned online checkout without mixing it into the manual payment fields.",
+    },
+    tax: {
+      eyebrow: "Tax",
+      title: "Invoice tax settings",
+      intro: "Control whether tax is shown and what label and rate appear on invoices.",
+    },
+  }[activePaymentTab];
 
   function buildInvoiceSettingsPayload(settings: CompanyInvoiceSettings) {
     return {
@@ -547,7 +571,33 @@ export function SettingsPage() {
                       {paymentSectionDirty ? "Unsaved payment setup" : "Payment setup saved"}
                     </span>
                   </div>
+                  <div className="settings-payment-summary-grid">
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "manual" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("manual")}>
+                      <span className="settings-stat-label">Manual</span>
+                      <strong>{invoiceSettings.bankName ? invoiceSettings.bankName : "Bank details"}</strong>
+                    </button>
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "qr" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("qr")}>
+                      <span className="settings-stat-label">QR</span>
+                      <strong>{invoiceSettings.hasPaymentQr || paymentQrFile ? "QR ready" : "Optional"}</strong>
+                    </button>
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "gateway" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("gateway")}>
+                      <span className="settings-stat-label">Gateway</span>
+                      <strong>{invoiceSettings.paymentGatewayReady ? "Configured" : "Not configured"}</strong>
+                    </button>
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "tax" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("tax")}>
+                      <span className="settings-stat-label">Tax</span>
+                      <strong>{invoiceSettings.isTaxEnabled ? `${invoiceSettings.taxName || "Tax"} ${invoiceSettings.taxRate ?? ""}%` : "Disabled"}</strong>
+                    </button>
+                  </div>
+                  <div className="settings-subtab-strip" role="tablist" aria-label="Payment setup sections">
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "manual" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("manual")}>Manual</button>
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "qr" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("qr")}>QR</button>
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "gateway" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("gateway")}>Gateway</button>
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "tax" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("tax")}>Tax</button>
+                  </div>
+                  <p className="muted settings-subtab-intro">{activePaymentTabMeta.intro}</p>
                   <div className="settings-numbering-workspace">
+                    {activePaymentTab === "manual" ? (
                     <section className="settings-subpanel settings-numbering-card">
                       <div className="settings-subpanel-header">
                         <div>
@@ -594,6 +644,8 @@ export function SettingsPage() {
                       </div>
                       <HelperText>Auto-generated invoices will be due this many days after the issue date.</HelperText>
                     </section>
+                    ) : null}
+                    {activePaymentTab === "qr" ? (
                     <section className="settings-subpanel settings-numbering-card">
                       <div className="settings-subpanel-header">
                         <div>
@@ -636,7 +688,10 @@ export function SettingsPage() {
                       <HelperText>{`PNG, JPG, JPEG, and WEBP images up to ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} are allowed.${uploadPolicy.autoCompressUploads ? " Large images are compressed automatically before upload." : ""}`}</HelperText>
                       {paymentQrFile ? <HelperText>{`Selected file: ${paymentQrFile.name}`}</HelperText> : null}
                     </section>
+                    ) : null}
                   </div>
+                  {activePaymentTab === "gateway" ? (
+                  <>
                   {!paymentGatewayConfigurationEnabled ? (
                     <div className="settings-feature-lock-card">
                       <p className="eyebrow">Upgrade required</p>
@@ -752,6 +807,9 @@ export function SettingsPage() {
                       <HelperText>Leave this as not configured if the subscriber will collect payment outside the system.</HelperText>
                     )}
                   </div>
+                  </>
+                  ) : null}
+                  {activePaymentTab === "tax" ? (
                   <div className="settings-tax-card">
                     <div className="settings-panel-header">
                       <div>
@@ -807,6 +865,7 @@ export function SettingsPage() {
                       <HelperText>When disabled, invoices hide the tax section completely.</HelperText>
                     )}
                   </div>
+                  ) : null}
                   <div className="settings-action-row">
                   <button
                     type="button"

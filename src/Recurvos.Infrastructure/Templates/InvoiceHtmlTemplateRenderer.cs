@@ -150,7 +150,7 @@ public static class InvoiceHtmlTemplateRenderer
                 AppendPaymentDetail(builder, "After Payment", string.IsNullOrWhiteSpace(model.PaymentConfirmationLink)
                     ? null
                     : "Once payment is completed, click the confirmation link below to upload your proof of payment.");
-                AppendPaymentDetail(builder, "Payment Confirmation", model.PaymentConfirmationLink);
+                AppendPaymentDetail(builder, "Payment Confirmation", model.PaymentConfirmationLink, "Open payment confirmation page", true);
                 builder.Append("</div>");
             }
             else
@@ -197,7 +197,12 @@ public static class InvoiceHtmlTemplateRenderer
         builder.Append("</div>");
     }
 
-    private static void AppendPaymentDetail(StringBuilder builder, string label, string? value)
+    private static void AppendPaymentDetail(
+        StringBuilder builder,
+        string label,
+        string? value,
+        string? displayValue = null,
+        bool isHyperlink = false)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -206,7 +211,14 @@ public static class InvoiceHtmlTemplateRenderer
 
         builder.Append("""<div class="payment-row">""");
         builder.Append($"""<div class="payment-label">{InvoiceTemplateSupport.Encode(label)}</div>""");
-        builder.Append($"""<div class="payment-value">{InvoiceTemplateSupport.Encode(value)}</div>""");
+        if (isHyperlink)
+        {
+            builder.Append($"""<div class="payment-value"><a href="{InvoiceTemplateSupport.Encode(value)}" target="_blank" rel="noopener noreferrer">{InvoiceTemplateSupport.Encode(displayValue ?? value)}</a></div>""");
+        }
+        else
+        {
+            builder.Append($"""<div class="payment-value">{InvoiceTemplateSupport.Encode(displayValue ?? value)}</div>""");
+        }
         builder.Append("</div>");
     }
 }

@@ -11,6 +11,7 @@ import { formatCurrency } from "../lib/format";
 import type { Payment, PaymentConfirmation } from "../types";
 
 export function PaymentsPage() {
+  const [activeTab, setActiveTab] = useState<"pending" | "history" | "payments">("pending");
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const [items, setItems] = useState<Payment[]>([]);
   const [confirmations, setConfirmations] = useState<PaymentConfirmation[]>([]);
@@ -80,6 +81,28 @@ export function PaymentsPage() {
         </div>
       </header>
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <section className="card settings-tab-card">
+        <div className="settings-tab-strip" role="tablist" aria-label="Payments sections">
+          <button type="button" className={`settings-tab-button ${activeTab === "pending" ? "settings-tab-button-active" : ""}`} onClick={() => setActiveTab("pending")}>Pending</button>
+          <button type="button" className={`settings-tab-button ${activeTab === "history" ? "settings-tab-button-active" : ""}`} onClick={() => setActiveTab("history")}>History</button>
+          <button type="button" className={`settings-tab-button ${activeTab === "payments" ? "settings-tab-button-active" : ""}`} onClick={() => setActiveTab("payments")}>Gateway Payments</button>
+        </div>
+      </section>
+      <div className="payments-tab-summary-grid">
+        <button type="button" className={`settings-mini-tab-card ${activeTab === "pending" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("pending")}>
+          <span className="settings-stat-label">Pending</span>
+          <strong>{pendingConfirmations.length} awaiting review</strong>
+        </button>
+        <button type="button" className={`settings-mini-tab-card ${activeTab === "history" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("history")}>
+          <span className="settings-stat-label">History</span>
+          <strong>{processedConfirmations.length} processed</strong>
+        </button>
+        <button type="button" className={`settings-mini-tab-card ${activeTab === "payments" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("payments")}>
+          <span className="settings-stat-label">Gateway</span>
+          <strong>{filteredItems.length} tracked payments</strong>
+        </button>
+      </div>
+      {activeTab === "pending" ? (
       <div className="payments-grid">
         <section className="card payments-card finance-card">
           <div className="card-section-header">
@@ -138,22 +161,13 @@ export function PaymentsPage() {
                       <td>{item.status}</td>
                       <td className="actions-cell">
                         {item.status === "Pending" ? (
-                          <>
-                            <button
-                              type="button"
-                              className="button button-secondary button-compact"
-                              onClick={() => setReviewForm({ id: item.id, invoiceNumber: item.invoiceNumber, action: "approve", reviewNote: "" })}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              className="button button-secondary button-compact"
-                              onClick={() => setReviewForm({ id: item.id, invoiceNumber: item.invoiceNumber, action: "reject", reviewNote: "" })}
-                            >
-                              Reject
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="button button-compact payment-review-open"
+                            onClick={() => setReviewForm({ id: item.id, invoiceNumber: item.invoiceNumber, action: "approve", reviewNote: "" })}
+                          >
+                            Review
+                          </button>
                         ) : (
                           <span className="muted">{item.status}</span>
                         )}
@@ -168,48 +182,10 @@ export function PaymentsPage() {
         ) : (
           <p className="muted">No pending customer payment confirmations.</p>
         )}
-        {reviewForm ? (
-          <div className="form-stack invoice-inline-panel" style={{ marginTop: "1rem" }}>
-            <p className="eyebrow">{reviewForm.action === "approve" ? "Approve confirmation" : "Reject confirmation"}</p>
-            <label className="form-label">
-              Review note
-              <input
-                className="text-input"
-                value={reviewForm.reviewNote}
-                onChange={(event) => setReviewForm((current) => current ? { ...current, reviewNote: event.target.value } : current)}
-                placeholder={reviewForm.action === "approve" ? "Optional note for your team" : "Optional reason"}
-              />
-            </label>
-            <div className="button-stack">
-              <button
-                type="button"
-                className="button button-primary"
-                onClick={() => setConfirmState({
-                  title: reviewForm.action === "approve" ? "Approve payment confirmation" : "Reject payment confirmation",
-                  description: `${reviewForm.action === "approve" ? "Approve" : "Reject"} the submitted confirmation for ${reviewForm.invoiceNumber}?`,
-                  action: async () => {
-                    try {
-                      await api.post(`/payment-confirmations/${reviewForm.id}/${reviewForm.action}`, {
-                        reviewNote: reviewForm.reviewNote || null,
-                      });
-                      setConfirmState(null);
-                      setReviewForm(null);
-                      await load();
-                    } catch (submitError) {
-                      setConfirmState(null);
-                      setError(submitError instanceof Error ? submitError.message : "Unable to review payment confirmation.");
-                    }
-                  },
-                })}
-              >
-                {reviewForm.action === "approve" ? "Approve confirmation" : "Reject confirmation"}
-              </button>
-              <button type="button" className="button button-secondary" onClick={() => setReviewForm(null)}>Close</button>
-            </div>
-          </div>
-        ) : null}
         </section>
       </div>
+      ) : null}
+      {activeTab === "history" ? (
       <section className="card payments-card finance-card">
         <div className="card-section-header">
           <div>
@@ -254,6 +230,8 @@ export function PaymentsPage() {
           <p className="muted">No processed confirmation history yet.</p>
         )}
       </section>
+      ) : null}
+      {activeTab === "payments" ? (
       <section className="card payments-card payments-table-card">
         <div className="catalog-toolbar card subtle-card" style={{ marginBottom: "1rem" }}>
           <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, gateway, or status" />
@@ -464,6 +442,7 @@ export function PaymentsPage() {
         </div>
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
+      ) : null}
       {refundForm ? (
         <section className="card" style={{ marginTop: "1rem" }}>
           <p className="eyebrow">Record refund</p>
@@ -514,6 +493,73 @@ export function PaymentsPage() {
             </div>
           </div>
         </section>
+      ) : null}
+      {reviewForm ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card card payment-review-modal" role="dialog" aria-modal="true" aria-labelledby="payment-review-title">
+            <div className="payment-review-modal-header">
+              <div>
+                <p className="eyebrow">Customer confirmation</p>
+                <h3 id="payment-review-title">Review payment confirmation</h3>
+                <p className="muted">{reviewForm.invoiceNumber}</p>
+              </div>
+              <button type="button" className="button button-secondary button-compact" onClick={() => setReviewForm(null)}>Close</button>
+            </div>
+            <div className="payment-review-choice-grid">
+              <button
+                type="button"
+                className={`payment-review-choice ${reviewForm.action === "approve" ? "payment-review-choice-active-approve" : ""}`}
+                onClick={() => setReviewForm((current) => current ? { ...current, action: "approve" } : current)}
+              >
+                <span className="settings-stat-label">Approve</span>
+                <strong>Mark as paid</strong>
+              </button>
+              <button
+                type="button"
+                className={`payment-review-choice ${reviewForm.action === "reject" ? "payment-review-choice-active-reject" : ""}`}
+                onClick={() => setReviewForm((current) => current ? { ...current, action: "reject" } : current)}
+              >
+                <span className="settings-stat-label">Reject</span>
+                <strong>Keep pending</strong>
+              </button>
+            </div>
+            <label className="form-label">
+              Review note
+              <input
+                className="text-input"
+                value={reviewForm.reviewNote}
+                onChange={(event) => setReviewForm((current) => current ? { ...current, reviewNote: event.target.value } : current)}
+                placeholder={reviewForm.action === "approve" ? "Optional note for your team" : "Optional reason"}
+              />
+            </label>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className={`button ${reviewForm.action === "approve" ? "button-primary" : "payment-review-submit-reject"}`}
+                onClick={() => setConfirmState({
+                  title: reviewForm.action === "approve" ? "Approve payment confirmation" : "Reject payment confirmation",
+                  description: `${reviewForm.action === "approve" ? "Approve" : "Reject"} the submitted confirmation for ${reviewForm.invoiceNumber}?`,
+                  action: async () => {
+                    try {
+                      await api.post(`/payment-confirmations/${reviewForm.id}/${reviewForm.action}`, {
+                        reviewNote: reviewForm.reviewNote || null,
+                      });
+                      setConfirmState(null);
+                      setReviewForm(null);
+                      await load();
+                    } catch (submitError) {
+                      setConfirmState(null);
+                      setError(submitError instanceof Error ? submitError.message : "Unable to review payment confirmation.");
+                    }
+                  },
+                })}
+              >
+                {reviewForm.action === "approve" ? "Approve confirmation" : "Reject confirmation"}
+              </button>
+              <button type="button" className="button button-secondary" onClick={() => setReviewForm(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
       ) : null}
       <ConfirmModal
         open={confirmState !== null}
