@@ -33,17 +33,17 @@ public sealed class DbSeeder(AppDbContext dbContext)
         if (!platformOwnerExists)
         {
             platformCompany = await dbContext.Companies.FirstOrDefaultAsync(
-                x => x.IsPlatformAccount || x.Email == "support@recurvo.com",
+                x => x.IsPlatformAccount || x.Email == "support@recurvos.com" || x.Email == "support@recurvo.com",
                 cancellationToken);
 
             if (platformCompany is null)
             {
                 platformCompany = new Company
                 {
-                    Name = "Recurvo",
-                    RegistrationNumber = "PLATFORM-OWNER",
-                    Email = "support@recurvo.com",
-                    Phone = "+60300000000",
+                    Name = "SYSNEX TECHNOLOGY",
+                    RegistrationNumber = "202603074137",
+                    Email = "support@recurvos.com",
+                    Phone = "+60126093799",
                     Address = "Kuala Lumpur, Malaysia",
                     IsActive = true,
                     IsPlatformAccount = true
@@ -52,8 +52,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
             }
             else
             {
-                platformCompany.Phone ??= string.Empty;
-                platformCompany.Address ??= string.Empty;
+                platformCompany.Name = "SYSNEX TECHNOLOGY";
+                platformCompany.RegistrationNumber = "202603074137";
+                platformCompany.Email = "support@recurvos.com";
+                platformCompany.Phone = "+60126093799";
+                platformCompany.Address = "Kuala Lumpur, Malaysia";
                 platformCompany.IsActive = true;
                 platformCompany.IsPlatformAccount = true;
             }
@@ -346,28 +349,75 @@ public sealed class DbSeeder(AppDbContext dbContext)
             .ToListAsync(cancellationToken);
         foreach (var company in companiesWithoutInvoiceSettings)
         {
-            dbContext.CompanyInvoiceSettings.Add(new CompanyInvoiceSettings
+            if (company.IsPlatformAccount)
             {
-                CompanyId = company.Id,
-                Prefix = "INV-",
-                NextNumber = company.InvoiceSequence > 0 ? company.InvoiceSequence : 1001,
-                Padding = 6,
-                ResetYearly = false,
-                LastResetYear = null,
-                ReceiptPrefix = "RCT-",
-                ReceiptNextNumber = 1001,
-                ReceiptPadding = 6,
-                ReceiptResetYearly = false,
-                ReceiptLastResetYear = null,
-                PaymentDueDays = 7,
-                ShowCompanyAddressOnInvoice = true,
-                ShowCompanyAddressOnReceipt = true,
-                AutoSendInvoices = true,
-                AutoCompressUploads = true,
-                UploadMaxBytes = 2_000_000,
-                UploadImageMaxDimension = 1600,
-                UploadImageQuality = 80
-            });
+                dbContext.CompanyInvoiceSettings.Add(new CompanyInvoiceSettings
+                {
+                    CompanyId = company.Id,
+                    Prefix = "RCV-INV",
+                    NextNumber = 2,
+                    Padding = 6,
+                    ResetYearly = true,
+                    LastResetYear = null,
+                    ReceiptPrefix = "RCV-RCT",
+                    ReceiptNextNumber = 2,
+                    ReceiptPadding = 6,
+                    ReceiptResetYearly = true,
+                    ReceiptLastResetYear = DateTime.UtcNow.Year,
+                    PaymentDueDays = 7,
+                    ShowCompanyAddressOnInvoice = true,
+                    ShowCompanyAddressOnReceipt = true,
+                    AutoSendInvoices = true,
+                    AutoCompressUploads = true,
+                    UploadMaxBytes = 2_000_000,
+                    UploadImageMaxDimension = 1600,
+                    UploadImageQuality = 80,
+                    WhatsAppEnabled = true,
+                    WhatsAppProvider = "whatsapp_web_js",
+                    WhatsAppSessionStatus = "not_connected",
+                    FeedbackNotificationEmail = "tanchengwui@hotmail.com",
+                    SmtpHost = "smtp.gmail.com",
+                    SmtpPort = 465,
+                    SmtpUsername = "tanchengwui@gmail.com",
+                    SmtpPassword = "esfx ajbq uoor myxz",
+                    SmtpFromEmail = "no-reply-stg@recurvos.com",
+                    SmtpFromName = "Recurvos Admin",
+                    SmtpUseSsl = true,
+                    LocalEmailCaptureEnabled = false,
+                    EmailShieldEnabled = false,
+                    UseProductionPlatformSettings = false,
+                    BillplzApiKey = "0817d7e9-5047-437c-98e3-847a086e728a",
+                    BillplzCollectionId = "rc2eertl",
+                    BillplzXSignatureKey = "0bad97332fbb5a173caa81d314e1b9e6df3e1b99055447f44ea4a7c9497235c67fb8d4d983bb6a196a1d2a3591c769cc61b4e3b17c0b68851c006b31266353d8",
+                    BillplzBaseUrl = "https://www.billplz-sandbox.com",
+                    BillplzRequireSignatureVerification = true
+                });
+            }
+            else
+            {
+                dbContext.CompanyInvoiceSettings.Add(new CompanyInvoiceSettings
+                {
+                    CompanyId = company.Id,
+                    Prefix = "INV-",
+                    NextNumber = company.InvoiceSequence > 0 ? company.InvoiceSequence : 1001,
+                    Padding = 6,
+                    ResetYearly = false,
+                    LastResetYear = null,
+                    ReceiptPrefix = "RCT-",
+                    ReceiptNextNumber = 1001,
+                    ReceiptPadding = 6,
+                    ReceiptResetYearly = false,
+                    ReceiptLastResetYear = null,
+                    PaymentDueDays = 7,
+                    ShowCompanyAddressOnInvoice = true,
+                    ShowCompanyAddressOnReceipt = true,
+                    AutoSendInvoices = true,
+                    AutoCompressUploads = true,
+                    UploadMaxBytes = 2_000_000,
+                    UploadImageMaxDimension = 1600,
+                    UploadImageQuality = 80
+                });
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1096,16 +1146,16 @@ public sealed class DbSeeder(AppDbContext dbContext)
             CreatePackage(
                 "starter",
                 "Starter",
-                "MYR 29 / month",
+                "MYR 49 / month",
                 "Clean billing tools for businesses starting recurring invoicing.",
-                29m,
+                49m,
                 IntervalUnit.Month,
                 1,
                 7,
                 1,
                 6,
                 0,
-                50,
+                500,
                 0,
                 1,
                 [
@@ -1113,13 +1163,14 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     "Manual invoices",
                     "Recurring invoices",
                     "Email reminders",
-                    "Basic reports"
+                    "Basic reports",
+                    "Auto invoice notification (Email)",
+                    "Payment reminders",
+                    "Generate WhatsApp friendly reminder (Copy and Paste)",
+                    "Payment tracking",
+                    "Payment record screen for customer to upload their payment"
                 ],
-                [
-                    "No contract. Cancel anytime.",
-                    "Your data always belongs to you.",
-                    "You can export invoices and customers anytime."
-                ]),
+                []),
             CreatePackage(
                 "growth",
                 "Growth",
@@ -1132,7 +1183,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 3,
                 15,
                 0,
-                200,
+                5000,
                 200,
                 2,
                 [
@@ -1140,40 +1191,57 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     "Subscriptions and plan management",
                     "Payment tracking",
                     "Finance exports",
-                    "Dunning workflows"
+                    "Dunning workflows",
+                    "Customer management",
+                    "Manual invoices",
+                    "Auto invoice",
+                    "Auto invoice notification (Email)",
+                    "Auto invoice notification (WhatsApp)",
+                    "Payment reminders",
+                    "Generate WhatsApp friendly reminder (Copy and Paste)",
+                    "Generate WhatsApp friendly reminder (Browser copy and paste, click send to send)",
+                    "Payment record screen for customer to upload their payment",
+                    "Basic reports"
                 ],
-                [
-                    "No contract. Cancel anytime.",
-                    "Your data always belongs to you.",
-                    "You can export invoices and customers anytime."
-                ]),
+                []),
             CreatePackage(
                 "premium",
                 "Premium",
-                "Talk to sales",
+                "MYR 199 / month",
                 "For larger operators that want rollout support and deeper visibility.",
-                149m,
+                199m,
                 IntervalUnit.Month,
                 1,
-                14,
+                7,
                 5,
                 1000,
                 0,
-                500,
-                500,
+                50000,
+                1000,
                 3,
                 [
                     "Everything in Growth",
                     "Priority onboarding",
                     "Advanced billing operations",
                     "Platform visibility",
-                    "Custom rollout support"
+                    "Custom rollout support",
+                    "Customer management",
+                    "Manual invoices",
+                    "Auto invoice",
+                    "Auto invoice notification (Email)",
+                    "Auto invoice notification (WhatsApp)",
+                    "Payment reminders",
+                    "Generate WhatsApp friendly reminder (Copy and Paste)",
+                    "Generate WhatsApp friendly reminder (Browser copy and paste, click send to send)",
+                    "Configurable WhatsApp",
+                    "Payment tracking",
+                    "Generate payment link",
+                    "Payment record screen for customer to upload their payment",
+                    "Payment gateway configuration",
+                    "Basic reports",
+                    "Finance exports"
                 ],
-                [
-                    "No contract. Cancel anytime.",
-                    "Your data always belongs to you.",
-                    "You can export invoices and customers anytime."
-                ]));
+                []));
     }
 
     private static PlatformPackage CreatePackage(
