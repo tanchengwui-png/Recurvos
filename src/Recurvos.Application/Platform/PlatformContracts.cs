@@ -176,6 +176,7 @@ public sealed record SubscriberPackageBillingSummaryDto(
     string? PendingUpgradePackageCode,
     string? PendingUpgradePackageName,
     DateTime? CurrentCycleEndUtc,
+    bool IsCompanyBillingAddressConfigured,
     IReadOnlyCollection<SubscriberPackageUpgradeOptionDto> AvailableUpgrades,
     IReadOnlyCollection<SubscriberPackageBillingInvoiceDto> Invoices);
 

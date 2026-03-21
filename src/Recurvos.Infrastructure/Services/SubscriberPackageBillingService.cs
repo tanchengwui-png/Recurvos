@@ -205,6 +205,7 @@ public sealed class SubscriberPackageBillingService(
             company.PendingPackageCode,
             pendingUpgrade?.Name,
             currentCycleEndUtc,
+            !string.IsNullOrWhiteSpace(company.Address),
             availableUpgrades,
             invoices.Select(MapInvoice).ToList());
     }
@@ -219,6 +220,7 @@ public sealed class SubscriberPackageBillingService(
     {
         var preview = await BuildUpgradePreviewAsync(packageCode, cancellationToken);
         var company = preview.Company;
+        EnsureSubscriberBillingAddressConfigured(company);
 
         var existingOpenInvoices = await dbContext.Invoices
             .Where(x => x.SubscriberCompanyId == company.Id
@@ -325,6 +327,7 @@ public sealed class SubscriberPackageBillingService(
     public async Task<SubscriberPackageBillingInvoiceDto> CreateReactivationInvoiceAsync(string packageCode, CancellationToken cancellationToken = default)
     {
         var preview = await BuildReactivationPreviewAsync(packageCode, cancellationToken);
+        EnsureSubscriberBillingAddressConfigured(preview.Company);
         var existingOpenInvoice = await dbContext.Invoices
             .Include(x => x.Payments)
             .Include(x => x.PaymentConfirmations)
@@ -361,6 +364,11 @@ public sealed class SubscriberPackageBillingService(
     public async Task<SubscriberPackageBillingInvoiceDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
         var subscriberCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var subscriberCompany = await dbContext.Companies
+            .FirstOrDefaultAsync(x => x.Id == subscriberCompanyId && !x.IsPlatformAccount, cancellationToken)
+            ?? throw new UnauthorizedAccessException();
+        EnsureSubscriberBillingAddressConfigured(subscriberCompany);
+
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
             .Include(x => x.Payments).ThenInclude(x => x.Attempts)
@@ -375,6 +383,8 @@ public sealed class SubscriberPackageBillingService(
         {
             throw new InvalidOperationException("A payment confirmation is already pending for this invoice.");
         }
+
+        invoice.Customer.BillingAddress = subscriberCompany.Address.Trim();
 
         var packageName = await ResolvePackageNameAsync(subscriberCompanyId, cancellationToken);
         var result = await _gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
@@ -819,6 +829,16 @@ public sealed class SubscriberPackageBillingService(
         return normalized == "pending_payment" && gracePeriodEndsAtUtc.HasValue && gracePeriodEndsAtUtc.Value < DateTime.UtcNow
             ? "past_due"
             : normalized;
+    }
+
+    private static void EnsureSubscriberBillingAddressConfigured(Company company)
+    {
+        if (!string.IsNullOrWhiteSpace(company.Address))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("Please update your company billing address in Companies before creating or paying package invoices.");
     }
 
     private SubscriberPackageBillingInvoiceDto MapInvoice(Invoice invoice)

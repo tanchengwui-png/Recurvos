@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { TablePagination } from "../components/TablePagination";
 import { HelperText } from "../components/ui/HelperText";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -47,6 +48,7 @@ export function SubscriberPackageBillingPage() {
   const openInvoices = summary?.invoices.filter((invoice) => invoice.amountDue > 0).length ?? 0;
   const outstandingBalance = summary?.invoices.reduce((total, invoice) => total + invoice.amountDue, 0) ?? 0;
   const readyReceipts = summary?.invoices.filter((invoice) => invoice.hasReceipt).length ?? 0;
+  const hasBillingAddress = summary?.isCompanyBillingAddressConfigured ?? true;
 
   useEffect(() => {
     void load();
@@ -116,6 +118,11 @@ export function SubscriberPackageBillingPage() {
   }
 
   async function createPaymentLink(invoiceId: string) {
+    if (!hasBillingAddress) {
+      setError("Please update your company billing address in Companies before creating or paying package invoices.");
+      return;
+    }
+
     try {
       setBusyInvoiceId(invoiceId);
       setError("");
@@ -149,6 +156,11 @@ export function SubscriberPackageBillingPage() {
   }
 
   async function createUpgradeInvoice(packageCode: string) {
+    if (!hasBillingAddress) {
+      setError("Please update your company billing address in Companies before creating or paying package invoices.");
+      return;
+    }
+
     try {
       setBusyUpgradeCode(packageCode);
       setError("");
@@ -188,6 +200,11 @@ export function SubscriberPackageBillingPage() {
   }
 
   async function createReactivationInvoice(packageCode: string) {
+    if (!hasBillingAddress) {
+      setError("Please update your company billing address in Companies before creating or paying package invoices.");
+      return;
+    }
+
     try {
       setBusyUpgradeCode(packageCode);
       setError("");
@@ -287,6 +304,17 @@ export function SubscriberPackageBillingPage() {
           </div>
         </section>
       ) : null}
+      {summary && !summary.isCompanyBillingAddressConfigured ? (
+        <section className="subscriber-billing-alert subscriber-billing-alert-warning">
+          <div>
+            <p className="eyebrow">Billing profile required</p>
+            <strong>Add your company billing address before payment</strong>
+            <p className="muted">
+              Go to <Link className="inline-link" to="/companies">Companies</Link>, edit your company, and fill in the Address field.
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
@@ -331,7 +359,7 @@ export function SubscriberPackageBillingPage() {
                 <button
                   type="button"
                   className="button button-primary"
-                  disabled={busyUpgradeCode === reactivationPreview.packageCode}
+                  disabled={busyUpgradeCode === reactivationPreview.packageCode || !hasBillingAddress}
                   onClick={() => void createReactivationInvoice(reactivationPreview.packageCode)}
                 >
                   {busyUpgradeCode === reactivationPreview.packageCode ? "Creating..." : "Create reactivation invoice"}
@@ -412,12 +440,12 @@ export function SubscriberPackageBillingPage() {
               </div>
             </div>
             <div className="subscriber-upgrade-modal-actions">
-              <button
-                type="button"
-                className="button button-primary"
-                disabled={busyUpgradeCode === upgradePreview.targetPackageCode || !!summary?.pendingUpgradePackageCode}
-                onClick={() => void createUpgradeInvoice(upgradePreview.targetPackageCode)}
-              >
+                <button
+                  type="button"
+                  className="button button-primary"
+                  disabled={busyUpgradeCode === upgradePreview.targetPackageCode || !!summary?.pendingUpgradePackageCode || !hasBillingAddress}
+                  onClick={() => void createUpgradeInvoice(upgradePreview.targetPackageCode)}
+                >
                 {busyUpgradeCode === upgradePreview.targetPackageCode ? "Creating..." : "Create upgrade invoice"}
               </button>
             </div>
@@ -485,7 +513,7 @@ export function SubscriberPackageBillingPage() {
                           <button
                             type="button"
                             className="button button-secondary"
-                            disabled={busyInvoiceId === invoice.id || invoice.hasPendingPaymentConfirmation}
+                            disabled={busyInvoiceId === invoice.id || invoice.hasPendingPaymentConfirmation || !hasBillingAddress}
                             onClick={() => void createPaymentLink(invoice.id)}
                           >
                             {invoice.hasPendingPaymentConfirmation
