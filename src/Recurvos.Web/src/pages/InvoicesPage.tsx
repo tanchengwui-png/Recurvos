@@ -7,8 +7,7 @@ import { useClientPagination } from "../hooks/useClientPagination";
 import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
-import { api, buildApiUrl } from "../lib/api";
-import { getAuth } from "../lib/auth";
+import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { BillingReadiness, CompanyInvoiceSettings, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
@@ -95,22 +94,16 @@ export function InvoicesPage() {
     }
   }, [reversePaymentForm]);
 
-  async function openPdf(id: string) {
-    const auth = getAuth();
-    const response = await fetch(buildApiUrl(`/invoices/${id}/download`), {
-      headers: {
-        Authorization: `Bearer ${auth?.accessToken ?? ""}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error("Unable to download PDF.");
-    }
-
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank", "noopener,noreferrer");
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  async function downloadPdf(id: string, invoiceNumber: string) {
+    const file = await api.download(`/invoices/${id}/download`);
+    const objectUrl = URL.createObjectURL(file.blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = file.fileName ?? `${invoiceNumber}.pdf`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
   }
 
   async function downloadReceipt(id: string) {
@@ -485,7 +478,7 @@ export function InvoicesPage() {
                               label: "Download receipt",
                               onClick: () => void downloadReceipt(item.id),
                             }] : []),
-                            { label: "Download PDF", onClick: () => void openPdf(item.id) },
+                            { label: "Download PDF", onClick: () => void downloadPdf(item.id, item.invoiceNumber) },
                             {
                               label: "Void invoice",
                               tone: "danger",
