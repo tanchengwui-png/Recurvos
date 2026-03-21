@@ -4,7 +4,30 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatUploadSizeLabel } from "../lib/uploads";
-import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformUploadPolicy, PlatformWhatsAppSettings } from "../types";
+import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformUploadPolicy, PlatformWhatsAppSettings } from "../types";
+
+const platformJobs = [
+  {
+    key: "generate-invoices",
+    name: "Generate invoices",
+    description: "Queue an immediate billing run for subscriptions that are due now.",
+  },
+  {
+    key: "send-invoice-reminders",
+    name: "Send invoice reminders",
+    description: "Run the reminder flow immediately using the current email and WhatsApp settings.",
+  },
+  {
+    key: "retry-failed-payments",
+    name: "Retry failed payments",
+    description: "Queue the automatic retry pass for failed payment attempts.",
+  },
+  {
+    key: "cleanup-stale-signups",
+    name: "Cleanup stale signups",
+    description: "Remove expired unverified signup records immediately.",
+  },
+] as const;
 
 function formatDocumentNumber(prefix: string, sequence: number, padding: number) {
   const now = new Date();
@@ -27,7 +50,7 @@ function formatDocumentNumber(prefix: string, sequence: number, padding: number)
 
 export function PlatformSettingsPage() {
   const [editingEnvironment, setEditingEnvironment] = useState<"staging" | "production">("staging");
-  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "billplz" | "feedback" | "whatsapp" | "upload" | "reset">("issuer");
+  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "billplz" | "feedback" | "whatsapp" | "upload" | "jobs" | "reset">("issuer");
   const [runtimeProfile, setRuntimeProfile] = useState<PlatformRuntimeProfile | null>(null);
   const [issuerSettings, setIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
   const [savedIssuerSettings, setSavedIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
@@ -43,6 +66,7 @@ export function PlatformSettingsPage() {
   const [savedBillplzSettings, setSavedBillplzSettings] = useState<PlatformBillplzSettings | null>(null);
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
   const [savedUploadPolicy, setSavedUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
+  const [jobStatuses, setJobStatuses] = useState<PlatformJobStatus[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [smtpTestMessage, setSmtpTestMessage] = useState("");
@@ -51,6 +75,7 @@ export function PlatformSettingsPage() {
   const [billplzTestMessage, setBillplzTestMessage] = useState("");
   const [billplzTestError, setBillplzTestError] = useState("");
   const [isTestingBillplz, setIsTestingBillplz] = useState(false);
+  const [runningJobKey, setRunningJobKey] = useState<string | null>(null);
   const [resetConfirmationText, setResetConfirmationText] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
@@ -86,10 +111,39 @@ export function PlatformSettingsPage() {
     void load();
   }, [editingEnvironment]);
 
+  useEffect(() => {
+    if (activeSection !== "jobs") {
+      return;
+    }
+
+    let isDisposed = false;
+
+    async function refreshJobs() {
+      try {
+        const jobs = await api.get<PlatformJobStatus[]>("/platform/jobs");
+        if (!isDisposed) {
+          setJobStatuses(jobs);
+        }
+      } catch {
+        // Keep the current screen state if a polling request fails.
+      }
+    }
+
+    void refreshJobs();
+    const intervalId = window.setInterval(() => {
+      void refreshJobs();
+    }, 5000);
+
+    return () => {
+      isDisposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeSection]);
+
   async function load() {
     setError("");
 
-    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, uploadPolicyResult] = await Promise.allSettled([
+    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, uploadPolicyResult, jobsResult] = await Promise.allSettled([
       api.get<PlatformRuntimeProfile>("/settings/platform-runtime-profile"),
       api.get<PlatformIssuerSettings>(`/settings/platform-issuer?environment=${editingEnvironment}`),
       api.get<PlatformDocumentNumberingSettings>("/settings/platform-document-numbering"),
@@ -98,6 +152,7 @@ export function PlatformSettingsPage() {
       api.get<PlatformSmtpSettings>(`/settings/platform-smtp?environment=${editingEnvironment}`),
       api.get<PlatformBillplzSettings>(`/settings/platform-billplz?environment=${editingEnvironment}`),
       api.get<PlatformUploadPolicy>("/settings/platform-upload-policy"),
+      api.get<PlatformJobStatus[]>("/platform/jobs"),
     ]);
 
     if (runtimeProfileResult.status === "fulfilled") {
@@ -138,6 +193,10 @@ export function PlatformSettingsPage() {
       setSavedUploadPolicy(uploadPolicyResult.value);
     }
 
+    if (jobsResult.status === "fulfilled") {
+      setJobStatuses(jobsResult.value);
+    }
+
     const failedSections: string[] = [];
     if (runtimeProfileResult.status === "rejected") failedSections.push("runtime profile");
     if (issuerResult.status === "rejected") failedSections.push("platform issuer");
@@ -147,6 +206,7 @@ export function PlatformSettingsPage() {
     if (billplzResult.status === "rejected") failedSections.push("Billplz settings");
     if (uploadPolicyResult.status === "rejected") failedSections.push("upload policy");
     if (whatsAppResult.status === "rejected") failedSections.push("WhatsApp settings");
+    if (jobsResult.status === "rejected") failedSections.push("Hangfire jobs");
 
     if (failedSections.length > 0) {
       setError(`Some platform settings could not be loaded: ${failedSections.join(", ")}.`);
@@ -159,6 +219,18 @@ export function PlatformSettingsPage() {
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ");
+  }
+
+  function formatUtcDateTime(value?: string | null) {
+    if (!value) return "Not available";
+
+    return new Date(value).toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   }
 
   function renderSectionUnavailable(title: string, description: string) {
@@ -274,6 +346,7 @@ export function PlatformSettingsPage() {
             <button type="button" className={`platform-settings-nav-link ${activeSection === "feedback" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("feedback")}>Owner email</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "whatsapp" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("whatsapp")}>WhatsApp</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "upload" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("upload")}>Upload policy</button>
+            <button type="button" className={`platform-settings-nav-link ${activeSection === "jobs" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("jobs")}>Jobs</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "reset" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("reset")}>Factory reset</button>
           </nav>
         </section>
@@ -973,6 +1046,105 @@ export function PlatformSettingsPage() {
         </section>
       ) : null}
       {activeSection === "whatsapp" && !whatsAppSettings ? renderSectionUnavailable("WhatsApp", "Platform WhatsApp settings are not available right now.") : null}
+
+      {activeSection === "jobs" ? (
+        <section id="platform-jobs" className="card settings-form-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Hangfire operations</p>
+              <h3 className="section-title">Manual platform jobs</h3>
+              <p className="muted form-intro">Use these owner controls to enqueue Hangfire jobs manually. The UI calls the API, and the Hangfire worker on Linux executes the job from shared storage.</p>
+            </div>
+            <span className="status-pill status-pill-active">Linux-safe</span>
+          </div>
+          <div className="form-stack">
+            {platformJobs.map((job) => {
+              const jobStatus = jobStatuses.find((item) => item.jobKey === job.key);
+              const stateLabel = formatSessionStatus(jobStatus?.lastJobState ?? "never_run");
+
+              return (
+              <div key={job.key} className="platform-job-card">
+                <div className="platform-job-copy">
+                  <div className="platform-job-header">
+                    <strong>{job.name}</strong>
+                    <span className={`status-pill ${jobStatus?.lastJobState?.toLowerCase() === "succeeded" ? "status-pill-active" : "status-pill-inactive"}`}>
+                      {stateLabel}
+                    </span>
+                  </div>
+                  <p className="muted">{job.description}</p>
+                  <div className="platform-job-meta">
+                    <div className="platform-job-meta-item">
+                      <span>Next run</span>
+                      <strong>{formatUtcDateTime(jobStatus?.nextExecutionAtUtc)}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Last run</span>
+                      <strong>{formatUtcDateTime(jobStatus?.lastExecutionAtUtc)}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Cron</span>
+                      <strong>{jobStatus?.cron ?? "-"}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Queue</span>
+                      <strong>{jobStatus?.queue ?? "default"}</strong>
+                    </div>
+                  </div>
+                  {jobStatus?.lastJobId ? (
+                    <p className="platform-job-caption muted">
+                      {`Last Hangfire job: ${jobStatus.lastJobId} | Created ${formatUtcDateTime(jobStatus.lastJobCreatedAtUtc)}`}
+                    </p>
+                  ) : null}
+                  {jobStatus?.error ? (
+                    <HelperText tone="error">{jobStatus.error}</HelperText>
+                  ) : null}
+                  {jobStatus && jobStatus.recentHistory.length > 0 ? (
+                    <div className="platform-job-history">
+                      {jobStatus.recentHistory.map((entry) => (
+                        <div key={`${job.key}-${entry.stateName}-${entry.createdAtUtc}`} className="platform-job-history-item">
+                          <strong>{formatSessionStatus(entry.stateName)}</strong>
+                          <span>{formatUtcDateTime(entry.createdAtUtc)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="platform-job-caption muted">No execution history yet.</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="button button-secondary platform-job-action"
+                  disabled={runningJobKey === job.key}
+                  onClick={() => setConfirmState({
+                    title: `Run ${job.name.toLowerCase()}`,
+                    description: `Queue ${job.name.toLowerCase()} in Hangfire now?`,
+                    action: async () => {
+                      try {
+                        setRunningJobKey(job.key);
+                        const result = await api.post<PlatformJobTriggerResult>(`/platform/jobs/${job.key}/trigger`);
+                        const updatedStatuses = await api.get<PlatformJobStatus[]>("/platform/jobs");
+                        setJobStatuses(updatedStatuses);
+                        setMessage(`${result.message} Hangfire job id: ${result.hangfireJobId}.`);
+                        setError("");
+                        setConfirmState(null);
+                      } catch (triggerError) {
+                        setError(triggerError instanceof Error ? triggerError.message : `Unable to queue ${job.name.toLowerCase()}.`);
+                        setMessage("");
+                        setConfirmState(null);
+                      } finally {
+                        setRunningJobKey(null);
+                      }
+                    },
+                  })}
+                >
+                  {runningJobKey === job.key ? "Queueing..." : "Run now"}
+                </button>
+              </div>
+            )})}
+            <HelperText>These buttons enqueue jobs immediately. Monitor execution at <code>/hangfire</code> on the API host.</HelperText>
+          </div>
+        </section>
+      ) : null}
 
       {activeSection === "reset" ? (
         <section id="platform-factory-reset" className="card settings-form-card">

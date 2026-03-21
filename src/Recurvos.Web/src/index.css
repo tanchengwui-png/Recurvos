@@ -2634,6 +2634,102 @@ select:focus,
   letter-spacing: -0.02em;
 }
 
+.platform-job-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1rem 1rem 1.05rem;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0)),
+    rgba(15, 23, 42, 0.22);
+}
+
+.platform-job-copy {
+  min-width: 0;
+}
+
+.platform-job-copy strong {
+  display: block;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.platform-job-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.platform-job-copy p {
+  margin: 0.35rem 0 0;
+  line-height: 1.55;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.platform-job-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.9rem;
+}
+
+.platform-job-meta-item {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.platform-job-meta-item span {
+  font-size: 0.73rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.platform-job-meta-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-job-caption {
+  margin-top: 0.8rem;
+}
+
+.platform-job-history {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
+.platform-job-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.platform-job-history-item span {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.platform-job-action {
+  min-width: 124px;
+  justify-self: end;
+  flex-shrink: 0;
+}
+
 .settings-number-preview {
   display: grid;
   gap: 0.25rem;
@@ -4248,6 +4344,20 @@ select:focus,
     grid-template-columns: 1fr;
   }
 
+  .platform-job-card {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .platform-job-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-job-action {
+    width: 100%;
+    justify-self: stretch;
+  }
+
   .invoice-detail-summary,
   .invoice-detail-secondary-grid,
   .invoice-payment-grid {
@@ -4328,6 +4438,12 @@ select:focus,
 
   .dashboard-list-item {
     flex-direction: column;
+  }
+
+  .platform-job-header,
+  .platform-job-history-item {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .dashboard-list-metric {

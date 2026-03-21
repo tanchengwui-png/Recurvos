@@ -1,15 +1,30 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Hangfire;
+using Hangfire.Storage;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
+using Recurvos.Infrastructure.Jobs;
 
 namespace Recurvos.Api.Controllers;
 
 [ApiController]
 [Authorize(Policy = "PlatformOwnerOnly")]
 [Route("api/platform")]
-public sealed class PlatformController(IPlatformService platformService, IInvoiceService invoiceService) : ControllerBase
+public sealed class PlatformController(
+    IPlatformService platformService,
+    IInvoiceService invoiceService,
+    IBackgroundJobClient backgroundJobClient,
+    JobStorage jobStorage) : ControllerBase
 {
+    private static readonly (string Key, string Name)[] SupportedPlatformJobs =
+    [
+        ("generate-invoices", "Generate invoices"),
+        ("send-invoice-reminders", "Send invoice reminders"),
+        ("retry-failed-payments", "Retry failed payments"),
+        ("cleanup-stale-signups", "Cleanup stale signups")
+    ];
+
     [HttpGet("summary")]
     public async Task<ActionResult<PlatformDashboardSummaryDto>> GetSummary(CancellationToken cancellationToken) =>
         Ok(await platformService.GetDashboardSummaryAsync(cancellationToken));
@@ -161,5 +176,88 @@ public sealed class PlatformController(IPlatformService platformService, IInvoic
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
         }
+    }
+
+    [HttpPost("jobs/{jobKey}/trigger")]
+    public ActionResult<PlatformJobTriggerResultDto> TriggerJob(string jobKey)
+    {
+        try
+        {
+            var (normalizedJobKey, jobName, hangfireJobId) = jobKey.Trim().ToLowerInvariant() switch
+            {
+                "generate-invoices" => (
+                    "generate-invoices",
+                    "Generate invoices",
+                    backgroundJobClient.Enqueue<GenerateInvoicesJob>(job => job.ExecuteAsync())),
+                "send-invoice-reminders" => (
+                    "send-invoice-reminders",
+                    "Send invoice reminders",
+                    backgroundJobClient.Enqueue<SendInvoiceRemindersJob>(job => job.ExecuteAsync())),
+                "retry-failed-payments" => (
+                    "retry-failed-payments",
+                    "Retry failed payments",
+                    backgroundJobClient.Enqueue<RetryFailedPaymentsJob>(job => job.ExecuteAsync())),
+                "cleanup-stale-signups" => (
+                    "cleanup-stale-signups",
+                    "Cleanup stale signups",
+                    backgroundJobClient.Enqueue<CleanupStaleSignupsJob>(job => job.ExecuteAsync())),
+                _ => throw new InvalidOperationException("Unknown platform job.")
+            };
+
+            return Ok(new PlatformJobTriggerResultDto(
+                normalizedJobKey,
+                jobName,
+                hangfireJobId,
+                $"{jobName} was queued in Hangfire.",
+                DateTime.UtcNow));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
+    [HttpGet("jobs")]
+    public ActionResult<IReadOnlyCollection<PlatformJobStatusDto>> GetJobs()
+    {
+        using var connection = jobStorage.GetConnection();
+        var recurringJobs = connection.GetRecurringJobs()
+            .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        var monitoringApi = jobStorage.GetMonitoringApi();
+
+        var results = SupportedPlatformJobs
+            .Select(definition =>
+            {
+                recurringJobs.TryGetValue(definition.Key, out var recurringJob);
+                var lastJobId = recurringJob?.LastJobId;
+                var jobDetails = string.IsNullOrWhiteSpace(lastJobId) ? null : monitoringApi.JobDetails(lastJobId);
+                var recentHistory = jobDetails?.History?
+                    .OrderByDescending(x => x.CreatedAt)
+                    .Take(5)
+                    .Select(x => new PlatformJobHistoryEntryDto(
+                        x.StateName,
+                        string.IsNullOrWhiteSpace(x.Reason) ? null : x.Reason,
+                        DateTime.SpecifyKind(x.CreatedAt, DateTimeKind.Utc)))
+                    .ToArray()
+                    ?? [];
+
+                return new PlatformJobStatusDto(
+                    definition.Key,
+                    definition.Name,
+                    recurringJob?.Cron ?? "-",
+                    recurringJob?.Queue ?? "default",
+                    recurringJob?.TimeZoneId ?? "UTC",
+                    recurringJob?.NextExecution,
+                    recurringJob?.LastExecution,
+                    lastJobId,
+                    recurringJob?.LastJobState,
+                    recurringJob?.Error,
+                    recurringJob?.RetryAttempt ?? 0,
+                    jobDetails?.CreatedAt,
+                    recentHistory);
+            })
+            .ToArray();
+
+        return Ok(results);
     }
 }

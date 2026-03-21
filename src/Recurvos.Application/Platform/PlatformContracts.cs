@@ -112,6 +112,30 @@ public sealed record UpdatePlatformPackageRequest(
     IReadOnlyCollection<string> TrustPoints);
 public sealed record FactoryResetRequest(string ConfirmationText);
 public sealed record FactoryResetResult(DateTime ResetAtUtc, string Message);
+public sealed record PlatformJobTriggerResultDto(
+    string JobKey,
+    string JobName,
+    string HangfireJobId,
+    string Message,
+    DateTime TriggeredAtUtc);
+public sealed record PlatformJobHistoryEntryDto(
+    string StateName,
+    string? Reason,
+    DateTime CreatedAtUtc);
+public sealed record PlatformJobStatusDto(
+    string JobKey,
+    string JobName,
+    string Cron,
+    string Queue,
+    string TimeZoneId,
+    DateTime? NextExecutionAtUtc,
+    DateTime? LastExecutionAtUtc,
+    string? LastJobId,
+    string? LastJobState,
+    string? Error,
+    int RetryAttempt,
+    DateTime? LastJobCreatedAtUtc,
+    IReadOnlyCollection<PlatformJobHistoryEntryDto> RecentHistory);
 public sealed record AssignSubscriberPackageRequest(string PackageCode);
 public sealed record CreatePlatformAdminRequest(string FullName, string Email, string Password);
 public sealed record UpdatePlatformUserRequest(string Role, bool IsActive);

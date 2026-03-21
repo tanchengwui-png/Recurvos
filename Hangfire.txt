@@ -1,79 +1,21 @@
-HANGFIRE / DUE INVOICE CHECK
+• 1. Open PowerShell window #1.
+  2. Run this exact command:
 
-Use this when you want to manually test the due-invoice job on staging.
+  ssh -p 6262 -L 17001:localhost:7001 server@115.187.22.70
 
-1. SSH into the staging server
-```bash
-ssh server@115.187.22.70 -p 6262
-```
+  3. Type password when asked:
+     iZ0U1DoNuzyZevj30T
+  4. Leave this window open.
+     This is your tunnel.
+  5. Open PowerShell window #2.
+  6. Set API URL:
 
-2. Go to the staging repo
-```bash
-cd /srv/recurvos/staging/repo
-```
+  $API = "http://localhost:17001"
 
-3. Make sure the API container is running
-```bash
-docker compose -f docker-compose.staging.yml up -d api
-docker compose -f docker-compose.staging.yml ps
-```
+  7. Login and get token:
 
-4. Set the API base URL
-```bash
-API="http://localhost:7002"
-```
+  $body = @{ email = "tanchengwui+growth@hotmail.com"; password = "Passw0rd!" } | ConvertTo-Json
+  $token = (Invoke-RestMethod "$API/api/auth/login" -Method Post -ContentType "application/json" -Body
+  $body).accessToken
 
-5. Log in and save the access token into a variable
-```bash
-TOKEN=$(curl -s "$API/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"owner@recurvo.com","password":"Passw0rd!"}' \
-  | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
-```
-
-6. Check the token
-```bash
-echo "$TOKEN"
-```
-
-If it is empty, stop. Login failed.
-
-7. Check how many due invoices exist before running the job
-```bash
-curl -s "$API/api/subscriptions/due-invoices/count" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-8. Trigger the due-invoice job manually
-```bash
-curl -s -X POST "$API/api/subscriptions/run-due-invoices" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json"
-```
-
-9. Check the due invoice count again
-```bash
-curl -s "$API/api/subscriptions/due-invoices/count" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-10. Optional: generate invoice for one subscription only
-
-Get subscriptions:
-```bash
-curl -s "$API/api/subscriptions" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Copy one subscription id, then run:
-```bash
-curl -s -X POST "$API/api/subscriptions/<SUBSCRIPTION_ID>/generate-invoice" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-QUICK SUMMARY
-
-- Step 7 = check before
-- Step 8 = run job
-- Step 9 = check after
-- If the number changes, the job ran
+  16. When finished, close PowerShell window #1 to stop tunnel.

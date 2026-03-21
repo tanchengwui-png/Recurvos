@@ -613,6 +613,36 @@ export type PlatformDashboardSummary = {
   companiesUsingWhatsAppThisMonth: number;
 };
 
+export type PlatformJobTriggerResult = {
+  jobKey: string;
+  jobName: string;
+  hangfireJobId: string;
+  message: string;
+  triggeredAtUtc: string;
+};
+
+export type PlatformJobHistoryEntry = {
+  stateName: string;
+  reason?: string | null;
+  createdAtUtc: string;
+};
+
+export type PlatformJobStatus = {
+  jobKey: string;
+  jobName: string;
+  cron: string;
+  queue: string;
+  timeZoneId: string;
+  nextExecutionAtUtc?: string | null;
+  lastExecutionAtUtc?: string | null;
+  lastJobId?: string | null;
+  lastJobState?: string | null;
+  error?: string | null;
+  retryAttempt: number;
+  lastJobCreatedAtUtc?: string | null;
+  recentHistory: PlatformJobHistoryEntry[];
+};
+
 export type PlatformUser = {
   id: string;
   companyId: string;
