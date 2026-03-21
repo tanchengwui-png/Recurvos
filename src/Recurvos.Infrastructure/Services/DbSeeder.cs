@@ -293,6 +293,56 @@ public sealed class DbSeeder(AppDbContext dbContext)
             }
         }
 
+        var resolvedPlatformCompany = platformCompany
+            ?? await dbContext.Companies.FirstOrDefaultAsync(
+                x => x.IsPlatformAccount || x.Email == "support@recurvos.com" || x.Email == "support@recurvo.com",
+                cancellationToken);
+        if (resolvedPlatformCompany is not null
+            && !await dbContext.CompanyInvoiceSettings.AnyAsync(x => x.CompanyId == resolvedPlatformCompany.Id, cancellationToken))
+        {
+            dbContext.CompanyInvoiceSettings.Add(new CompanyInvoiceSettings
+            {
+                CompanyId = resolvedPlatformCompany.Id,
+                Prefix = "RCV-INV",
+                NextNumber = 2,
+                Padding = 6,
+                ResetYearly = true,
+                LastResetYear = null,
+                ReceiptPrefix = "RCV-RCT",
+                ReceiptNextNumber = 2,
+                ReceiptPadding = 6,
+                ReceiptResetYearly = true,
+                ReceiptLastResetYear = DateTime.UtcNow.Year,
+                PaymentDueDays = 7,
+                ShowCompanyAddressOnInvoice = true,
+                ShowCompanyAddressOnReceipt = true,
+                AutoSendInvoices = true,
+                AutoCompressUploads = true,
+                UploadMaxBytes = 2_000_000,
+                UploadImageMaxDimension = 1600,
+                UploadImageQuality = 80,
+                WhatsAppEnabled = true,
+                WhatsAppProvider = "whatsapp_web_js",
+                WhatsAppSessionStatus = "not_connected",
+                FeedbackNotificationEmail = "tanchengwui@hotmail.com",
+                SmtpHost = "smtp.gmail.com",
+                SmtpPort = 465,
+                SmtpUsername = "tanchengwui@gmail.com",
+                SmtpPassword = "esfx ajbq uoor myxz",
+                SmtpFromEmail = "no-reply-stg@recurvos.com",
+                SmtpFromName = "Recurvos Admin",
+                SmtpUseSsl = true,
+                LocalEmailCaptureEnabled = false,
+                EmailShieldEnabled = false,
+                UseProductionPlatformSettings = false,
+                BillplzApiKey = "0817d7e9-5047-437c-98e3-847a086e728a",
+                BillplzCollectionId = "rc2eertl",
+                BillplzXSignatureKey = "0bad97332fbb5a173caa81d314e1b9e6df3e1b99055447f44ea4a7c9497235c67fb8d4d983bb6a196a1d2a3591c769cc61b4e3b17c0b68851c006b31266353d8",
+                BillplzBaseUrl = "https://www.billplz-sandbox.com",
+                BillplzRequireSignatureVerification = true
+            });
+        }
+
         if (!packageSeedExists)
         {
             SeedPlatformPackages();
