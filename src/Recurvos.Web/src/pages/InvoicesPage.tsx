@@ -106,12 +106,12 @@ export function InvoicesPage() {
     URL.revokeObjectURL(objectUrl);
   }
 
-  async function downloadReceipt(id: string) {
+  async function downloadReceipt(id: string, invoiceNumber: string) {
     const file = await api.download(`/invoices/${id}/receipt`);
     const objectUrl = URL.createObjectURL(file.blob);
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
-    anchor.download = file.fileName ?? "receipt.pdf";
+    anchor.download = file.fileName ?? `${invoiceNumber}-receipt.pdf`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -476,7 +476,7 @@ export function InvoicesPage() {
                               },
                             }, {
                               label: "Download receipt",
-                              onClick: () => void downloadReceipt(item.id),
+                              onClick: () => void downloadReceipt(item.id, item.invoiceNumber),
                             }] : []),
                             { label: "Download PDF", onClick: () => void downloadPdf(item.id, item.invoiceNumber) },
                             {

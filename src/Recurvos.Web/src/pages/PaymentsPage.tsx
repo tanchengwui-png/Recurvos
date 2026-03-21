@@ -329,7 +329,7 @@ export function PaymentsPage() {
                                   const objectUrl = URL.createObjectURL(file.blob);
                                   const anchor = document.createElement("a");
                                   anchor.href = objectUrl;
-                                  anchor.download = file.fileName ?? "receipt.pdf";
+                                  anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
                                   document.body.appendChild(anchor);
                                   anchor.click();
                                   anchor.remove();
@@ -373,7 +373,7 @@ export function PaymentsPage() {
                           const objectUrl = URL.createObjectURL(file.blob);
                           const anchor = document.createElement("a");
                           anchor.href = objectUrl;
-                          anchor.download = file.fileName ?? "receipt.pdf";
+                          anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
                           document.body.appendChild(anchor);
                           anchor.click();
                           anchor.remove();
