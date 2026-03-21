@@ -203,12 +203,12 @@ export function SubscriberPackageBillingPage() {
     }
   }
 
-  async function download(path: string) {
+  async function download(path: string, fallbackFileName: string) {
     const file = await api.download(path);
     const objectUrl = URL.createObjectURL(file.blob);
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
-    anchor.download = file.fileName ?? "document.pdf";
+    anchor.download = file.fileName ?? fallbackFileName;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -495,14 +495,14 @@ export function SubscriberPackageBillingPage() {
                                 : "Pay now"}
                           </button>
                         ) : null}
-                        <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`)}>
+                        <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
                           Download invoice
                         </button>
                         <button
                           type="button"
                           className="button button-secondary"
                           disabled={!invoice.hasReceipt}
-                          onClick={() => void download(`/package-billing/invoices/${invoice.id}/receipt`)}
+                          onClick={() => void download(`/package-billing/invoices/${invoice.id}/receipt`, `${invoice.invoiceNumber}-receipt.pdf`)}
                         >
                           Download receipt
                         </button>
