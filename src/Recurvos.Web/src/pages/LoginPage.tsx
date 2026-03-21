@@ -84,7 +84,7 @@ export function LoginPage() {
     <div className="auth-page login-page-shell">
       <div className="login-layout">
         <section className="login-showcase card subtle-card">
-          <div className="login-showcase-brand">
+          <Link className="login-showcase-brand" to="/">
             <div className="brand-mark" aria-hidden="true">
               <span />
             </div>
@@ -92,7 +92,7 @@ export function LoginPage() {
               <p className="eyebrow">Recurvo Billing</p>
               <h1 className="brand-title">Subscription billing for Malaysian businesses</h1>
             </div>
-          </div>
+          </Link>
 
           <div className="login-showcase-copy">
             <p className="login-lead">
