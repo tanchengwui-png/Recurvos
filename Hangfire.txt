@@ -1,55 +1,79 @@
- 
+HANGFIRE / DUE INVOICE CHECK
 
+Use this when you want to manually test the due-invoice job on staging.
 
- ssh server@115.187.22.70
+1. SSH into the staging server
+```bash
+ssh server@115.187.22.70 -p 6262
+```
 
-  2. Go to repo
+2. Go to the staging repo
+```bash
+cd /srv/recurvos/staging/repo
+```
 
-  cd /srv/recurvos/staging/repo
+3. Make sure the API container is running
+```bash
+docker compose -f docker-compose.staging.yml up -d api
+docker compose -f docker-compose.staging.yml ps
+```
 
-  3. Ensure API is running
+4. Set the API base URL
+```bash
+API="http://localhost:7002"
+```
 
-  docker-compose -f docker-compose.staging.yml up -d api
-  docker-compose -f docker-compose.staging.yml ps
+5. Log in and save the access token into a variable
+```bash
+TOKEN=$(curl -s "$API/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"owner@recurvo.com","password":"Passw0rd!"}' \
+  | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+```
 
-  4. Set API URL
+6. Check the token
+```bash
+echo "$TOKEN"
+```
 
-  API="http://localhost:7002"
+If it is empty, stop. Login failed.
 
-  5. Login and store token
+7. Check how many due invoices exist before running the job
+```bash
+curl -s "$API/api/subscriptions/due-invoices/count" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-  TOKEN=$(curl -s "$API/api/auth/login" \
-    -H "Content-Type: application/json" \
-    -d '{"email":"owner@recurvo.com","password":"Passw0rd!"}' \
-    | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+8. Trigger the due-invoice job manually
+```bash
+curl -s -X POST "$API/api/subscriptions/run-due-invoices" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json"
+```
 
-  6. Verify token not empty
+9. Check the due invoice count again
+```bash
+curl -s "$API/api/subscriptions/due-invoices/count" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-  echo "$TOKEN"
+10. Optional: generate invoice for one subscription only
 
-  If empty, stop and tell me.
+Get subscriptions:
+```bash
+curl -s "$API/api/subscriptions" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-  7. Check due invoice count
+Copy one subscription id, then run:
+```bash
+curl -s -X POST "$API/api/subscriptions/<SUBSCRIPTION_ID>/generate-invoice" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-  curl -s "$API/api/subscriptions/due-invoices/count" \
-    -H "Authorization: Bearer $TOKEN"
+QUICK SUMMARY
 
-  8. Trigger due invoice generation (Hangfire-equivalent for this job)
-
-  curl -s -X POST "$API/api/subscriptions/run-due-invoices" \
-    -H "Authorization: Bearer $TOKEN" \
-    -H "Content-Type: application/json"
-
-  9. Check count again
-
-  curl -s "$API/api/subscriptions/due-invoices/count" \
-    -H "Authorization: Bearer $TOKEN"
-
-  10. (Optional) Trigger one subscription immediately
-
-  curl -s "$API/api/subscriptions" -H "Authorization: Bearer $TOKEN"
-
-  Copy one subscription id, then:
-
-  curl -s -X POST "$API/api/subscriptions/<SUBSCRIPTION_ID>/generate-invoice" \
-    -H "Authorization: Bearer $TOKEN"
+- Step 7 = check before
+- Step 8 = run job
+- Step 9 = check after
+- If the number changes, the job ran

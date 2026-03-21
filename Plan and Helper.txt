@@ -245,3 +245,15 @@ recurvos.com
   - sample docker-compose.yml
   - sample .env.staging and .env.prod
   - sample nginx config
+
+
+
+
+
+Basic
+email: tanchengwui@hotmail.com
+Growth
+email: tanchengwui@hotmail.com
+Premium
+email: tanchengwui@hotmail.com
+

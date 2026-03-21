@@ -47,6 +47,7 @@ const DEFAULT_WHATSAPP_TEMPLATE = [
 ].join("\n");
 
 type SettingsTab = "documents" | "payment" | "whatsapp" | "reminders";
+type DocumentSettingsTab = "invoice" | "receipt" | "delivery";
 type PaymentSettingsTab = "manual" | "qr" | "gateway" | "tax";
 
 export function SettingsPage() {
@@ -65,6 +66,7 @@ export function SettingsPage() {
   const [paymentQrFile, setPaymentQrFile] = useState<File | null>(null);
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("documents");
+  const [activeDocumentTab, setActiveDocumentTab] = useState<DocumentSettingsTab>("invoice");
   const [activePaymentTab, setActivePaymentTab] = useState<PaymentSettingsTab>("manual");
 
   const invoiceSettingsDirty = invoiceSettings !== null
@@ -167,6 +169,23 @@ export function SettingsPage() {
       intro: "Control whether tax is shown and what label and rate appear on invoices.",
     },
   }[activePaymentTab];
+  const activeDocumentTabMeta = {
+    invoice: {
+      eyebrow: "Invoice numbering",
+      title: "Invoice number format",
+      intro: "Set the invoice prefix, digit count, next running number, and reset behavior.",
+    },
+    receipt: {
+      eyebrow: "Receipt numbering",
+      title: "Receipt number format",
+      intro: "Manage receipt prefix, digit count, next running number, and yearly reset separately.",
+    },
+    delivery: {
+      eyebrow: "Document delivery",
+      title: "Invoice and receipt options",
+      intro: "Control what appears on documents and whether invoices are sent automatically by email.",
+    },
+  }[activeDocumentTab];
 
   function buildInvoiceSettingsPayload(settings: CompanyInvoiceSettings) {
     return {
@@ -395,11 +414,32 @@ export function SettingsPage() {
                 <HelperText>
                   Set the invoice and receipt code, minimum digits, and next running number in one place.
                 </HelperText>
+                <div className="settings-document-summary-grid">
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "invoice" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>
+                    <span className="settings-stat-label">Invoice</span>
+                    <strong>{invoiceNumberExample}</strong>
+                  </button>
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "receipt" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("receipt")}>
+                    <span className="settings-stat-label">Receipt</span>
+                    <strong>{receiptNumberExample}</strong>
+                  </button>
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "delivery" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>
+                    <span className="settings-stat-label">Delivery</span>
+                    <strong>{documentOptionsDirty ? "Unsaved options" : "Options saved"}</strong>
+                  </button>
+                </div>
+                <div className="settings-subtab-strip" role="tablist" aria-label="Document settings sections">
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "invoice" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>Invoice</button>
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "receipt" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("receipt")}>Receipt</button>
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "delivery" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>Delivery</button>
+                </div>
+                <p className="muted settings-subtab-intro">{activeDocumentTabMeta.intro}</p>
+                {activeDocumentTab === "invoice" ? (
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">Numbering</p>
-                      <h4>Document numbering</h4>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
                     </div>
                     <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
                       {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
@@ -436,6 +476,49 @@ export function SettingsPage() {
                         <span>Reset invoice numbering every year</span>
                       </label>
                     </section>
+                  </div>
+                  <HelperText>The document code stays fixed while the running number increases automatically.</HelperText>
+                  <div className="settings-action-row settings-action-row-sticky">
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      disabled={!numberingDirty}
+                      onClick={() => setConfirmState({
+                        title: "Save document numbering",
+                        description: "Save the current invoice and receipt numbering settings for this company?",
+                        action: async () => {
+                          if (!invoiceSettings) {
+                            return;
+                          }
+
+                          try {
+                            await saveInvoiceSettings(invoiceSettings);
+                            setConfirmState(null);
+                            setFormError("");
+                            await load();
+                          } catch (error) {
+                            setFormError(error instanceof Error ? error.message : "Unable to save document numbering.");
+                          }
+                        },
+                      })}
+                    >
+                      Save numbering
+                    </button>
+                  </div>
+                </div>
+                ) : null}
+                {activeDocumentTab === "receipt" ? (
+                <div className="settings-panel">
+                  <div className="settings-panel-header">
+                    <div>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
+                    </div>
+                    <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
+                      {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
+                    </span>
+                  </div>
+                  <div className="settings-numbering-workspace">
                     <section className="settings-subpanel settings-numbering-card">
                       <div className="settings-subpanel-header">
                         <div>
@@ -468,7 +551,7 @@ export function SettingsPage() {
                     </section>
                   </div>
                   <HelperText>The document code stays fixed while the running number increases automatically.</HelperText>
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-primary"
@@ -496,11 +579,13 @@ export function SettingsPage() {
                     </button>
                   </div>
                 </div>
+                ) : null}
+                {activeDocumentTab === "delivery" ? (
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">Delivery</p>
-                      <h4>Document delivery options</h4>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
                     </div>
                   </div>
                   <div className="settings-toggle-group">
@@ -526,7 +611,7 @@ export function SettingsPage() {
                     ) : null}
                   </div>
                   {documentOptionsDirty ? <HelperText tone="error">You have unsaved changes in document delivery settings.</HelperText> : null}
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-secondary"
@@ -554,6 +639,7 @@ export function SettingsPage() {
                     </button>
                   </div>
                 </div>
+                ) : null}
               </>
             ) : null}
             {activeTab === "payment" ? (
@@ -866,7 +952,7 @@ export function SettingsPage() {
                     )}
                   </div>
                   ) : null}
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                   <button
                     type="button"
                     className="button button-primary"
@@ -1005,7 +1091,7 @@ export function SettingsPage() {
                   <HelperText>
                     Customer phone numbers come from the customer record. The platform owner manages the shared API connection. Use {"{ActionLink}"} for the best available link, {"{PaymentGatewayLink}"} only for online gateway checkout, and {"{PaymentConfirmationLink}"} for manual payment proof submission. Existing {"{PaymentLink}"} still works as a legacy alias for {"{ActionLink}"}.
                   </HelperText>
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-secondary"
@@ -1077,7 +1163,7 @@ export function SettingsPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-secondary"

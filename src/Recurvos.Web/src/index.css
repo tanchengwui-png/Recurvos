@@ -2796,6 +2796,12 @@ select:focus,
   gap: var(--space-3);
 }
 
+.settings-document-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
 .settings-panel-header {
   display: flex;
   justify-content: space-between;
@@ -2896,6 +2902,17 @@ select:focus,
   grid-template-columns: repeat(2, minmax(0, max-content));
   justify-content: start;
   align-items: center;
+}
+
+.settings-action-row-sticky {
+  position: sticky;
+  bottom: -1.15rem;
+  z-index: 5;
+  margin-top: var(--space-2);
+  padding: 0.95rem 0 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  background:
+    linear-gradient(180deg, rgba(8, 17, 31, 0), rgba(8, 17, 31, 0.92) 28%, rgba(8, 17, 31, 0.98));
 }
 
 .settings-action-row-wide {
@@ -4276,12 +4293,20 @@ select:focus,
 
   .settings-overview-grid,
   .settings-payment-summary-grid,
+  .settings-document-summary-grid,
   .payments-tab-summary-grid,
   .settings-inline-fields-wide,
   .public-payment-fields,
   .settings-numbering-fields,
   .settings-action-row {
     grid-template-columns: 1fr;
+  }
+
+  .settings-action-row-sticky {
+    position: static;
+    padding-top: 0;
+    border-top: 0;
+    background: transparent;
   }
 
   .public-payment-actions {
