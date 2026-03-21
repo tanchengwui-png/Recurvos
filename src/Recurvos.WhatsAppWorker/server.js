@@ -13,9 +13,20 @@ const sessionRoot = process.env.WHATSAPP_SESSION_DIR || path.resolve(__dirname, 
 const minSendDelayMs = Number(process.env.WHATSAPP_MIN_SEND_DELAY_MS || 12000);
 const sendJitterMs = Number(process.env.WHATSAPP_SEND_JITTER_MS || 4000);
 const maxMessagesPerDay = Number(process.env.WHATSAPP_MAX_MESSAGES_PER_DAY || 250);
+const puppeteerExecutablePath = process.env.PUPPETEER_EXECUTABLE_PATH || "";
+const puppeteerProtocolTimeoutMs = Number(process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS || 120000);
+const chromiumProfileLockNames = ["SingletonLock", "SingletonSocket", "SingletonCookie"];
 fs.mkdirSync(sessionRoot, { recursive: true });
 
 const sessions = new Map();
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+});
 
 function authorize(req, res, next) {
   if (!workerToken) {
@@ -75,16 +86,39 @@ function touch(session, updates = {}) {
   Object.assign(session, updates, { lastSyncedAtUtc: new Date().toISOString() });
 }
 
+function clearStaleChromiumLocks(tenantId) {
+  const profilePath = path.join(sessionRoot, `session-${tenantId}`);
+  for (const lockName of chromiumProfileLockNames) {
+    const lockPath = path.join(profilePath, lockName);
+    try {
+      fs.lstatSync(lockPath);
+      fs.unlinkSync(lockPath);
+    } catch {
+      // Ignore stale lock cleanup errors and continue startup.
+    }
+  }
+}
+
 function createClient(tenantId, session) {
+  const puppeteerConfig = {
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    protocolTimeout: puppeteerProtocolTimeoutMs,
+  };
+
+  if (puppeteerExecutablePath) {
+    puppeteerConfig.executablePath = puppeteerExecutablePath;
+  }
+
   const client = new Client({
     authStrategy: new LocalAuth({
       clientId: tenantId,
       dataPath: sessionRoot,
     }),
-    puppeteer: {
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    webVersionCache: {
+      type: "none",
     },
+    puppeteer: puppeteerConfig,
   });
 
   client.on("qr", async (qr) => {
@@ -163,20 +197,20 @@ async function ensureInitialized(tenantId) {
     return session;
   }
 
+  clearStaleChromiumLocks(tenantId);
   const client = createClient(tenantId, session);
   touch(session, {
     status: "initializing",
     lastError: null,
   });
 
-  try {
-    await client.initialize();
-  } catch (error) {
+  // Start initialization asynchronously so API connect requests never block on browser startup.
+  void client.initialize().catch((error) => {
     touch(session, {
       status: "error",
       lastError: error instanceof Error ? error.message : "Unable to initialize WhatsApp client.",
     });
-  }
+  });
 
   return session;
 }
