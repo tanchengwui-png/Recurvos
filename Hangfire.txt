@@ -1,0 +1,55 @@
+ 
+
+
+ ssh server@115.187.22.70
+
+  2. Go to repo
+
+  cd /srv/recurvos/staging/repo
+
+  3. Ensure API is running
+
+  docker-compose -f docker-compose.staging.yml up -d api
+  docker-compose -f docker-compose.staging.yml ps
+
+  4. Set API URL
+
+  API="http://localhost:7002"
+
+  5. Login and store token
+
+  TOKEN=$(curl -s "$API/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d '{"email":"owner@recurvo.com","password":"Passw0rd!"}' \
+    | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+
+  6. Verify token not empty
+
+  echo "$TOKEN"
+
+  If empty, stop and tell me.
+
+  7. Check due invoice count
+
+  curl -s "$API/api/subscriptions/due-invoices/count" \
+    -H "Authorization: Bearer $TOKEN"
+
+  8. Trigger due invoice generation (Hangfire-equivalent for this job)
+
+  curl -s -X POST "$API/api/subscriptions/run-due-invoices" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json"
+
+  9. Check count again
+
+  curl -s "$API/api/subscriptions/due-invoices/count" \
+    -H "Authorization: Bearer $TOKEN"
+
+  10. (Optional) Trigger one subscription immediately
+
+  curl -s "$API/api/subscriptions" -H "Authorization: Bearer $TOKEN"
+
+  Copy one subscription id, then:
+
+  curl -s -X POST "$API/api/subscriptions/<SUBSCRIPTION_ID>/generate-invoice" \
+    -H "Authorization: Bearer $TOKEN"

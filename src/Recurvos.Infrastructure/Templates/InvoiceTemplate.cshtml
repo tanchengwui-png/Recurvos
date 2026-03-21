@@ -41,12 +41,12 @@
         .totals { width: 320px; margin-left: auto; margin-top: 18px; }
         .total-row { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; }
         .total-row.final { margin-top: 8px; padding-top: 12px; border-top: 1px solid #cbd5e1; font-size: 16px; font-weight: 700; }
-        .payment { display: grid; grid-template-columns: minmax(0, 1fr) 108px; gap: 18px; align-items: start; }
+        .payment { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 20px; align-items: start; }
         .payment-details { display: grid; gap: 8px; }
-        .payment-row { display: grid; grid-template-columns: 92px 1fr; gap: 14px; }
+        .payment-row { display: grid; grid-template-columns: 102px minmax(0, 1fr); gap: 14px; align-items: start; }
         .payment-label { color: #64748b; font-size: 12px; }
-        .payment-value { color: #0f172a; line-height: 1.6; word-break: break-word; }
-        .payment-qr { width: 108px; height: 108px; border: 1px solid #dbe3ef; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .payment-value { color: #0f172a; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
+        .payment-qr { width: 92px; height: 92px; margin-top: 4px; border: 1px solid #dbe3ef; background: #fcfdfe; padding: 5px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .payment-qr img { width: 100%; height: 100%; object-fit: contain; }
         .footer { margin-top: 18px; padding-top: 12px; border-top: 1px solid #dbe3ef; color: #64748b; font-size: 12px; line-height: 1.7; }
         .footer p { margin: 0 0 6px; }

@@ -154,7 +154,7 @@ public static class InvoicePdfTemplate
                                 {
                                     if (hasPaymentDetails)
                                     {
-                                        row.RelativeItem().Column(details =>
+                                        row.RelativeItem().PaddingRight(hasPaymentQr ? 14 : 0).Column(details =>
                                         {
                                             details.Spacing(8);
                                             AddPaymentDetail(details, "Bank", model.BankName);
@@ -174,13 +174,16 @@ public static class InvoicePdfTemplate
 
                                     if (hasPaymentQr)
                                     {
-                                        row.ConstantItem(108).Height(108).Border(1).BorderColor("#D7E0EA").Padding(6).AlignCenter().AlignMiddle().Element(container =>
+                                        row.ConstantItem(92).PaddingTop(4).Element(container =>
                                         {
-                                            var qrBytes = ExtractDataUrlBytes(model.PaymentQrDataUrl!);
-                                            if (qrBytes is { Length: > 0 })
+                                            container.Border(1).BorderColor("#D7E0EA").Background("#FCFDFE").Padding(5).AlignCenter().AlignMiddle().Height(92).Element(inner =>
                                             {
-                                                container.Image(qrBytes).FitArea();
-                                            }
+                                                var qrBytes = ExtractDataUrlBytes(model.PaymentQrDataUrl!);
+                                                if (qrBytes is { Length: > 0 })
+                                                {
+                                                    inner.Image(qrBytes).FitArea();
+                                                }
+                                            });
                                         });
                                     }
                                 });
@@ -235,7 +238,7 @@ public static class InvoicePdfTemplate
 
         column.Item().Row(row =>
         {
-            row.ConstantItem(92).Text(label).FontSize(9).FontColor("#64748B");
+            row.ConstantItem(102).Text(label).FontSize(9).FontColor("#64748B");
             row.RelativeItem().Text(value).FontColor("#0F172A");
         });
     }
