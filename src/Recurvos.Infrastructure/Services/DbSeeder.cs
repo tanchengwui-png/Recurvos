@@ -150,6 +150,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 ShowCompanyAddressOnInvoice = true,
                 ShowCompanyAddressOnReceipt = true,
                 AutoSendInvoices = true,
+                CcSubscriberOnCustomerEmails = true,
                 AutoCompressUploads = true,
                 UploadMaxBytes = 2_000_000,
                 UploadImageMaxDimension = 1600,
@@ -317,6 +318,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 ShowCompanyAddressOnInvoice = true,
                 ShowCompanyAddressOnReceipt = true,
                 AutoSendInvoices = true,
+                CcSubscriberOnCustomerEmails = true,
                 AutoCompressUploads = true,
                 UploadMaxBytes = 2_000_000,
                 UploadImageMaxDimension = 1600,
@@ -418,6 +420,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     ShowCompanyAddressOnInvoice = true,
                     ShowCompanyAddressOnReceipt = true,
                     AutoSendInvoices = true,
+                    CcSubscriberOnCustomerEmails = true,
                     AutoCompressUploads = true,
                     UploadMaxBytes = 2_000_000,
                     UploadImageMaxDimension = 1600,
@@ -462,6 +465,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     ShowCompanyAddressOnInvoice = true,
                     ShowCompanyAddressOnReceipt = true,
                     AutoSendInvoices = true,
+                    CcSubscriberOnCustomerEmails = true,
                     AutoCompressUploads = true,
                     UploadMaxBytes = 2_000_000,
                     UploadImageMaxDimension = 1600,
@@ -618,6 +622,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
         await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE company_invoice_settings
             ADD COLUMN IF NOT EXISTS "AutoSendInvoices" boolean NOT NULL DEFAULT TRUE;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "CcSubscriberOnCustomerEmails" boolean NOT NULL DEFAULT TRUE;
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""

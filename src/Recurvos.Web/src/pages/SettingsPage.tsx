@@ -90,6 +90,7 @@ export function SettingsPage() {
       invoiceSettings.showCompanyAddressOnInvoice !== savedInvoiceSettings.showCompanyAddressOnInvoice
       || invoiceSettings.showCompanyAddressOnReceipt !== savedInvoiceSettings.showCompanyAddressOnReceipt
       || invoiceSettings.autoSendInvoices !== savedInvoiceSettings.autoSendInvoices
+      || invoiceSettings.ccSubscriberOnCustomerEmails !== savedInvoiceSettings.ccSubscriberOnCustomerEmails
     );
   const paymentDetailsDirty = invoiceSettings !== null
     && savedInvoiceSettings !== null
@@ -216,6 +217,7 @@ export function SettingsPage() {
       showCompanyAddressOnInvoice: settings.showCompanyAddressOnInvoice,
       showCompanyAddressOnReceipt: settings.showCompanyAddressOnReceipt,
       autoSendInvoices: settings.autoSendInvoices,
+      ccSubscriberOnCustomerEmails: settings.ccSubscriberOnCustomerEmails,
       whatsAppEnabled: settings.whatsAppEnabled,
       whatsAppTemplate: settings.whatsAppTemplate,
     };
@@ -606,9 +608,19 @@ export function SettingsPage() {
                       />
                       <span>Auto-send new invoices by email</span>
                     </label>
+                    <label className="checkbox-row settings-checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={invoiceSettings.ccSubscriberOnCustomerEmails}
+                        onChange={(event) => setInvoiceSettings((current) => current ? { ...current, ccSubscriberOnCustomerEmails: event.target.checked } : current)}
+                      />
+                      <span>CC my account email on customer emails</span>
+                    </label>
                     {!emailRemindersEnabled ? (
                       <HelperText tone="error">{emailRemindersHint ? `Available on ${emailRemindersHint.packageName} and above.` : "Available on a higher package."}</HelperText>
-                    ) : null}
+                    ) : (
+                      <HelperText>When enabled, your subscriber account email is copied on customer invoice emails and reminders.</HelperText>
+                    )}
                   </div>
                   {documentOptionsDirty ? <HelperText tone="error">You have unsaved changes in document delivery settings.</HelperText> : null}
                   <div className="settings-action-row settings-action-row-sticky">

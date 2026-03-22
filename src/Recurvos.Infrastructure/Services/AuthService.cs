@@ -21,6 +21,7 @@ public sealed class AuthService(
     ISubscriberPackageBillingService subscriberPackageBillingService,
     IRegistrationGuardService registrationGuardService,
     IEmailSender emailSender,
+    PlatformOwnerNotificationService platformOwnerNotificationService,
     IOptions<AppUrlOptions> appUrlOptions) : IAuthService
 {
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
@@ -91,6 +92,7 @@ public sealed class AuthService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         company.SubscriberId = user.Id;
+        await platformOwnerNotificationService.TryNotifyNewSignupAsync(user, company, cancellationToken);
         await CreateVerificationTokenAsync(user, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -204,7 +206,7 @@ public sealed class AuthService(
             .Include(x => x.Company)
             .FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken);
 
-        if (user is null || user.Company is null)
+        if (user is null || user.Company is null || !user.IsEmailVerified)
         {
             return;
         }

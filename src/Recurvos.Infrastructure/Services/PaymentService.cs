@@ -19,6 +19,7 @@ public sealed class PaymentService(
     IEnumerable<IPaymentGateway> gateways,
     IAuditService auditService,
     IFeatureEntitlementService featureEntitlementService,
+    PlatformOwnerNotificationService platformOwnerNotificationService,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : IPaymentService
@@ -340,6 +341,10 @@ public sealed class PaymentService(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (succeeded)
+        {
+            await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
+        }
     }
 
     private IQueryable<Payment> Query(Guid companyId) =>
@@ -449,6 +454,7 @@ public sealed class PaymentService(
                 ReceiptResetYearly = false,
                 ReceiptLastResetYear = null,
                 AutoSendInvoices = true,
+                CcSubscriberOnCustomerEmails = true,
                 ShowCompanyAddressOnInvoice = true,
                 ShowCompanyAddressOnReceipt = true
             };

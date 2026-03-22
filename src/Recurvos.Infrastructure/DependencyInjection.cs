@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
+        services.AddScoped<PlatformOwnerNotificationService>();
         services.AddHttpClient<IWhatsAppSender, GenericWhatsAppSender>();
         services.AddHttpClient<IPlatformWhatsAppGateway, PlatformWhatsAppGateway>();
         services.AddScoped<IInvoiceStorage, LocalInvoiceStorage>();

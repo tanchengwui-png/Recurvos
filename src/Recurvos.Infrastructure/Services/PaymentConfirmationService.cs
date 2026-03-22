@@ -19,6 +19,7 @@ public sealed class PaymentConfirmationService(
     ICurrentUserService currentUserService,
     IAuditService auditService,
     IFeatureEntitlementService featureEntitlementService,
+    PlatformOwnerNotificationService platformOwnerNotificationService,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : IPaymentConfirmationService
@@ -111,7 +112,7 @@ public sealed class PaymentConfirmationService(
         submission.Invoice.AmountDue = Math.Max(0, submission.Invoice.Total - submission.Invoice.AmountPaid);
         submission.Invoice.Status = submission.Invoice.AmountDue <= 0 ? InvoiceStatus.Paid : InvoiceStatus.Open;
 
-        dbContext.Payments.Add(new Payment
+        var payment = new Payment
         {
             CompanyId = submission.CompanyId,
             InvoiceId = submission.InvoiceId,
@@ -124,9 +125,11 @@ public sealed class PaymentConfirmationService(
             ProofFileName = submission.ProofFileName,
             ProofContentType = submission.ProofContentType,
             PaidAtUtc = submission.PaidAtUtc
-        });
+        };
+        dbContext.Payments.Add(payment);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
         await auditService.WriteAsync("payment.confirmation.approved", nameof(PaymentConfirmationSubmission), submission.Id.ToString(), submission.Invoice.InvoiceNumber, cancellationToken);
         await auditService.WriteAsync("invoice.payment-recorded", nameof(Invoice), submission.InvoiceId.ToString(), $"customer-confirmation:{submission.Amount:0.00}", cancellationToken);
         return Map(submission);

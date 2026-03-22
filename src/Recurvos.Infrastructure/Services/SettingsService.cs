@@ -169,6 +169,7 @@ public sealed class SettingsService(
         settings.ShowCompanyAddressOnInvoice = request.ShowCompanyAddressOnInvoice;
         settings.ShowCompanyAddressOnReceipt = request.ShowCompanyAddressOnReceipt;
         settings.AutoSendInvoices = request.AutoSendInvoices;
+        settings.CcSubscriberOnCustomerEmails = request.CcSubscriberOnCustomerEmails;
         settings.WhatsAppEnabled = request.WhatsAppEnabled;
         settings.WhatsAppTemplate = string.IsNullOrWhiteSpace(request.WhatsAppTemplate) ? null : request.WhatsAppTemplate.Trim();
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -711,6 +712,7 @@ public sealed class SettingsService(
             ShowCompanyAddressOnInvoice = true,
             ShowCompanyAddressOnReceipt = true,
             AutoSendInvoices = true,
+            CcSubscriberOnCustomerEmails = true,
             WhatsAppProvider = "generic_api",
             AutoCompressUploads = true,
             UploadMaxBytes = 2_000_000,
@@ -800,6 +802,7 @@ public sealed class SettingsService(
             settings.ShowCompanyAddressOnInvoice,
             settings.ShowCompanyAddressOnReceipt,
             settings.AutoSendInvoices,
+            settings.CcSubscriberOnCustomerEmails,
             !string.IsNullOrWhiteSpace(settings.PaymentQrPath),
             settings.WhatsAppEnabled,
             settings.WhatsAppTemplate,

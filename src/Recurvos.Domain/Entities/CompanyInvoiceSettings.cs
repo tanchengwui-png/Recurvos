@@ -34,6 +34,7 @@ public sealed class CompanyInvoiceSettings
     public bool ShowCompanyAddressOnReceipt { get; set; } = true;
     public string? PaymentQrPath { get; set; }
     public bool AutoSendInvoices { get; set; } = true;
+    public bool CcSubscriberOnCustomerEmails { get; set; } = true;
     public bool WhatsAppEnabled { get; set; }
     public string WhatsAppProvider { get; set; } = "generic_api";
     public string? WhatsAppApiUrl { get; set; }

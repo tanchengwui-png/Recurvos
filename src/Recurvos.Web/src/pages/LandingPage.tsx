@@ -73,7 +73,7 @@ export function LandingPage() {
           </Link>
 
           <div className="landing-topbar-actions">
-            <Link className="button button-secondary" to="/login">Sign in</Link>
+            <Link className="button button-secondary landing-topbar-signin" to="/login">Sign in</Link>
             <Link className="button button-primary" to="/pricing">Start free</Link>
           </div>
         </header>

@@ -38,17 +38,66 @@ function getFeatureRequirementLabel(featureAccess: FeatureAccess | null, feature
   return requirement ? `Available on ${requirement.packageName}` : "Upgrade required";
 }
 
+function getPageLabel(pathname: string, isPlatformOwner: boolean) {
+  if (pathname === "/" || pathname === "") {
+    return "Dashboard";
+  }
+
+  if (isPlatformOwner) {
+    if (pathname.startsWith("/subscribers")) return "Subscribers";
+    if (pathname.startsWith("/platform/users")) return "Users";
+    if (pathname.startsWith("/platform/feedback")) return "Feedback";
+    if (pathname.startsWith("/platform/email-logs")) return "Email Logs";
+    if (pathname.startsWith("/platform/audit-logs")) return "Audit Logs";
+    if (pathname.startsWith("/platform/packages")) return "Packages";
+    if (pathname.startsWith("/platform/documents")) return "Document Preview";
+    if (pathname.startsWith("/platform/whatsapp-sessions")) return "WhatsApp Sessions";
+    if (pathname.startsWith("/platform/settings")) return "Settings";
+    return "Platform";
+  }
+
+  if (pathname.startsWith("/companies")) return "Companies";
+  if (pathname.startsWith("/products")) return "Products";
+  if (pathname.startsWith("/plans")) return "Plans";
+  if (pathname.startsWith("/customers")) return "Customers";
+  if (pathname.startsWith("/subscriptions")) return "Subscriptions";
+  if (pathname.startsWith("/invoices")) return "Invoices";
+  if (pathname.startsWith("/payments")) return "Payments";
+  if (pathname.startsWith("/finance")) return "Finance";
+  if (pathname.startsWith("/feedback")) return "Feedback";
+  if (pathname.startsWith("/package-billing")) return "My Plan";
+  if (pathname.startsWith("/settings")) return "Settings";
+  if (pathname.startsWith("/help/quick-start")) return "Quick Start";
+  return "Workspace";
+}
+
 export function AppShell() {
   const auth = getAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [packageBilling, setPackageBilling] = useState<SubscriberPackageBillingSummary | null>(null);
   const [companyCount, setCompanyCount] = useState<number | null>(null);
   const [pendingSetupCount, setPendingSetupCount] = useState<number | null>(null);
   const [feedbackUnreadCount, setFeedbackUnreadCount] = useState(0);
   const [pendingPaymentConfirmationCount, setPendingPaymentConfirmationCount] = useState(0);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 960) {
+        setMobileNavOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     if (!auth || auth.isPlatformOwner) {
@@ -144,6 +193,7 @@ export function AppShell() {
     location.pathname !== "/payments" &&
     pendingPaymentConfirmationCount > 0,
   );
+  const currentPageLabel = getPageLabel(location.pathname, auth?.isPlatformOwner ?? false);
 
   function formatDate(value: string) {
     return new Intl.DateTimeFormat("en-MY", {
@@ -181,7 +231,12 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <div
+        className={`sidebar-backdrop ${mobileNavOpen ? "is-visible" : ""}`}
+        aria-hidden={mobileNavOpen ? "false" : "true"}
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <aside className={`sidebar ${mobileNavOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-brand">
           <div className="brand-mark small" aria-hidden="true">
             <span />
@@ -191,6 +246,14 @@ export function AppShell() {
             <h1 className="sidebar-title">{auth?.isPlatformOwner ? "Platform" : "Recurvo"}</h1>
           </div>
         </div>
+        <button
+          type="button"
+          className="sidebar-mobile-close"
+          onClick={() => setMobileNavOpen(false)}
+          aria-label="Close navigation"
+        >
+          Close
+        </button>
         <div className="sidebar-account card subtle-card">
           <p>{auth?.isPlatformOwner ? auth?.companyName : auth?.fullName}</p>
           <p className="muted">{auth?.email}</p>
@@ -292,6 +355,31 @@ export function AppShell() {
         </div>
       </aside>
       <main className="content">
+        <header className="mobile-appbar">
+          <button
+            type="button"
+            className="mobile-appbar-menu"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open navigation"
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+          <div className="mobile-appbar-copy">
+            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvo Platform" : "Recurvo Billing"}</p>
+            <strong>{currentPageLabel}</strong>
+            <span className="mobile-appbar-subtitle">{auth?.isPlatformOwner ? auth?.companyName : auth?.companyName ?? "Account"}</span>
+          </div>
+          <button
+            type="button"
+            className="mobile-appbar-account"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open account menu"
+          >
+            {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
+          </button>
+        </header>
         {billingReminder ? (
           <section className={`billing-reminder-banner billing-reminder-banner-${billingReminder.tone}`}>
             <div>

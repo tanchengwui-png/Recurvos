@@ -235,6 +235,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasDefaultValue(false);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.CcSubscriberOnCustomerEmails)
+            .HasDefaultValue(true);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.AutoCompressUploads)
             .HasDefaultValue(true);
 

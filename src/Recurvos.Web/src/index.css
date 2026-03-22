@@ -102,6 +102,12 @@ th {
   gap: var(--space-5);
 }
 
+.sidebar-backdrop,
+.mobile-appbar,
+.sidebar-mobile-close {
+  display: none;
+}
+
 .sidebar-brand {
   display: flex;
   align-items: center;
@@ -257,6 +263,119 @@ th {
 .content {
   padding: var(--space-6);
   min-width: 0;
+}
+
+.mobile-appbar {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: var(--space-4);
+  padding: 0.8rem 0.95rem;
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 22px;
+  background: rgba(9, 18, 31, 0.78);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 10px 24px rgba(2, 8, 23, 0.14);
+}
+
+.mobile-appbar-menu,
+.mobile-appbar-account {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+}
+
+.sidebar-mobile-close {
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+}
+
+.mobile-appbar-menu {
+  width: 2.9rem;
+  height: 2.9rem;
+  flex-direction: column;
+  gap: 0.22rem;
+  cursor: pointer;
+}
+
+.mobile-appbar-menu span {
+  width: 1rem;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.mobile-appbar-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.12rem;
+  flex: 1;
+}
+
+.mobile-appbar-copy .eyebrow {
+  margin: 0;
+}
+
+.mobile-appbar-copy strong {
+  display: block;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-appbar-subtitle {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-appbar-account {
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sidebar-mobile-close {
+  align-self: flex-end;
+  min-height: 0;
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(2, 8, 23, 0.56);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.sidebar-backdrop.is-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .billing-reminder-banner {
@@ -4337,6 +4456,10 @@ select:focus,
   gap: 0.6rem;
 }
 
+.landing-topbar-signin {
+  flex-shrink: 0;
+}
+
 .landing-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
@@ -4815,13 +4938,40 @@ select:focus,
   }
 
   .sidebar {
-    border-right: none;
-    border-bottom: 1px solid var(--border-subtle);
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(88vw, 360px);
+    max-width: 360px;
+    border-right: 1px solid var(--border-subtle);
+    border-bottom: none;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    box-shadow: 0 26px 60px rgba(2, 8, 23, 0.34);
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .mobile-appbar,
+  .sidebar-mobile-close {
+    display: flex;
   }
 
   .billing-reminder-banner {
     flex-direction: column;
     align-items: flex-start;
+    gap: var(--space-3);
+    padding: 1rem 1.05rem;
+  }
+
+  .billing-reminder-banner .button {
+    width: 100%;
+    justify-content: center;
   }
 
   .grid-two {
@@ -4981,9 +5131,90 @@ select:focus,
 
 @media (max-width: 720px) {
   .content,
-  .sidebar,
   .auth-page {
     padding: var(--space-4);
+  }
+
+  .sidebar {
+    gap: var(--space-4);
+    padding: 1rem 1rem 1.25rem;
+  }
+
+  .sidebar-brand {
+    gap: 0.8rem;
+  }
+
+  .sidebar-title {
+    font-size: 1.35rem;
+  }
+
+  .sidebar-account {
+    padding: 1rem;
+    border-radius: 18px;
+  }
+
+  .sidebar-account-meta {
+    gap: 0.45rem;
+  }
+
+  .sidebar-account-meta-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .sidebar-account-stat {
+    margin-top: 0.65rem;
+  }
+
+  .sidebar-helper {
+    font-size: 0.86rem;
+    line-height: 1.45;
+  }
+
+  .sidebar-footer {
+    gap: 0.65rem 1rem;
+    font-size: 0.88rem;
+  }
+
+  .mobile-appbar {
+    gap: 0.7rem;
+    margin-bottom: var(--space-3);
+    padding: 0.72rem 0.78rem;
+    border-radius: 18px;
+  }
+
+  .mobile-appbar-menu {
+    width: 2.65rem;
+    height: 2.65rem;
+  }
+
+  .mobile-appbar-account {
+    width: 2.35rem;
+    height: 2.35rem;
+    font-size: 0.76rem;
+  }
+
+  .mobile-appbar-copy strong {
+    font-size: 0.9rem;
+  }
+
+  .mobile-appbar-subtitle {
+    font-size: 0.72rem;
+  }
+
+  .billing-reminder-banner {
+    margin-bottom: var(--space-4);
+    padding: 0.95rem 1rem;
+    border-radius: 16px;
+  }
+
+  .billing-reminder-banner h3 {
+    font-size: 0.96rem;
+  }
+
+  .billing-reminder-banner p {
+    font-size: 0.9rem;
   }
 
   .landing-main {
@@ -4991,20 +5222,123 @@ select:focus,
     padding-top: 0.75rem;
   }
 
-  .landing-topbar,
   .landing-topbar-actions,
   .landing-hero-actions,
   .landing-cta-actions,
-  .landing-trust-row,
   .landing-cta {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .landing-topbar {
+    top: 0.55rem;
+    gap: 0.85rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 0.95rem;
+    border-radius: 28px;
+  }
+
+  .landing-brand {
+    gap: 0.7rem;
+  }
+
+  .landing-brand-mark {
+    width: 2.1rem;
+    height: 2.1rem;
+    border-radius: 13px;
+  }
+
+  .landing-brand strong {
+    font-size: 0.84rem;
+    line-height: 1.25;
+  }
+
+  .landing-topbar-actions {
+    width: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+  }
+
+  .landing-topbar-actions .button {
+    min-height: 0;
+  }
+
+  .landing-topbar-signin {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    color: var(--text-muted);
+    min-height: 0;
+  }
+
+  .landing-topbar-signin:hover {
+    background: transparent;
+    color: var(--text-primary);
+  }
+
+  .landing-topbar-actions .button-primary {
+    display: none;
   }
 
   .landing-preview-card,
   .landing-story-card,
   .landing-cta {
     border-radius: 24px;
+  }
+
+  .landing-hero {
+    gap: 0.8rem;
+    padding-top: 0.9rem;
+  }
+
+  .landing-hero-copy {
+    padding: 0.35rem 0 0.25rem;
+    gap: 0.6rem;
+  }
+
+  .landing-kicker {
+    font-size: 0.76rem;
+    padding: 0.38rem 0.66rem;
+  }
+
+  .landing-hero-copy h1 {
+    max-width: 8.6ch;
+    font-size: clamp(2.05rem, 10vw, 2.75rem);
+    line-height: 0.98;
+  }
+
+  .landing-lead {
+    font-size: 0.92rem;
+    max-width: 32ch;
+  }
+
+  .landing-hero-actions {
+    width: 100%;
+    gap: 0.7rem;
+  }
+
+  .landing-hero-actions .button-primary {
+    width: 100%;
+  }
+
+  .landing-trust-row {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.05rem;
+  }
+
+  .landing-trust-row span {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.76rem;
+  }
+
+  .landing-trust-row span:nth-child(n + 2) {
+    display: none;
   }
 
   .landing-back-to-top {
@@ -5125,10 +5459,12 @@ select:focus,
   }
 
   .quickstart-float-button {
-    right: 1rem;
+    right: 0.9rem;
     bottom: 1rem;
-    left: 1rem;
+    left: auto;
     min-width: 0;
-    max-width: none;
+    max-width: min(11.5rem, calc(100vw - 1.8rem));
+    padding: 0.8rem 0.95rem;
+    border-radius: 18px;
   }
 }

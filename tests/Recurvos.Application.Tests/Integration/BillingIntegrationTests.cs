@@ -59,6 +59,11 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         user.PrivacyAcceptedAtUtc.Should().NotBeNull();
         user.TermsVersion.Should().Be("2026-03-17");
         user.PrivacyVersion.Should().Be("2026-03-17");
+
+        var fakeEmailSender = scope.ServiceProvider.GetRequiredService<FakeEmailSender>();
+        fakeEmailSender.Sent.Should().Contain(x =>
+            string.Equals(x.To, "tanchengwui@hotmail.com", StringComparison.OrdinalIgnoreCase)
+            && x.Subject.Contains("New signup: Integration Co", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -231,6 +236,7 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         message.Attachments.Should().ContainSingle();
         message.Attachments.Single().FileName.Should().Be($"{invoice.InvoiceNumber}.pdf");
         message.Attachments.Single().ContentType.Should().Be("application/pdf");
+        message.Cc.Should().ContainSingle(x => x == "tanchengwui+basic@hotmail.com");
     }
 
     [Fact]
@@ -675,6 +681,59 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         });
 
         loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Invoice_MarkPaid_SendsOwnerNotification()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var invoice = (await client.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var response = await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/mark-paid", new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var fakeEmailSender = scope.ServiceProvider.GetRequiredService<FakeEmailSender>();
+        fakeEmailSender.Sent.Should().Contain(x =>
+            string.Equals(x.To, "tanchengwui@hotmail.com", StringComparison.OrdinalIgnoreCase)
+            && x.Subject.Contains($"New payment: {invoice.InvoiceNumber}", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Auth_ForgotPassword_DoesNotSendResetEmail_ForUnverifiedUser()
+    {
+        await _factory.EnsureSeededAsync();
+        using var client = _factory.CreateClient();
+
+        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new
+        {
+            packageCode = "starter",
+            companyName = "Reset Guard Co",
+            registrationNumber = "202667890123",
+            companyEmail = "finance@resetguard.my",
+            fullName = "Reset Guard Owner",
+            email = "owner@resetguard.my",
+            password = "Passw0rd!",
+            acceptLegalTerms = true
+        });
+
+        registerResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var forgotResponse = await client.PostAsJsonAsync("/api/auth/forgot-password", new
+        {
+            email = "owner@resetguard.my"
+        });
+
+        forgotResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var fakeEmailSender = scope.ServiceProvider.GetRequiredService<FakeEmailSender>();
+        fakeEmailSender.Invoking(sender => sender.GetLatestPasswordResetToken("owner@resetguard.my"))
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("No password reset email sent to owner@resetguard.my.");
     }
 
     [Fact]

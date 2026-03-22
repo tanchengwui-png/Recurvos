@@ -94,6 +94,7 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
     public bool ShowCompanyAddressOnReceipt { get; set; } = true;
 
     public bool AutoSendInvoices { get; set; }
+    public bool CcSubscriberOnCustomerEmails { get; set; } = true;
 
     public bool WhatsAppEnabled { get; set; }
 
@@ -399,6 +400,7 @@ public sealed record CompanyInvoiceSettingsDto(
     bool ShowCompanyAddressOnInvoice,
     bool ShowCompanyAddressOnReceipt,
     bool AutoSendInvoices,
+    bool CcSubscriberOnCustomerEmails,
     bool HasPaymentQr,
     bool WhatsAppEnabled,
     string? WhatsAppTemplate,

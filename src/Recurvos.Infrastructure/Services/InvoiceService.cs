@@ -31,6 +31,7 @@ public sealed class InvoiceService(
     IFeatureEntitlementService featureEntitlementService,
     IPackageLimitService packageLimitService,
     IBillingReadinessService billingReadinessService,
+    PlatformOwnerNotificationService platformOwnerNotificationService,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : IInvoiceService
@@ -349,6 +350,12 @@ public sealed class InvoiceService(
             PaidAtUtc = DateTime.UtcNow
         });
         await dbContext.SaveChangesAsync(cancellationToken);
+        var paymentId = await dbContext.Payments
+            .Where(x => x.InvoiceId == invoice.Id && x.Status == PaymentStatus.Succeeded)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x => x.Id)
+            .FirstAsync(cancellationToken);
+        await platformOwnerNotificationService.TryNotifyNewPaymentAsync(paymentId, cancellationToken);
         await auditService.WriteAsync("invoice.paid", nameof(Invoice), invoice.Id.ToString(), $"amount={outstanding:0.00}", cancellationToken);
         return await GetByIdAsync(id, cancellationToken);
     }
@@ -399,6 +406,7 @@ public sealed class InvoiceService(
         dbContext.Payments.Add(payment);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
         await auditService.WriteAsync(
             "invoice.payment-recorded",
             nameof(Invoice),
@@ -910,6 +918,7 @@ public sealed class InvoiceService(
                     schedule.Invoice.Customer.Email,
                     $"Reminder: {schedule.Invoice.InvoiceNumber}",
                     body,
+                    cc: await ResolveSubscriberCustomerEmailCcAsync(schedule.CompanyId, cancellationToken),
                     cancellationToken: cancellationToken);
                 sentAny = true;
             }
@@ -1337,7 +1346,32 @@ public sealed class InvoiceService(
             $"Invoice {invoice.InvoiceNumber}",
             body,
             [new EmailAttachment(pdfFileName, pdfContent, "application/pdf")],
+            await ResolveSubscriberCustomerEmailCcAsync(invoice.CompanyId, cancellationToken),
             cancellationToken);
+    }
+
+    private async Task<IReadOnlyCollection<string>?> ResolveSubscriberCustomerEmailCcAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var companyProjection = await dbContext.Companies
+            .Where(x => x.Id == companyId && !x.IsPlatformAccount)
+            .Select(x => new
+            {
+                x.SubscriberId,
+                CcSubscriberOnCustomerEmails = x.InvoiceSettings != null ? x.InvoiceSettings.CcSubscriberOnCustomerEmails : true
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (companyProjection is null || !companyProjection.CcSubscriberOnCustomerEmails || !companyProjection.SubscriberId.HasValue)
+        {
+            return null;
+        }
+
+        var subscriberEmail = await dbContext.Users
+            .Where(x => x.Id == companyProjection.SubscriberId.Value)
+            .Select(x => x.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrWhiteSpace(subscriberEmail) ? null : [subscriberEmail.Trim()];
     }
 
     private async Task<byte[]> RegenerateInvoicePdfAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)
@@ -1800,13 +1834,14 @@ public sealed class InvoiceService(
             LastResetYear = null,
             ReceiptPrefix = "RCT",
             ReceiptNextNumber = 1,
-            ReceiptPadding = 6,
-            ReceiptResetYearly = false,
-            ReceiptLastResetYear = null,
-            AutoSendInvoices = true,
-            ShowCompanyAddressOnInvoice = true,
-            ShowCompanyAddressOnReceipt = true
-        };
+                ReceiptPadding = 6,
+                ReceiptResetYearly = false,
+                ReceiptLastResetYear = null,
+                AutoSendInvoices = true,
+                CcSubscriberOnCustomerEmails = true,
+                ShowCompanyAddressOnInvoice = true,
+                ShowCompanyAddressOnReceipt = true
+            };
         dbContext.CompanyInvoiceSettings.Add(settings);
         await dbContext.SaveChangesAsync(cancellationToken);
         return settings;

@@ -436,6 +436,7 @@ export type CompanyInvoiceSettings = {
   showCompanyAddressOnInvoice: boolean;
   showCompanyAddressOnReceipt: boolean;
   autoSendInvoices: boolean;
+  ccSubscriberOnCustomerEmails: boolean;
   hasPaymentQr: boolean;
   whatsAppEnabled: boolean;
   whatsAppTemplate?: string | null;

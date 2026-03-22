@@ -22,7 +22,13 @@ public sealed class SmtpEmailSender(
     private readonly IHostEnvironment _environment = environment;
     private readonly AppDbContext _dbContext = dbContext;
 
-    public async Task SendAsync(string to, string subject, string body, IReadOnlyCollection<EmailAttachment>? attachments = null, CancellationToken cancellationToken = default)
+    public async Task SendAsync(
+        string to,
+        string subject,
+        string body,
+        IReadOnlyCollection<EmailAttachment>? attachments = null,
+        IReadOnlyCollection<string>? cc = null,
+        CancellationToken cancellationToken = default)
     {
         var smtpConfig = await ResolveSmtpConfigurationAsync(cancellationToken);
         var wasRedirected = smtpConfig.EmailShieldEnabled && !string.IsNullOrWhiteSpace(smtpConfig.EmailShieldAddress);
@@ -61,6 +67,13 @@ public sealed class SmtpEmailSender(
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(smtpConfig.FromName, fromAddress.Address));
         message.To.Add(toAddress);
+        if (cc is not null)
+        {
+            foreach (var ccValue in cc.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                message.Cc.Add(ParseMailboxOrThrow(ccValue, "Cc email"));
+            }
+        }
         message.Subject = effectiveSubject;
 
         var builder = new BodyBuilder

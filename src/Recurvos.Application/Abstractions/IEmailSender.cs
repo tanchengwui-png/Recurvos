@@ -4,5 +4,11 @@ public sealed record EmailAttachment(string FileName, byte[] Content, string Con
 
 public interface IEmailSender
 {
-    Task SendAsync(string to, string subject, string body, IReadOnlyCollection<EmailAttachment>? attachments = null, CancellationToken cancellationToken = default);
+    Task SendAsync(
+        string to,
+        string subject,
+        string body,
+        IReadOnlyCollection<EmailAttachment>? attachments = null,
+        IReadOnlyCollection<string>? cc = null,
+        CancellationToken cancellationToken = default);
 }

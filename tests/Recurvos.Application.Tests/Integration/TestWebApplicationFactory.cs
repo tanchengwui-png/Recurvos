@@ -73,11 +73,17 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
 public sealed class FakeEmailSender : IEmailSender
 {
-    public List<(string To, string Subject, string Body, IReadOnlyCollection<EmailAttachment> Attachments)> Sent { get; } = [];
+    public List<(string To, string Subject, string Body, IReadOnlyCollection<EmailAttachment> Attachments, IReadOnlyCollection<string> Cc)> Sent { get; } = [];
 
-    public Task SendAsync(string to, string subject, string body, IReadOnlyCollection<EmailAttachment>? attachments = null, CancellationToken cancellationToken = default)
+    public Task SendAsync(
+        string to,
+        string subject,
+        string body,
+        IReadOnlyCollection<EmailAttachment>? attachments = null,
+        IReadOnlyCollection<string>? cc = null,
+        CancellationToken cancellationToken = default)
     {
-        Sent.Add((to, subject, body, attachments ?? Array.Empty<EmailAttachment>()));
+        Sent.Add((to, subject, body, attachments ?? Array.Empty<EmailAttachment>(), cc ?? Array.Empty<string>()));
         return Task.CompletedTask;
     }
 
