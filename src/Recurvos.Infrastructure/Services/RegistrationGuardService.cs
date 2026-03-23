@@ -41,7 +41,7 @@ public sealed class RegistrationGuardService(
 
         if (await dbContext.Companies.AnyAsync(x => x.Email == normalizedCompanyEmail, cancellationToken))
         {
-            throw new InvalidOperationException("This billing email is already linked to an existing company account. Please use a different billing email or sign in if this account is yours.");
+            throw new InvalidOperationException("A company with this billing email already exists.");
         }
 
         if (!string.IsNullOrWhiteSpace(normalizedRegistrationNumber) &&

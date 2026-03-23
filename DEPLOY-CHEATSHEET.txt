@@ -38,11 +38,6 @@ iZ0U1DoNuzyZevj30T
 cd /srv/recurvos/staging/repo
 git checkout develop
 git pull origin develop
-
---Froce overwrite
-  git fetch origin
-  git reset --hard origin/develop
-  git clean -fd
 ```
 
 7. Rebuild and restart all staging services

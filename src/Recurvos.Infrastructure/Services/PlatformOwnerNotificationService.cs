@@ -71,14 +71,14 @@ public sealed class PlatformOwnerNotificationService(
             .Select(x => x.Name)
             .FirstOrDefaultAsync(cancellationToken) ?? "Unknown company";
         var customerName = payment.Invoice.Customer?.Name ?? "Unknown customer";
-        var actionUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/subscribers";
+        var actionUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payments";
         var paidAtLabel = (payment.PaidAtUtc ?? payment.CreatedAtUtc).ToString("dd MMM yyyy HH:mm 'UTC'");
         var reference = payment.ExternalPaymentId ?? payment.GatewayTransactionId ?? payment.GatewaySettlementRef ?? "Not provided";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "New payment",
             $"Payment received for {payment.Invoice.InvoiceNumber}",
             $"{companyName} recorded a new payment. Review the payment details and linked invoice in the platform console.",
-            "Open subscribers",
+            "Open payments",
             actionUrl,
             [
                 $"Company: {companyName}",

@@ -87,16 +87,10 @@ public static class EmailTemplateRenderer
         bool isReminder)
     {
         var title = isReminder ? $"Payment reminder for {invoiceNumber}" : $"Invoice {invoiceNumber}";
-        var isPaymentConfirmationLink = !string.IsNullOrWhiteSpace(paymentUrl)
-            && paymentUrl.Contains("/payment-confirmation", StringComparison.OrdinalIgnoreCase);
         var intro = isReminder
             ? $"Hi {customerName}, this is a reminder that invoice {invoiceNumber} from {issuerName} is still outstanding."
             : $"Hi {customerName}, {issuerName} has issued invoice {invoiceNumber}.";
-        var actionLabel = string.IsNullOrWhiteSpace(paymentUrl)
-            ? "View invoice details"
-            : isPaymentConfirmationLink
-                ? "Confirm payment"
-                : "Pay invoice";
+        var actionLabel = string.IsNullOrWhiteSpace(paymentUrl) ? "View invoice details" : "Pay invoice";
         var safePaymentUrl = string.IsNullOrWhiteSpace(paymentUrl) ? null : Encode(paymentUrl);
         var encodedTitle = Encode(title);
         var encodedIntro = Encode(intro);
@@ -164,7 +158,7 @@ public static class EmailTemplateRenderer
                       </table>
                       <div style="padding:18px 20px;border-radius:18px;background:#fff7ed;border:1px solid #fed7aa;margin-bottom:20px;">
                         <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#c2410c;font-weight:700;margin-bottom:10px;">For {{encodedCustomerName}}</div>
-                        <p style="margin:0;font-size:14px;line-height:1.7;color:#7c2d12;">{{Encode(isPaymentConfirmationLink ? "Please review the invoice details and submit your payment confirmation after you have paid by bank transfer or another manual method." : "Please review the invoice details and arrange payment by the due date shown above.")}}</p>
+                        <p style="margin:0;font-size:14px;line-height:1.7;color:#7c2d12;">Please review the invoice details and arrange payment by the due date shown above.</p>
                       </div>
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #e2e8f0;border-radius:18px;background:#ffffff;">
                         <tr>

@@ -552,10 +552,6 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("IssueDateUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("PaymentConfirmationToken")
-                        .HasMaxLength(48)
-                        .HasColumnType("character varying(48)");
-
                     b.Property<string>("PaymentConfirmationTokenHash")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");

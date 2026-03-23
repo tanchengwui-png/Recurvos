@@ -45,13 +45,7 @@ public static class DependencyInjection
             ?? "Host=localhost;Port=5432;Database=recurvos;Username=postgres;Password=postgres";
 
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
-        services.AddHangfire(config => config.UsePostgreSqlStorage(
-            connectionString,
-            new PostgreSqlStorageOptions
-            {
-                SchemaName = "hangfire",
-                PrepareSchemaIfNecessary = true
-            }));
+        services.AddHangfire(config => config.UsePostgreSqlStorage(options => options.UseNpgsqlConnection(connectionString)));
         services.AddHangfireServer();
         services.AddHttpContextAccessor();
         services.AddMemoryCache();

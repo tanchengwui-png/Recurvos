@@ -102,7 +102,7 @@ public sealed class AuthService(
             return new RegisterResult(
                 true,
                 user.Email,
-                "We've sent a verification email to your inbox. Please verify your email before signing in. If you don't see it in a few minutes, check your junk or spam folder.");
+                "We sent a verification link to your email. Please verify your email before signing in.");
         }
         catch (Exception exception)
         {

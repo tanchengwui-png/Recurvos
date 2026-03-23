@@ -26,7 +26,6 @@ public sealed class Invoice : CompanyOwnedEntity
     public string Currency { get; set; } = "MYR";
     public InvoiceSourceType SourceType { get; set; } = InvoiceSourceType.Manual;
     public string? PdfPath { get; set; }
-    public string? PaymentConfirmationToken { get; set; }
     public string? PaymentConfirmationTokenHash { get; set; }
     public DateTime? PaymentConfirmationTokenIssuedAtUtc { get; set; }
     public DateTime? AccountingExportedAtUtc { get; set; }
