@@ -1,91 +1,22 @@
-1. Start from `develop`
-```powershell
-cd C:\recurvos
-git checkout develop
-git pull origin develop
-git checkout -b fix/your-bug-name
-```
+RECURVOS DEPLOYMENT CHEAT SHEET
+================================
 
-2. Make your code changes
+Branch rules
+- `develop` = staging branch
+- `main` = production branch
+- Never work directly on `main`
+- Never deploy a feature branch directly to production
 
-3. Test locally
-```powershell
-npm.cmd run build
-dotnet build Recurvos.sln
-```
+Server paths
+- Staging repo path: `/srv/recurvos/staging/repo`
+- Production repo path: `/srv/recurvos/prod/repo`
 
-4. Commit your fix branch
-```powershell
-git status
-git add .
-git commit -m "Fix your bug"
-git push -u origin fix/your-bug-name
-```
+Production branch rule
+- Production server must run `main`
 
-5. Merge your fix into `develop`
-```powershell
-git checkout develop
-git pull origin develop
-git merge fix/your-bug-name
-git push origin develop
-```
+Recommended domain env vars
 
-6. SSH into staging
-```bash
-ssh server@115.187.22.70 -p 6262
-iZ0U1DoNuzyZevj30T
-
-cd /srv/recurvos/staging/repo
-git checkout develop
-git pull origin develop
-```
-
-7. Rebuild and restart all staging services
-```bash
-docker compose -f docker-compose.staging.yml up -d --build postgres mailpit api web worker
-```
-
-8. Verify staging
-```bash
-docker compose -f docker-compose.staging.yml ps
-docker logs --tail 80 recurvos-staging-api
-docker logs --tail 80 recurvos-staging-web
-docker logs --tail 80 recurvos-staging-worker
-```
-
-9. If you only changed backend code, use the faster staging command
-```bash
-docker compose -f docker-compose.staging.yml up -d --build api
-```
-
-10. After staging is tested and good, promote to production
-```powershell
-cd C:\recurvos
-git checkout main
-git pull origin main
-git merge develop
-git push origin main
-```
-
-11. Deploy production
-```bash
-ssh server@YOUR_PROD_IP -p YOUR_PORT
-cd /srv/recurvos/production/repo
-git checkout main
-git pull origin main
-docker-compose -f docker-compose.yml down
-docker-compose -f docker-compose.yml build --no-cache
-docker-compose -f docker-compose.yml up -d
-docker-compose -f docker-compose.yml ps
-```
-
-12. Rules
-- `develop` = staging
-- `main` = production
-- Do not work directly on `main`
-- Do not deploy fix branches directly to production
-
-13. Production domain env vars
+Production
 ```text
 APP_WEB_BASE_URL=https://app.recurvos.com
 APP_API_BASE_URL=https://api.recurvos.com
@@ -94,6 +25,214 @@ VITE_PUBLIC_SITE_URL=https://recurvos.com
 VITE_APP_SITE_URL=https://app.recurvos.com
 ```
 
-14. Localhost note
-- `launch-recurvos.cmd` does not need these site URL vars.
-- Localhost uses the current origin automatically unless `VITE_PUBLIC_SITE_URL` or `VITE_APP_SITE_URL` is explicitly set.
+Staging
+```text
+APP_WEB_BASE_URL=https://staging-app.recurvos.com
+APP_API_BASE_URL=https://staging-api.recurvos.com
+VITE_API_BASE_URL=https://staging-api.recurvos.com/api
+VITE_PUBLIC_SITE_URL=https://staging.recurvos.com
+VITE_APP_SITE_URL=https://staging-app.recurvos.com
+```
+
+Local development to staging to production
+-----------------------------------------
+
+1. Start your work from `develop`
+```powershell
+cd C:\recurvos
+git checkout develop
+git pull origin develop
+git checkout -b feature/short-description
+```
+
+2. Make your code changes locally
+
+3. Verify locally before merging
+```powershell
+cd C:\recurvos\src\Recurvos.Web
+npm.cmd run build
+
+cd C:\recurvos
+dotnet build src\Recurvos.Infrastructure\Recurvos.Infrastructure.csproj
+```
+
+4. Commit and push your feature branch
+```powershell
+cd C:\recurvos
+git status
+git add .
+git commit -m "Short clear message"
+git push -u origin feature/short-description
+```
+
+5. Merge your feature branch into `develop`
+```powershell
+cd C:\recurvos
+git checkout develop
+git pull origin develop
+git merge feature/short-description
+git push origin develop
+```
+
+6. Deploy `develop` to staging
+```bash
+ssh server@115.187.22.70 -p 6262
+cd /srv/recurvos/staging/repo
+git checkout develop
+git pull origin develop
+docker compose -f docker-compose.staging.yml up -d --build postgres mailpit api web worker
+```
+
+7. Verify staging
+```bash
+cd /srv/recurvos/staging/repo
+docker compose -f docker-compose.staging.yml ps
+docker logs --tail 100 recurvos-staging-api
+docker logs --tail 100 recurvos-staging-web
+docker logs --tail 100 recurvos-staging-worker
+```
+
+8. If staging is good, merge `develop` into `main`
+```powershell
+cd C:\recurvos
+git checkout main
+git pull origin main
+git merge develop
+git push origin main
+```
+
+9. Deploy `main` to production
+```bash
+ssh server@YOUR_PROD_IP -p YOUR_PORT
+cd /srv/recurvos/prod/repo
+git checkout main
+git pull origin main
+docker compose -f docker-compose.yml up -d --build postgres mailpit api web worker
+```
+
+10. Verify production
+```bash
+cd /srv/recurvos/prod/repo
+docker compose -f docker-compose.yml ps
+docker logs --tail 100 recurvos-prod-api
+docker logs --tail 100 recurvos-prod-web
+docker logs --tail 100 recurvos-prod-worker
+```
+
+Fast deploy options
+-------------------
+
+If you only changed backend code on staging
+```bash
+cd /srv/recurvos/staging/repo
+docker compose -f docker-compose.staging.yml up -d --build api worker
+```
+
+If you only changed frontend code on staging
+```bash
+cd /srv/recurvos/staging/repo
+docker compose -f docker-compose.staging.yml up -d --build web
+```
+
+If you only changed backend code on production
+```bash
+cd /srv/recurvos/prod/repo
+docker compose -f docker-compose.yml up -d --build api worker
+```
+
+If you only changed frontend code on production
+```bash
+cd /srv/recurvos/prod/repo
+docker compose -f docker-compose.yml up -d --build web
+```
+
+Hotfix flow
+-----------
+
+1. Start from `main`
+```powershell
+cd C:\recurvos
+git checkout main
+git pull origin main
+git checkout -b hotfix/short-description
+```
+
+2. Make the hotfix and verify locally
+
+3. Commit and push the hotfix
+```powershell
+cd C:\recurvos
+git add .
+git commit -m "Hotfix short clear message"
+git push -u origin hotfix/short-description
+```
+
+4. Merge hotfix into `main`
+```powershell
+cd C:\recurvos
+git checkout main
+git pull origin main
+git merge hotfix/short-description
+git push origin main
+```
+
+5. Deploy production from `main`
+```bash
+ssh server@YOUR_PROD_IP -p YOUR_PORT
+cd /srv/recurvos/prod/repo
+git checkout main
+git pull origin main
+docker compose -f docker-compose.yml up -d --build postgres mailpit api web worker
+```
+
+6. Back-merge the hotfix into `develop`
+```powershell
+cd C:\recurvos
+git checkout develop
+git pull origin develop
+git merge main
+git push origin develop
+```
+
+7. Redeploy staging so `develop` matches production
+```bash
+ssh server@115.187.22.70 -p 6262
+cd /srv/recurvos/staging/repo
+git checkout develop
+git pull origin develop
+docker compose -f docker-compose.staging.yml up -d --build postgres mailpit api web worker
+```
+
+Useful checks
+-------------
+
+Local git check
+```powershell
+cd C:\recurvos
+git status
+git branch --show-current
+git log --oneline -5
+```
+
+Staging git check
+```bash
+cd /srv/recurvos/staging/repo
+git status
+git branch --show-current
+git log --oneline -5
+```
+
+Production git check
+```bash
+cd /srv/recurvos/prod/repo
+git status
+git branch --show-current
+git log --oneline -5
+```
+
+Important reminders
+-------------------
+- Staging server should stay on `develop`
+- Production server should stay on `main`
+- Merge to `develop` first, test staging, then merge `develop` into `main`
+- Localhost does not need `VITE_PUBLIC_SITE_URL` or `VITE_APP_SITE_URL` unless you explicitly want split-domain behavior locally

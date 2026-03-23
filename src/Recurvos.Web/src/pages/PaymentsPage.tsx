@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
@@ -11,7 +12,25 @@ import { formatCurrency } from "../lib/format";
 import type { Payment, PaymentConfirmation } from "../types";
 
 export function PaymentsPage() {
-  const [activeTab, setActiveTab] = useState<"pending" | "history" | "payments">("pending");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const resolveTab = (value: string | null): "pending" | "history" | "records" => {
+    if (value === "history") {
+      return "history";
+    }
+
+    if (value === "records" || value === "payments") {
+      return "records";
+    }
+
+    return "pending";
+  };
+  const resolvedInitialTab = (() => {
+    const tab = searchParams.get("tab");
+    return resolveTab(tab);
+  })();
+  const [activeTab, setActiveTab] = useState<"pending" | "history" | "records">(resolvedInitialTab);
+  const pendingTableScrollRef = useDragToScroll<HTMLDivElement>();
+  const historyTableScrollRef = useDragToScroll<HTMLDivElement>();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const [items, setItems] = useState<Payment[]>([]);
   const [confirmations, setConfirmations] = useState<PaymentConfirmation[]>([]);
@@ -56,6 +75,20 @@ export function PaymentsPage() {
       }
     });
   const pagination = useClientPagination(filteredItems, [filteredItems.length, search, statusFilter, sortBy]);
+  const {
+    topScrollRef: pendingTopScrollRef,
+    topInnerRef: pendingTopInnerRef,
+    contentScrollRef: pendingContentScrollRef,
+    bottomScrollRef: pendingBottomScrollRef,
+    bottomInnerRef: pendingBottomInnerRef,
+  } = useSyncedHorizontalScroll([confirmationPagination.pagedItems.length, confirmationPagination.currentPage, confirmationPagination.pageSize]);
+  const {
+    topScrollRef: historyTopScrollRef,
+    topInnerRef: historyTopInnerRef,
+    contentScrollRef: historyContentScrollRef,
+    bottomScrollRef: historyBottomScrollRef,
+    bottomInnerRef: historyBottomInnerRef,
+  } = useSyncedHorizontalScroll([historyPagination.pagedItems.length, historyPagination.currentPage, historyPagination.pageSize]);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, pagination.currentPage, pagination.pageSize]);
 
   async function load() {
@@ -72,34 +105,53 @@ export function PaymentsPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    const nextTab = resolveTab(searchParams.get("tab"));
+    setActiveTab(nextTab);
+  }, [searchParams]);
+
+  function selectTab(tab: "pending" | "history" | "records") {
+    setActiveTab(tab);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (tab === "pending") {
+        next.delete("tab");
+      } else {
+        next.set("tab", tab);
+      }
+
+      return next;
+    }, { replace: true });
+  }
+
   return (
     <div className="page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Gateway tracking</p>
+          <p className="eyebrow">Payment operations</p>
           <h2>Payments</h2>
         </div>
       </header>
       {error ? <HelperText tone="error">{error}</HelperText> : null}
       <section className="card settings-tab-card">
         <div className="settings-tab-strip" role="tablist" aria-label="Payments sections">
-          <button type="button" className={`settings-tab-button ${activeTab === "pending" ? "settings-tab-button-active" : ""}`} onClick={() => setActiveTab("pending")}>Pending</button>
-          <button type="button" className={`settings-tab-button ${activeTab === "history" ? "settings-tab-button-active" : ""}`} onClick={() => setActiveTab("history")}>History</button>
-          <button type="button" className={`settings-tab-button ${activeTab === "payments" ? "settings-tab-button-active" : ""}`} onClick={() => setActiveTab("payments")}>Gateway Payments</button>
+          <button type="button" className={`settings-tab-button ${activeTab === "pending" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("pending")}>Pending</button>
+          <button type="button" className={`settings-tab-button ${activeTab === "history" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("history")}>History</button>
+          <button type="button" className={`settings-tab-button ${activeTab === "records" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("records")}>Payments</button>
         </div>
       </section>
       <div className="payments-tab-summary-grid">
-        <button type="button" className={`settings-mini-tab-card ${activeTab === "pending" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("pending")}>
+        <button type="button" className={`settings-mini-tab-card ${activeTab === "pending" ? "settings-mini-tab-card-active" : ""}`} onClick={() => selectTab("pending")}>
           <span className="settings-stat-label">Pending</span>
           <strong>{pendingConfirmations.length} awaiting review</strong>
         </button>
-        <button type="button" className={`settings-mini-tab-card ${activeTab === "history" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("history")}>
+        <button type="button" className={`settings-mini-tab-card ${activeTab === "history" ? "settings-mini-tab-card-active" : ""}`} onClick={() => selectTab("history")}>
           <span className="settings-stat-label">History</span>
           <strong>{processedConfirmations.length} processed</strong>
         </button>
-        <button type="button" className={`settings-mini-tab-card ${activeTab === "payments" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("payments")}>
-          <span className="settings-stat-label">Gateway</span>
-          <strong>{filteredItems.length} tracked payments</strong>
+        <button type="button" className={`settings-mini-tab-card ${activeTab === "records" ? "settings-mini-tab-card-active" : ""}`} onClick={() => selectTab("records")}>
+          <span className="settings-stat-label">Payments</span>
+          <strong>{filteredItems.length} recorded payments</strong>
         </button>
       </div>
       {activeTab === "pending" ? (
@@ -114,7 +166,16 @@ export function PaymentsPage() {
           </div>
         {pendingConfirmations.length > 0 ? (
           <>
-            <div className="table-scroll">
+            <div ref={pendingTopScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
+              <div ref={pendingTopInnerRef} />
+            </div>
+            <div
+              ref={(node) => {
+                pendingTableScrollRef.current = node;
+                pendingContentScrollRef.current = node;
+              }}
+              className="table-scroll table-scroll-bounded table-scroll-draggable"
+            >
               <table className="catalog-table">
                 <thead>
                   <tr>
@@ -177,6 +238,9 @@ export function PaymentsPage() {
                 </tbody>
               </table>
             </div>
+            <div ref={pendingBottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
+              <div ref={pendingBottomInnerRef} />
+            </div>
             <TablePagination {...confirmationPagination} onPageChange={confirmationPagination.setCurrentPage} onPageSizeChange={confirmationPagination.setPageSize} />
           </>
         ) : (
@@ -196,7 +260,16 @@ export function PaymentsPage() {
         </div>
         {processedConfirmations.length > 0 ? (
           <>
-            <div className="table-scroll">
+            <div ref={historyTopScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
+              <div ref={historyTopInnerRef} />
+            </div>
+            <div
+              ref={(node) => {
+                historyTableScrollRef.current = node;
+                historyContentScrollRef.current = node;
+              }}
+              className="table-scroll table-scroll-bounded table-scroll-draggable"
+            >
               <table className="catalog-table">
                 <thead>
                   <tr>
@@ -224,6 +297,9 @@ export function PaymentsPage() {
                 </tbody>
               </table>
             </div>
+            <div ref={historyBottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
+              <div ref={historyBottomInnerRef} />
+            </div>
             <TablePagination {...historyPagination} onPageChange={historyPagination.setCurrentPage} onPageSizeChange={historyPagination.setPageSize} />
           </>
         ) : (
@@ -231,10 +307,10 @@ export function PaymentsPage() {
         )}
       </section>
       ) : null}
-      {activeTab === "payments" ? (
+      {activeTab === "records" ? (
       <section className="card payments-card payments-table-card">
         <div className="catalog-toolbar card subtle-card" style={{ marginBottom: "1rem" }}>
-          <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, gateway, or status" />
+          <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, payment method, or status" />
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
             <option value="all">All statuses</option>
             {Array.from(new Set(items.map((item) => item.status))).sort().map((status) => (
@@ -250,195 +326,199 @@ export function PaymentsPage() {
           </select>
           <p className="muted">{filteredItems.length} payments</p>
         </div>
-        <div className="payments-table-panel">
-          <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
-            <div ref={topInnerRef} />
-          </div>
-          <div
-            ref={(node) => {
-              tableScrollRef.current = node;
-              contentScrollRef.current = node;
-            }}
-            className="table-scroll table-scroll-bounded table-scroll-draggable"
-          >
-            <table className="catalog-table payments-table">
-              <thead>
-                <tr>
-                  <th className="sticky-cell sticky-cell-left">Invoice</th>
-                  <th>Gateway</th>
-                  <th>Status</th>
-                  <th>Amount</th>
-                  <th>Refunded</th>
-                  <th>Net</th>
-                  <th>Attempts</th>
-                  <th>Link</th>
-                  <th>Proof</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagination.pagedItems.map((item) => (
-                  <Fragment key={item.id}>
+        <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
+          <div ref={topInnerRef} />
+        </div>
+        <div
+          ref={(node) => {
+            tableScrollRef.current = node;
+            contentScrollRef.current = node;
+          }}
+          className="table-scroll table-scroll-bounded table-scroll-draggable"
+        >
+          <table className="catalog-table payments-table">
+            <thead>
+              <tr>
+                <th className="sticky-cell sticky-cell-left">Invoice</th>
+                <th>Method</th>
+                <th>Status</th>
+                <th>Amount</th>
+                <th>Refunded</th>
+                <th>Net</th>
+                <th>Attempts</th>
+                <th>Link</th>
+                <th>Proof</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagination.pagedItems.map((item) => (
+                <Fragment key={item.id}>
+                  <tr>
+                    <td className="sticky-cell sticky-cell-left table-primary-cell">
+                      <div className="table-primary-cell-inner">
+                        <span>{item.invoiceNumber}</span>
+                        <RowActionMenu
+                          items={[
+                            {
+                              label: expandedPaymentId === item.id ? "Hide details" : "View details",
+                              onClick: () => setExpandedPaymentId((current) => current === item.id ? null : item.id),
+                            },
+                            {
+                              label: "Record refund",
+                              onClick: () => {
+                                setRefundError("");
+                                setRefundForm({
+                                  paymentId: item.id,
+                                  invoiceId: item.invoiceId,
+                                  amount: String(item.netCollectedAmount),
+                                  reason: "",
+                                  externalRefundId: "",
+                                });
+                              },
+                            },
+                            ...(item.hasReceipt ? [{
+                              label: "Download receipt",
+                              onClick: () => void api.download(`/payments/${item.id}/receipt`).then((file) => {
+                                const objectUrl = URL.createObjectURL(file.blob);
+                                const anchor = document.createElement("a");
+                                anchor.href = objectUrl;
+                                anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
+                                document.body.appendChild(anchor);
+                                anchor.click();
+                                anchor.remove();
+                                URL.revokeObjectURL(objectUrl);
+                              }).catch((downloadError) => {
+                                setError(downloadError instanceof Error ? downloadError.message : "Unable to download receipt.");
+                              }),
+                            }] : []),
+                          ]}
+                        />
+                      </div>
+                    </td>
+                    <td>{item.gatewayName}</td>
+                    <td>{item.status}</td>
+                    <td>{formatCurrency(item.amount, "MYR")}</td>
+                    <td>{formatCurrency(item.refundedAmount, "MYR")}</td>
+                    <td>{formatCurrency(item.netCollectedAmount, "MYR")}</td>
+                    <td>{item.attempts.length}</td>
+                    <td>
+                      {item.paymentLinkUrl ? (
+                        <a href={item.paymentLinkUrl} target="_blank" rel="noreferrer">Open</a>
+                      ) : "-"}
+                    </td>
+                    <td>{item.hasProof ? <button type="button" className="inline-link button-link" onClick={async () => {
+                      try {
+                        const file = await api.download(`/payments/${item.id}/proof`);
+                        const objectUrl = URL.createObjectURL(file.blob);
+                        const anchor = document.createElement("a");
+                        anchor.href = objectUrl;
+                        anchor.download = file.fileName ?? "payment-proof";
+                        document.body.appendChild(anchor);
+                        anchor.click();
+                        anchor.remove();
+                        URL.revokeObjectURL(objectUrl);
+                      } catch (downloadError) {
+                        setError(downloadError instanceof Error ? downloadError.message : "Unable to download payment proof.");
+                      }
+                    }}>Open</button> : item.hasReceipt ? <button type="button" className="inline-link button-link" onClick={async () => {
+                      try {
+                        const file = await api.download(`/payments/${item.id}/receipt`);
+                        const objectUrl = URL.createObjectURL(file.blob);
+                        const anchor = document.createElement("a");
+                        anchor.href = objectUrl;
+                        anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
+                        document.body.appendChild(anchor);
+                        anchor.click();
+                        anchor.remove();
+                        URL.revokeObjectURL(objectUrl);
+                      } catch (downloadError) {
+                        setError(downloadError instanceof Error ? downloadError.message : "Unable to download receipt.");
+                      }
+                    }}>Receipt</button> : "-"}</td>
+                  </tr>
+                  {expandedPaymentId === item.id ? (
                     <tr>
-                      <td className="sticky-cell sticky-cell-left table-primary-cell">
-                        <div className="table-primary-cell-inner">
-                          <span>{item.invoiceNumber}</span>
-                          <RowActionMenu
-                            items={[
-                              {
-                                label: expandedPaymentId === item.id ? "Hide details" : "View details",
-                                onClick: () => setExpandedPaymentId((current) => current === item.id ? null : item.id),
-                              },
-                              {
-                                label: "Record refund",
-                                onClick: () => {
-                                  setRefundError("");
-                                  setRefundForm({
-                                    paymentId: item.id,
-                                    invoiceId: item.invoiceId,
-                                    amount: String(item.netCollectedAmount),
-                                    reason: "",
-                                    externalRefundId: "",
-                                  });
-                                },
-                              },
-                              ...(item.hasReceipt ? [{
-                                label: "Download receipt",
-                                onClick: () => void api.download(`/payments/${item.id}/receipt`).then((file) => {
-                                  const objectUrl = URL.createObjectURL(file.blob);
-                                  const anchor = document.createElement("a");
-                                  anchor.href = objectUrl;
-                                  anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
-                                  document.body.appendChild(anchor);
-                                  anchor.click();
-                                  anchor.remove();
-                                  URL.revokeObjectURL(objectUrl);
-                                }).catch((downloadError) => {
-                                  setError(downloadError instanceof Error ? downloadError.message : "Unable to download receipt.");
-                                }),
-                              }] : []),
-                            ]}
-                          />
-                        </div>
-                      </td>
-                      <td>{item.gatewayName}</td>
-                      <td>{item.status}</td>
-                      <td>{formatCurrency(item.amount, "MYR")}</td>
-                      <td>{formatCurrency(item.refundedAmount, "MYR")}</td>
-                      <td>{formatCurrency(item.netCollectedAmount, "MYR")}</td>
-                      <td>{item.attempts.length}</td>
-                      <td>
-                        {item.paymentLinkUrl ? (
-                          <a href={item.paymentLinkUrl} target="_blank" rel="noreferrer">Open</a>
-                        ) : "-"}
-                      </td>
-                      <td>{item.hasProof ? <button type="button" className="inline-link button-link" onClick={async () => {
-                        try {
-                          const file = await api.download(`/payments/${item.id}/proof`);
-                          const objectUrl = URL.createObjectURL(file.blob);
-                          const anchor = document.createElement("a");
-                          anchor.href = objectUrl;
-                          anchor.download = file.fileName ?? "payment-proof";
-                          document.body.appendChild(anchor);
-                          anchor.click();
-                          anchor.remove();
-                          URL.revokeObjectURL(objectUrl);
-                        } catch (downloadError) {
-                          setError(downloadError instanceof Error ? downloadError.message : "Unable to download payment proof.");
-                        }
-                      }}>Open</button> : item.hasReceipt ? <button type="button" className="inline-link button-link" onClick={async () => {
-                        try {
-                          const file = await api.download(`/payments/${item.id}/receipt`);
-                          const objectUrl = URL.createObjectURL(file.blob);
-                          const anchor = document.createElement("a");
-                          anchor.href = objectUrl;
-                          anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
-                          document.body.appendChild(anchor);
-                          anchor.click();
-                          anchor.remove();
-                          URL.revokeObjectURL(objectUrl);
-                        } catch (downloadError) {
-                          setError(downloadError instanceof Error ? downloadError.message : "Unable to download receipt.");
-                        }
-                      }}>Receipt</button> : "-"}</td>
-                    </tr>
-                    {expandedPaymentId === item.id ? (
-                      <tr>
-                        <td colSpan={9} className="subscription-details-cell">
-                          <div className="invoice-detail-panel">
-                            <div className="invoice-detail-summary">
-                              <div className="invoice-detail-stat">
-                                <p className="eyebrow">Invoice</p>
-                                <p>{item.invoiceNumber}</p>
+                      <td colSpan={9} className="subscription-details-cell">
+                        <div className="invoice-detail-panel">
+                          <div className="invoice-detail-summary">
+                            <div className="invoice-detail-stat">
+                              <p className="eyebrow">Invoice</p>
+                              <p>{item.invoiceNumber}</p>
+                            </div>
+                            <div className="invoice-detail-stat">
+                              <p className="eyebrow">Method</p>
+                              <p>{item.gatewayName}</p>
+                            </div>
+                            <div className="invoice-detail-stat">
+                              <p className="eyebrow">Status</p>
+                              <p>{item.status}</p>
+                            </div>
+                            <div className="invoice-detail-stat">
+                              <p className="eyebrow">Net collected</p>
+                              <p>{formatCurrency(item.netCollectedAmount, "MYR")}</p>
+                            </div>
+                          </div>
+
+                          <div className="invoice-detail-secondary-grid">
+                            <div className="invoice-detail-block">
+                              <div className="invoice-detail-block-header">
+                                <p className="eyebrow">Refund history</p>
                               </div>
-                              <div className="invoice-detail-stat">
-                                <p className="eyebrow">Gateway</p>
-                                <p>{item.gatewayName}</p>
-                              </div>
-                              <div className="invoice-detail-stat">
-                                <p className="eyebrow">Status</p>
-                                <p>{item.status}</p>
-                              </div>
-                              <div className="invoice-detail-stat">
-                                <p className="eyebrow">Net collected</p>
-                                <p>{formatCurrency(item.netCollectedAmount, "MYR")}</p>
+                              <div className="invoice-detail-list">
+                                {item.refunds.length > 0 ? item.refunds.map((refund) => (
+                                  <div key={refund.id} className="invoice-detail-list-row">
+                                    <span>{`${formatCurrency(refund.amount, refund.currency)} | ${refund.reason}`}</span>
+                                    <span className="muted">{new Date(refund.createdAtUtc).toLocaleString()}</span>
+                                  </div>
+                                )) : <p className="muted">No refunds recorded.</p>}
                               </div>
                             </div>
 
-                            <div className="invoice-detail-secondary-grid">
-                              <div className="invoice-detail-block">
-                                <div className="invoice-detail-block-header">
-                                  <p className="eyebrow">Refund history</p>
-                                </div>
-                                <div className="invoice-detail-list">
-                                  {item.refunds.length > 0 ? item.refunds.map((refund) => (
-                                    <div key={refund.id} className="invoice-detail-list-row">
-                                      <span>{`${formatCurrency(refund.amount, refund.currency)} | ${refund.reason}`}</span>
-                                      <span className="muted">{new Date(refund.createdAtUtc).toLocaleString()}</span>
-                                    </div>
-                                  )) : <p className="muted">No refunds recorded.</p>}
-                                </div>
+                            <div className="invoice-detail-block">
+                              <div className="invoice-detail-block-header">
+                                <p className="eyebrow">Disputes</p>
                               </div>
-
-                              <div className="invoice-detail-block">
-                                <div className="invoice-detail-block-header">
-                                  <p className="eyebrow">Disputes</p>
-                                </div>
-                                <div className="invoice-detail-list">
-                                  {item.disputes.length > 0 ? item.disputes.map((dispute) => (
-                                    <div key={dispute.id} className="invoice-detail-list-row">
-                                      <span>{`${formatCurrency(dispute.amount, "MYR")} | ${dispute.reason} | ${dispute.status}`}</span>
-                                      <span className="muted">{new Date(dispute.openedAtUtc).toLocaleDateString()}</span>
-                                    </div>
-                                  )) : <p className="muted">No disputes. Future capability remains read-only.</p>}
-                                </div>
+                              <div className="invoice-detail-list">
+                                {item.disputes.length > 0 ? item.disputes.map((dispute) => (
+                                  <div key={dispute.id} className="invoice-detail-list-row">
+                                    <span>{`${formatCurrency(dispute.amount, "MYR")} | ${dispute.reason} | ${dispute.status}`}</span>
+                                    <span className="muted">{new Date(dispute.openedAtUtc).toLocaleDateString()}</span>
+                                  </div>
+                                )) : <p className="muted">No disputes. Future capability remains read-only.</p>}
                               </div>
+                            </div>
 
-                              <div className="invoice-detail-block">
-                                <div className="invoice-detail-block-header">
-                                  <p className="eyebrow">Attempts</p>
-                                </div>
-                                <div className="invoice-detail-list">
-                                  {item.attempts.length > 0 ? item.attempts.map((attempt) => (
-                                    <div key={`${item.id}-${attempt.attemptNumber}`} className="invoice-detail-list-row">
-                                      <span>{`Attempt ${attempt.attemptNumber} | ${attempt.status}`}</span>
-                                      <span className="muted">{attempt.failureMessage || attempt.failureCode || "-"}</span>
-                                    </div>
-                                  )) : <p className="muted">No attempt history.</p>}
-                                </div>
+                            <div className="invoice-detail-block">
+                              <div className="invoice-detail-block-header">
+                                <p className="eyebrow">Attempts</p>
+                              </div>
+                              <div className="invoice-detail-list">
+                                {item.attempts.length > 0 ? item.attempts.map((attempt) => (
+                                  <div key={`${item.id}-${attempt.attemptNumber}`} className="invoice-detail-list-row">
+                                    <span>{`Attempt ${attempt.attemptNumber} | ${attempt.status}`}</span>
+                                    <span className="muted">{attempt.failureMessage || attempt.failureCode || "-"}</span>
+                                  </div>
+                                )) : <p className="muted">No attempt history.</p>}
                               </div>
                             </div>
                           </div>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
-            <div ref={bottomInnerRef} />
-          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+          {pagination.pagedItems.length === 0 ? (
+            <div className="empty-state">
+              <h3>No payments found</h3>
+              <p className="muted">Try a different status or search term to review manual payment records.</p>
+            </div>
+          ) : null}
+        </div>
+        <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
+          <div ref={bottomInnerRef} />
         </div>
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
@@ -520,7 +600,7 @@ export function PaymentsPage() {
                 onClick={() => setReviewForm((current) => current ? { ...current, action: "reject" } : current)}
               >
                 <span className="settings-stat-label">Reject</span>
-                <strong>Keep pending</strong>
+                <strong>Reject submission</strong>
               </button>
             </div>
             <label className="form-label">

@@ -1422,7 +1422,6 @@ public sealed class DbSeeder(AppDbContext dbContext)
             IntervalCount = intervalCount,
             Currency = "MYR",
             UnitAmount = unitAmount,
-            TrialDays = 0,
             SetupFeeAmount = 0,
             TaxBehavior = TaxBehavior.Unspecified,
             IsDefault = isDefault,

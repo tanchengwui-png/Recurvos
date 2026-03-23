@@ -72,6 +72,10 @@ public static class InvoicePdfTemplate
                                 MetaRow(right, "Invoice No", model.InvoiceNumber);
                                 MetaRow(right, "Invoice Date", model.InvoiceDateUtc.ToString("dd MMM yyyy"));
                                 MetaRow(right, "Due Date", model.DueDateUtc.ToString("dd MMM yyyy"));
+                                if (model.PeriodStartUtc.HasValue && model.PeriodEndUtc.HasValue)
+                                {
+                                    MetaRow(right, "Billing Period", $"{model.PeriodStartUtc.Value:dd MMM yyyy} - {model.PeriodEndUtc.Value:dd MMM yyyy}");
+                                }
                                 MetaRow(right, "Currency", currency);
                             });
                         }));

@@ -23,6 +23,9 @@ public sealed class SubscriptionRequest
     [Required]
     public DateTime StartDateUtc { get; set; } = DateTime.UtcNow;
 
+    [Range(0, 3650)]
+    public int TrialDays { get; set; }
+
     [MaxLength(1000)]
     public string? Notes { get; set; }
 }

@@ -1696,9 +1696,6 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("TrialDays")
-                        .HasColumnType("integer");
-
                     b.Property<decimal>("UnitAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");

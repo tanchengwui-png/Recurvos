@@ -2517,19 +2517,9 @@ select:focus,
   padding: var(--space-5);
 }
 
-.payments-table-panel {
-  border-radius: var(--radius-lg);
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(11, 23, 38, 0.75);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-.payments-table-panel .table-scroll {
-  margin: 0;
-}
-
 .payments-table {
-  min-width: 1080px;
+  min-width: 1240px;
+  width: max-content;
   border-spacing: 0;
   border-collapse: collapse;
 }
