@@ -919,8 +919,8 @@ public sealed class SubscriberPackageBillingService(
             billingCustomer.Email,
             $"Invoice {invoice.InvoiceNumber}",
             body,
-            attachments: [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", pdfContent, "application/pdf")],
-            cancellationToken: cancellationToken);
+            [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", pdfContent, "application/pdf")],
+            cancellationToken);
     }
 
     private async Task TryAutoSendPlatformInvoiceEmailAsync(Company issuerCompany, Customer billingCustomer, Invoice invoice, CompanyInvoiceSettings invoiceSettings, CancellationToken cancellationToken)
