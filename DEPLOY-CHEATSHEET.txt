@@ -84,3 +84,16 @@ docker-compose -f docker-compose.yml ps
 - `main` = production
 - Do not work directly on `main`
 - Do not deploy fix branches directly to production
+
+13. Production domain env vars
+```text
+APP_WEB_BASE_URL=https://app.recurvos.com
+APP_API_BASE_URL=https://api.recurvos.com
+VITE_API_BASE_URL=https://api.recurvos.com/api
+VITE_PUBLIC_SITE_URL=https://recurvos.com
+VITE_APP_SITE_URL=https://app.recurvos.com
+```
+
+14. Localhost note
+- `launch-recurvos.cmd` does not need these site URL vars.
+- Localhost uses the current origin automatically unless `VITE_PUBLIC_SITE_URL` or `VITE_APP_SITE_URL` is explicitly set.

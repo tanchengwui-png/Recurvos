@@ -102,3 +102,40 @@ git push -u origin develop
 - Do not deploy feature branches directly to production
 - Keep staging on `develop`
 - Keep production on `main`
+
+## Domain Setup
+
+- Localhost keeps using the current origin by default. No extra site URL env vars are required for `launch-recurvos.cmd`.
+- Recommended production split:
+  - `https://recurvos.com` for landing/public pages
+  - `https://app.recurvos.com` for login and app
+  - `https://api.recurvos.com` for API
+
+## Required Production Env Values
+
+Set these for production:
+
+```text
+APP_WEB_BASE_URL=https://app.recurvos.com
+APP_API_BASE_URL=https://api.recurvos.com
+VITE_API_BASE_URL=https://api.recurvos.com/api
+VITE_PUBLIC_SITE_URL=https://recurvos.com
+VITE_APP_SITE_URL=https://app.recurvos.com
+```
+
+Set these for staging if you want the same split pattern:
+
+```text
+APP_WEB_BASE_URL=https://staging-app.recurvos.com
+APP_API_BASE_URL=https://staging-api.recurvos.com
+VITE_API_BASE_URL=https://staging-api.recurvos.com/api
+VITE_PUBLIC_SITE_URL=https://staging.recurvos.com
+VITE_APP_SITE_URL=https://staging-app.recurvos.com
+```
+
+If staging does not use a separate landing domain, point both site vars to the same host:
+
+```text
+VITE_PUBLIC_SITE_URL=https://staging-app.recurvos.com
+VITE_APP_SITE_URL=https://staging-app.recurvos.com
+```

@@ -3,6 +3,7 @@ import type { Location } from "react-router-dom";
 import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { getAuth } from "./lib/auth";
+import { isAppSiteHost } from "./lib/siteUrls";
 import { CompaniesPage } from "./pages/CompaniesPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -48,7 +49,11 @@ function HomeRoute() {
 }
 
 function RootRoute() {
-  return getAuth() ? <Navigate to="/app" replace /> : <LandingPage />;
+  if (getAuth()) {
+    return <Navigate to="/app" replace />;
+  }
+
+  return isAppSiteHost() ? <Navigate to="/login" replace /> : <LandingPage />;
 }
 
 function TenantRoute({ children }: { children: ReactElement }) {

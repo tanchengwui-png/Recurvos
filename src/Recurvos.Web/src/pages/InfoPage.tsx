@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { InlineLink } from "../components/ui/InlineLink";
+import { buildAppSiteUrl } from "../lib/siteUrls";
 
 type InfoSection = {
   title?: string;
@@ -63,7 +64,7 @@ export function InfoPage({
           ))}
         </div>
       ) : null}
-      {modal ? null : <InlineLink href="/login">Back to sign in</InlineLink>}
+      {modal ? null : <InlineLink href={buildAppSiteUrl("/login")}>Back to sign in</InlineLink>}
     </section>
   );
 

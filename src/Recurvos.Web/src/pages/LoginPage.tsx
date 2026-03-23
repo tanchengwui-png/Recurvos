@@ -9,6 +9,7 @@ import { PasswordInput } from "../components/ui/PasswordInput";
 import { TextInput } from "../components/ui/TextInput";
 import { api } from "../lib/api";
 import { setAuth } from "../lib/auth";
+import { buildPublicSiteUrl } from "../lib/siteUrls";
 import type { AuthResponse, PlatformRuntimeProfile } from "../types";
 
 export function LoginPage() {
@@ -84,7 +85,7 @@ export function LoginPage() {
     <div className="auth-page login-page-shell">
       <div className="login-layout">
         <section className="login-showcase card subtle-card">
-          <Link className="login-showcase-brand" to="/">
+          <a className="login-showcase-brand" href={buildPublicSiteUrl("/")}>
             <div className="brand-mark" aria-hidden="true">
               <span />
             </div>
@@ -92,7 +93,7 @@ export function LoginPage() {
               <p className="eyebrow">Recurvo Billing</p>
               <h1 className="brand-title">Subscription billing for Malaysian businesses</h1>
             </div>
-          </Link>
+          </a>
 
           <div className="login-showcase-copy">
             <p className="login-lead">

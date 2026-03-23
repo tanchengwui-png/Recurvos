@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { buildAppSiteUrl } from "../lib/siteUrls";
 
 const operationalHighlights = [
   {
@@ -73,8 +74,8 @@ export function LandingPage() {
           </Link>
 
           <div className="landing-topbar-actions">
-            <Link className="button button-secondary landing-topbar-signin" to="/login">Sign in</Link>
-            <Link className="button button-primary" to="/pricing">Start free</Link>
+            <a className="button button-secondary landing-topbar-signin" href={buildAppSiteUrl("/login")}>Sign in</a>
+            <a className="button button-primary" href={buildAppSiteUrl("/pricing")}>Start free</a>
           </div>
         </header>
 
@@ -86,8 +87,8 @@ export function LandingPage() {
               Automate invoices, subscriptions, and recurring billing for Malaysian businesses.
             </p>
             <div className="landing-hero-actions">
-              <Link className="button button-primary" to="/pricing">Start free for 7 days</Link>
-              <Link className="button button-secondary" to="/login">View workspace</Link>
+              <a className="button button-primary" href={buildAppSiteUrl("/pricing")}>Start free for 7 days</a>
+              <a className="button button-secondary" href={buildAppSiteUrl("/login")}>View workspace</a>
             </div>
             <div className="landing-trust-row">
               <span>SST-ready workflow</span>
@@ -193,8 +194,8 @@ export function LandingPage() {
             </p>
           </div>
           <div className="landing-cta-actions">
-            <Link className="button button-primary" to="/pricing">Create account</Link>
-            <Link className="button button-secondary" to="/login">Sign in</Link>
+            <a className="button button-primary" href={buildAppSiteUrl("/pricing")}>Create account</a>
+            <a className="button button-secondary" href={buildAppSiteUrl("/login")}>Sign in</a>
           </div>
         </section>
 
