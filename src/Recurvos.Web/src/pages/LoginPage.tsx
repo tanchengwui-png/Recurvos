@@ -183,7 +183,7 @@ export function LoginPage() {
 
             {isVerificationError ? <HelperText tone="error">{verificationHelpMessage}</HelperText> : null}
             {error && !isVerificationError ? <HelperText tone="error">{error}</HelperText> : null}
-            {verificationResent ? <HelperText>Verification email sent. Please check your inbox.</HelperText> : null}
+            {verificationResent ? <HelperText>Verification email sent. Please check your inbox, and if needed, your junk or spam folder.</HelperText> : null}
             <div className="button-stack">
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Signing in..." : "Sign in"}

@@ -72,7 +72,7 @@ export function VerifyEmailPage() {
             />
           </FormLabel>
         ) : null}
-        {status === "failed" && resent ? <HelperText>Verification email sent. Please check your inbox.</HelperText> : null}
+        {status === "failed" && resent ? <HelperText>Verification email sent. Please check your inbox, and if needed, your junk or spam folder.</HelperText> : null}
         {status === "failed" ? (
           <div className="button-stack">
             <Button type="button" onClick={() => navigate("/login")}>

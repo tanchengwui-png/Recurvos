@@ -301,8 +301,7 @@ public sealed class PaymentConfirmationService(
             return null;
         }
 
-        if (!invoice.PaymentConfirmationTokenIssuedAtUtc.HasValue
-            || invoice.PaymentConfirmationTokenIssuedAtUtc.Value < DateTime.UtcNow.AddDays(-PublicTokenLifetimeDays))
+        if (IsInvoiceTokenExpired(invoice))
         {
             return null;
         }
@@ -312,11 +311,22 @@ public sealed class PaymentConfirmationService(
 
     private string EnsureInvoiceToken(Invoice invoice)
     {
+        if (!string.IsNullOrWhiteSpace(invoice.PaymentConfirmationToken)
+            && !IsInvoiceTokenExpired(invoice))
+        {
+            return invoice.PaymentConfirmationToken;
+        }
+
         var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        invoice.PaymentConfirmationToken = rawToken;
         invoice.PaymentConfirmationTokenHash = HashToken(rawToken);
         invoice.PaymentConfirmationTokenIssuedAtUtc = DateTime.UtcNow;
         return rawToken;
     }
+
+    private static bool IsInvoiceTokenExpired(Invoice invoice) =>
+        !invoice.PaymentConfirmationTokenIssuedAtUtc.HasValue
+        || invoice.PaymentConfirmationTokenIssuedAtUtc.Value < DateTime.UtcNow.AddDays(-PublicTokenLifetimeDays);
 
     private static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 

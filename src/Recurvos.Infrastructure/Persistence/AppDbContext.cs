@@ -128,6 +128,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(128)
             .IsRequired();
 
+        modelBuilder.Entity<Invoice>()
+            .Property(x => x.PaymentConfirmationToken)
+            .HasMaxLength(48);
+
         modelBuilder.Entity<PasswordResetToken>()
             .HasOne(x => x.User)
             .WithMany(x => x.PasswordResetTokens)

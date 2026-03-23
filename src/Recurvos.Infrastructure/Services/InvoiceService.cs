@@ -275,8 +275,33 @@ public sealed class InvoiceService(
             return null;
         }
 
-        var generated = await CreateSubscriptionInvoiceAsync(subscription, persist: true, previewInvoiceNumber: null, cancellationToken);
-        return generated?.Invoice is null ? null : (await GetByIdAsync(generated.Invoice.Id, cancellationToken))!;
+        var nowUtc = DateTime.UtcNow;
+        var generatedInvoices = new List<Invoice>();
+        var hasOverdueCycles = subscription.Items.Any(item =>
+            SubscriptionService.IsItemDue(item, nowUtc)
+            || SubscriptionService.IsOneTimeItemReadyForBilling(item, nowUtc));
+
+        if (!hasOverdueCycles)
+        {
+            var generated = await CreateSubscriptionInvoiceAsync(subscription, persist: true, previewInvoiceNumber: null, cancellationToken);
+            return generated?.Invoice is null ? null : (await GetByIdAsync(generated.Invoice.Id, cancellationToken))!;
+        }
+
+        while (subscription.Items.Any(item =>
+                   SubscriptionService.IsItemDue(item, nowUtc)
+                   || SubscriptionService.IsOneTimeItemReadyForBilling(item, nowUtc)))
+        {
+            var generated = await CreateSubscriptionInvoiceAsync(subscription, persist: true, previewInvoiceNumber: null, cancellationToken);
+            if (generated?.Invoice is null)
+            {
+                break;
+            }
+
+            generatedInvoices.Add(generated.Invoice);
+        }
+
+        var latestInvoice = generatedInvoices.LastOrDefault();
+        return latestInvoice is null ? null : (await GetByIdAsync(latestInvoice.Id, cancellationToken))!;
     }
 
     public async Task<(byte[] Content, string FileName, string ContentType)?> GenerateSubscriptionPreviewPdfAsync(Guid subscriptionId, CancellationToken cancellationToken = default)
@@ -732,14 +757,7 @@ public sealed class InvoiceService(
                 }
             }
 
-            foreach (var oneTimeItem in eligibleDueItems.Where(x => x.BillingType == BillingType.OneTime))
-            {
-                oneTimeItem.AutoRenew = false;
-                oneTimeItem.NextBillingUtc = null;
-                oneTimeItem.EndedAtUtc = invoice.IssueDateUtc;
-            }
-
-            SubscriptionService.SyncAggregateSnapshot(subscription);
+            AdvanceSubscriptionAfterInvoiceCreation(subscription, eligibleDueItems, invoice.IssueDateUtc);
 
             created++;
         }
@@ -1329,8 +1347,17 @@ public sealed class InvoiceService(
     private async Task SendInvoiceEmailAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
-        var link = await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
-        var pdfContent = await RegenerateInvoicePdfAsync(invoice, customer, cancellationToken);
+        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
+        var paymentConfirmationLink = string.IsNullOrWhiteSpace(paymentGatewayLink)
+            ? await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken)
+            : null;
+        var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
+        var link = paymentGatewayLink ?? paymentConfirmationLink ?? invoiceSettings?.PaymentLink;
+        var pdfContent = await RegenerateInvoicePdfAsync(
+            invoice,
+            customer,
+            cancellationToken,
+            paymentConfirmationLink);
         var pdfFileName = $"{invoice.InvoiceNumber}.pdf";
         var body = EmailTemplateRenderer.RenderInvoiceEmail(
             company.Name,
@@ -1374,12 +1401,20 @@ public sealed class InvoiceService(
         return string.IsNullOrWhiteSpace(subscriberEmail) ? null : [subscriberEmail.Trim()];
     }
 
-    private async Task<byte[]> RegenerateInvoicePdfAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)
+    private async Task<byte[]> RegenerateInvoicePdfAsync(
+        Invoice invoice,
+        Customer customer,
+        CancellationToken cancellationToken,
+        string? paymentConfirmationLinkOverride = null)
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
         var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
-        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        var paymentConfirmationLink = paymentConfirmationLinkOverride;
+        if (string.IsNullOrWhiteSpace(paymentConfirmationLink))
+        {
+            paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        }
 
         var pdf = LocalInvoiceStorage.CreatePdf(
             company.Name,
@@ -1472,7 +1507,15 @@ public sealed class InvoiceService(
 
     private async Task<string> EnsurePaymentConfirmationLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(invoice.PaymentConfirmationToken)
+            && invoice.PaymentConfirmationTokenIssuedAtUtc.HasValue
+            && invoice.PaymentConfirmationTokenIssuedAtUtc.Value >= DateTime.UtcNow.AddDays(-30))
+        {
+            return $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payment-confirmation?token={Uri.EscapeDataString(invoice.PaymentConfirmationToken)}";
+        }
+
         var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
+        invoice.PaymentConfirmationToken = rawToken;
         invoice.PaymentConfirmationTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
         invoice.PaymentConfirmationTokenIssuedAtUtc = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1764,14 +1807,7 @@ public sealed class InvoiceService(
             await TrySendInvoiceWhatsAppAsync(invoice, subscriptionCustomer, cancellationToken);
         }
 
-        foreach (var oneTimeItem in eligibleItems.Where(x => x.BillingType == BillingType.OneTime))
-        {
-            oneTimeItem.AutoRenew = false;
-            oneTimeItem.NextBillingUtc = null;
-            oneTimeItem.EndedAtUtc = issueDateUtc;
-        }
-
-        SubscriptionService.SyncAggregateSnapshot(subscription);
+        AdvanceSubscriptionAfterInvoiceCreation(subscription, eligibleItems, issueDateUtc);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return new GeneratedSubscriptionInvoice(invoice, pdf);
@@ -1805,6 +1841,31 @@ public sealed class InvoiceService(
             string.IsNullOrWhiteSpace(settings.TaxName) ? "SST" : settings.TaxName.Trim(),
             settings.TaxRate,
             string.IsNullOrWhiteSpace(settings.TaxRegistrationNo) ? null : settings.TaxRegistrationNo.Trim());
+    }
+
+    private static void AdvanceSubscriptionAfterInvoiceCreation(
+        Subscription subscription,
+        IReadOnlyCollection<SubscriptionItem> billedItems,
+        DateTime issueDateUtc)
+    {
+        var billedRecurringItemIds = billedItems
+            .Where(x => x.BillingType == BillingType.Recurring)
+            .Select(x => x.Id)
+            .ToList();
+
+        if (billedRecurringItemIds.Count > 0)
+        {
+            SubscriptionService.ApplySuccessfulRenewal(subscription, billedRecurringItemIds);
+        }
+
+        foreach (var oneTimeItem in billedItems.Where(x => x.BillingType == BillingType.OneTime))
+        {
+            oneTimeItem.AutoRenew = false;
+            oneTimeItem.NextBillingUtc = null;
+            oneTimeItem.EndedAtUtc = issueDateUtc;
+        }
+
+        SubscriptionService.SyncAggregateSnapshot(subscription);
     }
 
     private static decimal CalculateTaxAmount(decimal subtotal, CompanyTaxProfile taxProfile) =>
