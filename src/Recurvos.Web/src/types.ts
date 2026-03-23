@@ -185,7 +185,6 @@ export type ProductPlan = {
   billingLabel: string;
   currency: string;
   unitAmount: number;
-  trialDays: number;
   taxBehavior: "Exclusive" | "Inclusive" | "Unspecified";
   isDefault: boolean;
   isActive: boolean;

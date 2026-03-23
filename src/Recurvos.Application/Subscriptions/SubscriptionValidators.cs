@@ -21,6 +21,11 @@ public static class SubscriptionValidators
             errors.Add("Notes must be 1000 characters or fewer.");
         }
 
+        if (request.TrialDays < 0)
+        {
+            errors.Add("Trial days must be zero or more.");
+        }
+
         return errors;
     }
 

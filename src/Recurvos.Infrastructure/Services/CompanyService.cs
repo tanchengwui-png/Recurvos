@@ -197,7 +197,6 @@ public sealed class CompanyService(
                 ProductPlanService.FormatBillingLabel(x.BillingType, x.IntervalUnit, x.IntervalCount),
                 x.Currency,
                 x.UnitAmount,
-                x.TrialDays,
                 x.TaxBehavior,
                 x.IsDefault,
                 x.IsActive,

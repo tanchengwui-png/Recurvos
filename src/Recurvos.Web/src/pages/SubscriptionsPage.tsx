@@ -57,14 +57,16 @@ export function SubscriptionsPage() {
     companyId: "",
     customerId: "",
     productPlanId: "",
+    trialDays: "0",
     quantity: "1",
     items: [] as { productPlanId: string; quantity: number }[],
     startDateUtc: new Date().toISOString().slice(0, 10),
     notes: "",
   });
   const selectedPlan = plans.find((plan) => plan.id === form.productPlanId);
-  const trialPreviewEnd = selectedPlan?.trialDays && selectedPlan.trialDays > 0
-    ? new Date(new Date(form.startDateUtc).getTime() + selectedPlan.trialDays * 24 * 60 * 60 * 1000)
+  const trialDays = Number(form.trialDays || "0");
+  const trialPreviewEnd = trialDays > 0
+    ? new Date(new Date(form.startDateUtc).getTime() + trialDays * 24 * 60 * 60 * 1000)
     : null;
   const missingBillingItems = billingReadiness?.items.filter((item) => item.required && !item.done) ?? [];
   const customerExistingSubscriptions = items.filter((item) => item.companyId === form.companyId
@@ -186,6 +188,7 @@ export function SubscriptionsPage() {
           await api.post("/subscriptions", {
             customerId: form.customerId,
             startDateUtc: new Date(form.startDateUtc).toISOString(),
+            trialDays,
             notes: form.notes,
             items: form.items,
           });
@@ -307,8 +310,8 @@ export function SubscriptionsPage() {
           {dueInvoiceCount !== null ? (
             <p className="muted">
               {dueInvoiceCount > 0
-                ? `${dueInvoiceCount} subscription${dueInvoiceCount === 1 ? "" : "s"} ${dueInvoiceCount === 1 ? "is" : "are"} ready for invoice generation.`
-                : "No subscriptions are waiting for invoice generation right now."}
+                ? `${dueInvoiceCount} subscription${dueInvoiceCount === 1 ? "" : "s"} ${dueInvoiceCount === 1 ? "is" : "are"} ready to invoice now.`
+                : "No subscriptions are waiting for their next invoice right now."}
             </p>
           ) : null}
         </div>
@@ -316,15 +319,15 @@ export function SubscriptionsPage() {
           type="button"
           className="button button-secondary"
           onClick={() => setConfirmState({
-            title: "Run due invoices now",
-            description: "Generate invoices for all subscriptions that are currently due? This uses the same due-invoice logic as the scheduled billing run.",
+            title: "Run invoices now",
+            description: "Generate invoices for all subscriptions whose invoice date has been reached? This uses the same invoice-date logic as the scheduled billing run.",
             action: async () => {
               await runDueInvoicesNow();
               setConfirmState(null);
             },
           })}
         >
-          Run due invoices now
+          Run invoices now
         </button>
       </header>
       {message ? <HelperText>{message}</HelperText> : null}
@@ -353,7 +356,7 @@ export function SubscriptionsPage() {
                   <th>Status</th>
                   <th>Billing</th>
                   <th>Current period</th>
-                  <th>Next billing</th>
+                  <th>Next invoice</th>
                   <th>Lifecycle</th>
                   <th>Items</th>
                 </tr>
@@ -385,8 +388,8 @@ export function SubscriptionsPage() {
                               {
                                 label: "Preview invoice",
                                 onClick: () => setConfirmState({
-                                  title: "Preview renewal invoice",
-                                  description: `Generate a preview invoice for ${item.customerName} without saving it?`,
+                                  title: "Preview next invoice",
+                                  description: `Generate a preview of the next invoice for ${item.customerName} without saving it?`,
                                   action: async () => {
                                     try {
                                       await downloadSubscriptionPreview(item.id);
@@ -405,7 +408,7 @@ export function SubscriptionsPage() {
                                 label: "Generate invoice now",
                                 onClick: () => setConfirmState({
                                   title: "Generate invoice now",
-                                  description: `Create a real subscription invoice now for ${item.customerName}? This uses the current billing cycle and saves an invoice record.`,
+                                  description: `Create the next real subscription invoice now for ${item.customerName}? This saves an invoice record for the current invoice date.`,
                                   action: async () => {
                                     try {
                                       await api.post(`/subscriptions/${item.id}/generate-invoice`);
@@ -621,7 +624,7 @@ export function SubscriptionsPage() {
           {pricingEdit ? (
             <div ref={pricingFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
               <p className="eyebrow">Update future billing</p>
-              <HelperText>Changes here affect the next renewal only. The current period and historical invoices stay unchanged.</HelperText>
+              <HelperText>Changes here affect the next invoice onward. The current period and historical invoices stay unchanged.</HelperText>
               <div className="inline-fields">
                 <label className="form-label">
                   Unit price
@@ -709,13 +712,17 @@ export function SubscriptionsPage() {
                 ))}
               </select>
             </label>
-            {selectedPlan?.trialDays && selectedPlan.trialDays > 0 ? (
-              <HelperText>{`${selectedPlan.trialDays}-day trial${trialPreviewEnd ? ` | Trial ends on ${trialPreviewEnd.toISOString().slice(0, 10)}` : ""}`}</HelperText>
+            <label className="form-label">
+              Trial days
+              <input className="text-input" value={form.trialDays} onChange={(event) => setForm((current) => ({ ...current, trialDays: event.target.value }))} />
+            </label>
+            {trialDays > 0 ? (
+              <HelperText>{`${trialDays}-day trial${trialPreviewEnd ? ` | First invoice date ${trialPreviewEnd.toISOString().slice(0, 10)}` : ""}`}</HelperText>
             ) : (
-              <HelperText>No trial on this plan</HelperText>
+              <HelperText>No trial on this subscription</HelperText>
             )}
             {selectedPlan ? (
-              <HelperText>{`Price: ${formatCurrency(selectedPlan.unitAmount, selectedPlan.currency)} | Billing: ${selectedPlan.billingLabel} | Auto Renew: ${selectedPlan.billingType === "Recurring" ? "Yes" : "No"} | Billing snapshot stored on subscription`}</HelperText>
+              <HelperText>{`Price: ${formatCurrency(selectedPlan.unitAmount, selectedPlan.currency)} | Billing: ${selectedPlan.billingLabel} | Auto Renew: ${selectedPlan.billingType === "Recurring" ? "Yes" : "No"} | Trial applies to all items in this subscription`}</HelperText>
             ) : null}
             <label className="form-label">
               Quantity

@@ -56,13 +56,13 @@ public sealed class SubscriptionService(
         await billingReadinessService.EnsureReadyAsync(companyId, "subscription creation", cancellationToken);
         var startUtc = request.StartDateUtc.Kind == DateTimeKind.Utc ? request.StartDateUtc : request.StartDateUtc.ToUniversalTime();
         ThrowIfInvalid(SubscriptionValidators.ValidateStartDate(startUtc, DateTime.UtcNow));
+        DateTime? trialStartUtc = request.TrialDays > 0 ? startUtc : null;
+        DateTime? trialEndUtc = request.TrialDays > 0 ? startUtc.AddDays(request.TrialDays) : null;
+        ValidateTrialWindow(trialStartUtc, trialEndUtc);
 
         var items = request.Items.Select(itemRequest =>
         {
             var plan = plans.Single(x => x.Id == itemRequest.ProductPlanId);
-            DateTime? trialStartUtc = plan.TrialDays > 0 ? startUtc : null;
-            DateTime? trialEndUtc = plan.TrialDays > 0 ? startUtc.AddDays(plan.TrialDays) : null;
-            ValidateTrialWindow(trialStartUtc, trialEndUtc);
             var cycle = ComputeBillingCycle(startUtc, trialEndUtc, plan.BillingType, plan.IntervalUnit, plan.IntervalCount);
 
             return new SubscriptionItem
@@ -91,6 +91,8 @@ public sealed class SubscriptionService(
             CustomerId = customer.Id,
             Status = SubscriptionStatus.Active,
             StartDateUtc = startUtc,
+            TrialStartUtc = trialStartUtc,
+            TrialEndUtc = trialEndUtc,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
@@ -498,12 +500,13 @@ public sealed class SubscriptionService(
     {
         if (billingType == BillingType.OneTime)
         {
-            return (startDateUtc, startDateUtc, null);
+            var effectiveStartUtc = trialEndUtc ?? startDateUtc;
+            return (effectiveStartUtc, effectiveStartUtc, null);
         }
 
         var currentPeriodStartUtc = trialEndUtc ?? startDateUtc;
         var currentPeriodEndUtc = BillingCalculator.ComputePeriodEnd(currentPeriodStartUtc, intervalUnit, intervalCount);
-        var nextBillingUtc = BillingCalculator.ComputeNextBillingUtc(currentPeriodEndUtc);
+        var nextBillingUtc = currentPeriodStartUtc;
         return (currentPeriodStartUtc, currentPeriodEndUtc, nextBillingUtc);
     }
 
@@ -531,6 +534,11 @@ public sealed class SubscriptionService(
 
         foreach (var item in subscription.Items.Where(x => billedSet.Contains(x.Id) && !x.EndedAtUtc.HasValue))
         {
+            if (item.BillingType != BillingType.OneTime)
+            {
+                continue;
+            }
+
             if (!item.AutoRenew || !item.NextBillingUtc.HasValue)
             {
                 item.EndedAtUtc = item.CurrentPeriodEndUtc ?? DateTime.UtcNow;

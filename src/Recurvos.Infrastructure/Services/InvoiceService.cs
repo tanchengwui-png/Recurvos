@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Recurvos.Application.Abstractions;
+using Recurvos.Application.Common;
 using Recurvos.Application.CreditNotes;
 using Recurvos.Application.Features;
 using Recurvos.Application.Invoices;
@@ -644,22 +645,32 @@ public sealed class InvoiceService(
                 continue;
             }
 
-            var lineItems = eligibleDueItems.Select(dueItem => new InvoiceLineItem
+            var dueItemCycles = eligibleDueItems
+                .Select(dueItem => new
+                {
+                    Item = dueItem,
+                    InvoicePeriod = ResolveInvoicePeriod(dueItem)
+                })
+                .ToList();
+
+            var lineItems = dueItemCycles.Select(entry => new InvoiceLineItem
             {
                 CompanyId = subscription.CompanyId,
-                SubscriptionItemId = dueItem.Id,
-                Description = dueItem.ProductPlan?.PlanName ?? "Subscription",
-                Quantity = dueItem.Quantity,
-                UnitAmount = dueItem.UnitAmount,
-                TotalAmount = dueItem.Quantity * dueItem.UnitAmount
+                SubscriptionItemId = entry.Item.Id,
+                Description = BuildSubscriptionLineDescription(entry.Item),
+                Quantity = entry.Item.Quantity,
+                UnitAmount = entry.Item.UnitAmount,
+                TotalAmount = entry.Item.Quantity * entry.Item.UnitAmount
             }).ToList();
             var total = lineItems.Sum(x => x.TotalAmount);
             var taxProfile = ResolveTaxProfile(invoiceSettings);
             var taxAmount = CalculateTaxAmount(total, taxProfile);
             var grandTotal = total + taxAmount;
-            var periodStartUtc = eligibleDueItems.Where(x => x.CurrentPeriodStartUtc.HasValue).Min(x => x.CurrentPeriodStartUtc);
-            var periodEndUtc = eligibleDueItems.Where(x => x.CurrentPeriodEndUtc.HasValue).Max(x => x.CurrentPeriodEndUtc);
+            var periodStartUtc = dueItemCycles.Where(x => x.InvoicePeriod.PeriodStartUtc.HasValue).Min(x => x.InvoicePeriod.PeriodStartUtc);
+            var periodEndUtc = dueItemCycles.Where(x => x.InvoicePeriod.PeriodEndUtc.HasValue).Max(x => x.InvoicePeriod.PeriodEndUtc);
             var invoiceNumber = await GenerateInvoiceNumberAsync(subscription.CompanyId, cancellationToken);
+            var issueDateUtc = periodStartUtc ?? DateTime.UtcNow;
+            var dueDateUtc = issueDateUtc.AddDays(invoiceSettings?.PaymentDueDays ?? 7);
 
             var invoice = new Invoice
             {
@@ -668,8 +679,8 @@ public sealed class InvoiceService(
                 SubscriptionId = subscription.Id,
                 InvoiceNumber = invoiceNumber,
                 Status = InvoiceStatus.Open,
-                IssueDateUtc = DateTime.UtcNow,
-                DueDateUtc = DateTime.UtcNow.AddDays(invoiceSettings?.PaymentDueDays ?? 7),
+                IssueDateUtc = issueDateUtc,
+                DueDateUtc = dueDateUtc,
                 PeriodStartUtc = periodStartUtc,
                 PeriodEndUtc = periodEndUtc,
                 SourceType = InvoiceSourceType.Subscription,
@@ -730,6 +741,11 @@ public sealed class InvoiceService(
                         ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
                     });
                 }
+            }
+
+            foreach (var recurringItem in dueItemCycles.Where(x => x.Item.BillingType == BillingType.Recurring))
+            {
+                AdvanceRecurringItemAfterInvoice(recurringItem.Item, recurringItem.InvoicePeriod.PeriodStartUtc, recurringItem.InvoicePeriod.PeriodEndUtc);
             }
 
             foreach (var oneTimeItem in eligibleDueItems.Where(x => x.BillingType == BillingType.OneTime))
@@ -853,6 +869,7 @@ public sealed class InvoiceService(
         var eligibleDueItems = new List<SubscriptionItem>();
         foreach (var dueItem in dueItems)
         {
+            var invoicePeriod = ResolveInvoicePeriod(dueItem);
             var cycleAlreadyInvoiced = await dbContext.InvoiceLineItems
                 .Include(x => x.Invoice)
                 .AnyAsync(x =>
@@ -861,8 +878,8 @@ public sealed class InvoiceService(
                     && x.Invoice.Status != InvoiceStatus.Voided
                     && (dueItem.BillingType == BillingType.OneTime
                         ? true
-                        : x.Invoice.PeriodStartUtc == dueItem.CurrentPeriodStartUtc
-                          && x.Invoice.PeriodEndUtc == dueItem.CurrentPeriodEndUtc),
+                        : x.Invoice.PeriodStartUtc == invoicePeriod.PeriodStartUtc
+                          && x.Invoice.PeriodEndUtc == invoicePeriod.PeriodEndUtc),
                     cancellationToken);
 
             if (!cycleAlreadyInvoiced)
@@ -872,6 +889,47 @@ public sealed class InvoiceService(
         }
 
         return eligibleDueItems;
+    }
+
+    private static (DateTime? PeriodStartUtc, DateTime? PeriodEndUtc) ResolveInvoicePeriod(SubscriptionItem item)
+    {
+        if (item.BillingType == BillingType.OneTime)
+        {
+            return (item.CurrentPeriodStartUtc, item.CurrentPeriodEndUtc);
+        }
+
+        var periodStartUtc = item.NextBillingUtc ?? item.CurrentPeriodStartUtc;
+        if (!periodStartUtc.HasValue)
+        {
+            return (null, null);
+        }
+
+        var periodEndUtc = BillingCalculator.ComputePeriodEnd(periodStartUtc.Value, item.IntervalUnit, item.IntervalCount);
+        return (periodStartUtc, periodEndUtc);
+    }
+
+    private static string BuildSubscriptionLineDescription(SubscriptionItem item)
+    {
+        var planName = item.ProductPlan?.PlanName ?? "Subscription";
+        var billingLabel = item.BillingType == BillingType.OneTime
+            ? "One-time"
+            : $"{item.IntervalCount} {item.IntervalUnit}";
+
+        return $"{planName} ({billingLabel})";
+    }
+
+    private static void AdvanceRecurringItemAfterInvoice(SubscriptionItem item, DateTime? periodStartUtc, DateTime? periodEndUtc)
+    {
+        if (item.BillingType != BillingType.Recurring || !periodStartUtc.HasValue || !periodEndUtc.HasValue)
+        {
+            return;
+        }
+
+        item.CurrentPeriodStartUtc = periodStartUtc;
+        item.CurrentPeriodEndUtc = periodEndUtc;
+        item.NextBillingUtc = item.AutoRenew
+            ? BillingCalculator.ComputeNextBillingUtc(periodEndUtc.Value)
+            : null;
     }
 
     public async Task<int> SendRemindersAsync(CancellationToken cancellationToken = default)
@@ -903,7 +961,7 @@ public sealed class InvoiceService(
             if (emailRemindersEnabled)
             {
                 var company = await dbContext.Companies.FirstAsync(x => x.Id == schedule.CompanyId, cancellationToken);
-                var paymentLink = await ResolveInvoiceActionLinkAsync(schedule.Invoice!, cancellationToken);
+                var paymentLink = await ResolveInvoiceEmailActionLinkAsync(schedule.Invoice!, cancellationToken);
 
                 var body = EmailTemplateRenderer.RenderInvoiceEmail(
                     company.Name,
@@ -1329,7 +1387,7 @@ public sealed class InvoiceService(
     private async Task SendInvoiceEmailAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
-        var link = await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
+        var link = await ResolveInvoiceEmailActionLinkAsync(invoice, cancellationToken);
         var pdfContent = await RegenerateInvoicePdfAsync(
             invoice,
             customer,
@@ -1446,6 +1504,17 @@ public sealed class InvoiceService(
 
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
         return invoiceSettings?.PaymentLink;
+    }
+
+    private async Task<string?> ResolveInvoiceEmailActionLinkAsync(Invoice invoice, CancellationToken cancellationToken)
+    {
+        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(paymentConfirmationLink))
+        {
+            return paymentConfirmationLink;
+        }
+
+        return await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
     }
 
     private async Task<string?> ResolveGatewayPaymentLinkAsync(Invoice invoice, CancellationToken cancellationToken)
@@ -1637,11 +1706,21 @@ public sealed class InvoiceService(
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(subscription.CompanyId, cancellationToken);
         var company = subscription.Company ?? await dbContext.Companies.FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
         var eligibleItems = new List<SubscriptionItem>();
+        var nowUtc = DateTime.UtcNow;
         foreach (var item in subscription.Items.Where(x =>
                      !x.EndedAtUtc.HasValue
                      && (x.BillingType == BillingType.Recurring || x.BillingType == BillingType.OneTime)))
         {
-            if (!item.CurrentPeriodStartUtc.HasValue)
+            var invoicePeriod = ResolveInvoicePeriod(item);
+            if (!invoicePeriod.PeriodStartUtc.HasValue)
+            {
+                continue;
+            }
+
+            var isDueForInvoicing = !persist
+                || SubscriptionService.IsItemDue(item, nowUtc)
+                || SubscriptionService.IsOneTimeItemReadyForBilling(item, nowUtc);
+            if (!isDueForInvoicing)
             {
                 continue;
             }
@@ -1654,8 +1733,8 @@ public sealed class InvoiceService(
                     && x.Invoice.Status != InvoiceStatus.Voided
                     && (item.BillingType == BillingType.OneTime
                         ? true
-                        : x.Invoice.PeriodStartUtc == item.CurrentPeriodStartUtc
-                          && x.Invoice.PeriodEndUtc == item.CurrentPeriodEndUtc),
+                        : x.Invoice.PeriodStartUtc == invoicePeriod.PeriodStartUtc
+                          && x.Invoice.PeriodEndUtc == invoicePeriod.PeriodEndUtc),
                     cancellationToken);
 
             if (!cycleAlreadyInvoiced)
@@ -1666,26 +1745,36 @@ public sealed class InvoiceService(
 
         if (eligibleItems.Count == 0)
         {
-            throw new InvalidOperationException("An invoice already exists for the current billing cycle.");
+            throw new InvalidOperationException(persist
+                ? "No subscription items are due for invoicing yet."
+                : "An invoice already exists for the current billing cycle.");
         }
 
-        var lineItems = eligibleItems.Select(item => new InvoiceLineItem
+        var eligibleItemCycles = eligibleItems
+            .Select(item => new
+            {
+                Item = item,
+                InvoicePeriod = ResolveInvoicePeriod(item)
+            })
+            .ToList();
+
+        var lineItems = eligibleItemCycles.Select(entry => new InvoiceLineItem
         {
             CompanyId = subscription.CompanyId,
-            SubscriptionItemId = item.Id,
-            Description = item.ProductPlan?.PlanName ?? "Subscription",
-            Quantity = item.Quantity,
-            UnitAmount = item.UnitAmount,
-            TotalAmount = item.Quantity * item.UnitAmount
+            SubscriptionItemId = entry.Item.Id,
+            Description = BuildSubscriptionLineDescription(entry.Item),
+            Quantity = entry.Item.Quantity,
+            UnitAmount = entry.Item.UnitAmount,
+            TotalAmount = entry.Item.Quantity * entry.Item.UnitAmount
         }).ToList();
         var total = lineItems.Sum(x => x.TotalAmount);
         var taxProfile = ResolveTaxProfile(invoiceSettings);
         var taxAmount = CalculateTaxAmount(total, taxProfile);
         var grandTotal = total + taxAmount;
-        var periodStartUtc = eligibleItems.Where(x => x.CurrentPeriodStartUtc.HasValue).Min(x => x.CurrentPeriodStartUtc);
-        var periodEndUtc = eligibleItems.Where(x => x.CurrentPeriodEndUtc.HasValue).Max(x => x.CurrentPeriodEndUtc);
-        var issueDateUtc = DateTime.UtcNow;
-        var dueDateUtc = DateTime.UtcNow.AddDays(invoiceSettings?.PaymentDueDays ?? 7);
+        var periodStartUtc = eligibleItemCycles.Where(x => x.InvoicePeriod.PeriodStartUtc.HasValue).Min(x => x.InvoicePeriod.PeriodStartUtc);
+        var periodEndUtc = eligibleItemCycles.Where(x => x.InvoicePeriod.PeriodEndUtc.HasValue).Max(x => x.InvoicePeriod.PeriodEndUtc);
+        var issueDateUtc = periodStartUtc ?? DateTime.UtcNow;
+        var dueDateUtc = issueDateUtc.AddDays(invoiceSettings?.PaymentDueDays ?? 7);
         var invoiceNumber = persist ? await GenerateInvoiceNumberAsync(subscription.CompanyId, cancellationToken) : previewInvoiceNumber ?? $"PREVIEW-{issueDateUtc:yyyyMMdd-HHmmss}";
         var pdf = LocalInvoiceStorage.CreatePdf(
             company.Name,
@@ -1776,6 +1865,11 @@ public sealed class InvoiceService(
         if (subscriptionCustomer is not null)
         {
             await TrySendInvoiceWhatsAppAsync(invoice, subscriptionCustomer, cancellationToken);
+        }
+
+        foreach (var recurringItem in eligibleItemCycles.Where(x => x.Item.BillingType == BillingType.Recurring))
+        {
+            AdvanceRecurringItemAfterInvoice(recurringItem.Item, recurringItem.InvoicePeriod.PeriodStartUtc, recurringItem.InvoicePeriod.PeriodEndUtc);
         }
 
         foreach (var oneTimeItem in eligibleItems.Where(x => x.BillingType == BillingType.OneTime))

@@ -5,6 +5,7 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Recurvos.Application.Common;
 using Recurvos.Application.Invoices;
 using Recurvos.Domain.Entities;
 using Recurvos.Domain.Enums;
@@ -160,6 +161,199 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         created.Should().BeGreaterThan(0);
         dbContext.Invoices.Count().Should().BeGreaterThan(1);
         dbContext.ReminderSchedules.Count().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task CreateSubscription_WithTrialDays_AppliesSharedTrialWindowToAllItems()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customer = await dbContext.Customers.FirstAsync();
+        var recurringPlans = await dbContext.ProductPlans
+            .Where(x => x.BillingType == BillingType.Recurring)
+            .OrderBy(x => x.PlanCode)
+            .Take(2)
+            .ToListAsync();
+        recurringPlans.Should().HaveCountGreaterOrEqualTo(2);
+
+        var startDateUtc = DateTime.UtcNow.Date;
+        var response = await TestWebApplicationFactory.Authorize(_factory.CreateClient(), token).PostAsJsonAsync("/api/subscriptions", new
+        {
+            customerId = customer.Id,
+            startDateUtc,
+            trialDays = 14,
+            notes = "shared trial window",
+            items = new[]
+            {
+                new { productPlanId = recurringPlans[0].Id, quantity = 1 },
+                new { productPlanId = recurringPlans[1].Id, quantity = 1 }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var subscription = await dbContext.Subscriptions
+            .Include(x => x.Items)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstAsync();
+        var expectedTrialEndUtc = startDateUtc.AddDays(14);
+
+        subscription.Items.Should().OnlyContain(item =>
+            item.TrialStartUtc == startDateUtc
+            && item.TrialEndUtc == expectedTrialEndUtc
+            && item.CurrentPeriodStartUtc == expectedTrialEndUtc
+            && item.NextBillingUtc == expectedTrialEndUtc);
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoices_AfterTrialEnds_CreatesFirstInvoiceImmediately_AndAdvancesNextBilling()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+
+        Guid subscriptionId;
+        DateTime expectedFirstInvoiceStartUtc;
+        DateTime expectedFirstInvoiceEndUtc;
+        DateTime expectedNextBillingUtc;
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var customer = await dbContext.Customers.FirstAsync();
+            var monthlyPlan = await dbContext.ProductPlans.FirstAsync(x => x.PlanCode == "STARTER-MONTHLY");
+            var startDateUtc = DateTime.UtcNow.Date.AddDays(-3);
+
+            var response = await TestWebApplicationFactory.Authorize(_factory.CreateClient(), token).PostAsJsonAsync("/api/subscriptions", new
+            {
+                customerId = customer.Id,
+                startDateUtc,
+                trialDays = 2,
+                notes = "trial ended and first invoice is due",
+                items = new[]
+                {
+                    new { productPlanId = monthlyPlan.Id, quantity = 1 }
+                }
+            });
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var subscription = await dbContext.Subscriptions
+                .Include(x => x.Items)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .FirstAsync();
+
+            subscriptionId = subscription.Id;
+            expectedFirstInvoiceStartUtc = startDateUtc.AddDays(2);
+            expectedFirstInvoiceEndUtc = BillingCalculator.ComputePeriodEnd(expectedFirstInvoiceStartUtc, IntervalUnit.Month, 1);
+            expectedNextBillingUtc = BillingCalculator.ComputeNextBillingUtc(expectedFirstInvoiceEndUtc);
+        }
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var invoiceService = scope.ServiceProvider.GetRequiredService<IInvoiceService>();
+
+            var created = await invoiceService.GenerateDueInvoicesAsync();
+
+            created.Should().BeGreaterThan(0);
+
+            var invoice = await dbContext.Invoices
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .FirstAsync(x => x.SubscriptionId == subscriptionId);
+
+            invoice.PeriodStartUtc.Should().Be(expectedFirstInvoiceStartUtc);
+            invoice.PeriodEndUtc.Should().Be(expectedFirstInvoiceEndUtc);
+
+            var subscription = await dbContext.Subscriptions
+                .Include(x => x.Items)
+                .FirstAsync(x => x.Id == subscriptionId);
+
+            var item = subscription.Items.Single();
+            item.CurrentPeriodStartUtc.Should().Be(expectedFirstInvoiceStartUtc);
+            item.CurrentPeriodEndUtc.Should().Be(expectedFirstInvoiceEndUtc);
+            item.NextBillingUtc.Should().Be(expectedNextBillingUtc);
+        }
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoices_DoesNotCreateInvoice_ForSubscriptionStillInTrial()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var customer = await dbContext.Customers.FirstAsync();
+            var monthlyPlan = await dbContext.ProductPlans.FirstAsync(x => x.PlanCode == "STARTER-MONTHLY");
+
+            var response = await TestWebApplicationFactory.Authorize(_factory.CreateClient(), token).PostAsJsonAsync("/api/subscriptions", new
+            {
+                customerId = customer.Id,
+                startDateUtc = DateTime.UtcNow.Date,
+                trialDays = 7,
+                notes = "trial blocks due invoice generation",
+                items = new[]
+                {
+                    new { productPlanId = monthlyPlan.Id, quantity = 1 }
+                }
+            });
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var invoiceService = scope.ServiceProvider.GetRequiredService<IInvoiceService>();
+            var beforeCount = await dbContext.Invoices.CountAsync();
+
+            var created = await invoiceService.GenerateDueInvoicesAsync();
+
+            created.Should().Be(0);
+            (await dbContext.Invoices.CountAsync()).Should().Be(beforeCount);
+        }
+    }
+
+    [Fact]
+    public async Task GenerateInvoiceNow_RejectsSubscriptionStillInTrial()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customer = await dbContext.Customers.FirstAsync();
+        var monthlyPlan = await dbContext.ProductPlans.FirstAsync(x => x.PlanCode == "STARTER-MONTHLY");
+
+        var createResponse = await TestWebApplicationFactory.Authorize(_factory.CreateClient(), token).PostAsJsonAsync("/api/subscriptions", new
+        {
+            customerId = customer.Id,
+            startDateUtc = DateTime.UtcNow.Date,
+            trialDays = 5,
+            notes = "manual generation blocked during trial",
+            items = new[]
+            {
+                new { productPlanId = monthlyPlan.Id, quantity = 1 }
+            }
+        });
+
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var subscriptionId = await dbContext.Subscriptions
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x => x.Id)
+            .FirstAsync();
+
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+        var response = await client.PostAsync($"/api/subscriptions/{subscriptionId}/generate-invoice", JsonContent.Create(new { }));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadAsStringAsync();
+        problem.Should().Contain("No subscription items are due for invoicing yet.");
     }
 
     [Fact]
@@ -372,6 +566,59 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     }
 
     [Fact]
+    public async Task PublicPaymentConfirmation_RejectedSubmission_AllowsResubmission()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var authorized = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var invoice = (await authorized.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var link = await (await authorized.PostAsync($"/api/payment-confirmations/invoices/{invoice.Id}/link", JsonContent.Create(new { })))
+            .Content.ReadFromJsonAsync<PaymentConfirmationLinkView>(TestWebApplicationFactory.JsonOptions);
+        var publicToken = link!.Url.Split("token=", StringSplitOptions.RemoveEmptyEntries).Last();
+
+        MultipartFormDataContent CreateForm(string payerName, string reference)
+        {
+            var form = new MultipartFormDataContent();
+            form.Add(new StringContent(publicToken), "token");
+            form.Add(new StringContent(payerName), "payerName");
+            form.Add(new StringContent(invoice.BalanceAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)), "amount");
+            form.Add(new StringContent(DateTime.UtcNow.ToString("O")), "paidAtUtc");
+            form.Add(new StringContent(reference), "transactionReference");
+            return form;
+        }
+
+        var firstSubmit = await _factory.CreateClient().PostAsync("/api/public/payment-confirmations", CreateForm("Nur Payment", "BANK-123"));
+        firstSubmit.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        var queue = await authorized.GetFromJsonAsync<List<PaymentConfirmationView>>("/api/payment-confirmations", TestWebApplicationFactory.JsonOptions);
+        var pendingSubmission = queue!.First(x => x.InvoiceId == invoice.Id && x.Status == "Pending");
+
+        var rejectResponse = await authorized.PostAsJsonAsync($"/api/payment-confirmations/{pendingSubmission.Id}/reject", new
+        {
+            reviewNote = "Reference mismatch"
+        });
+        rejectResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var secondSubmit = await _factory.CreateClient().PostAsync("/api/public/payment-confirmations", CreateForm("Nur Payment Retry", "BANK-456"));
+        secondSubmit.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var storedInvoice = await dbContext.Invoices.FirstAsync(x => x.Id == invoice.Id);
+        var submissions = await dbContext.PaymentConfirmationSubmissions
+            .Where(x => x.InvoiceId == invoice.Id)
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync();
+
+        storedInvoice.AmountDue.Should().Be(invoice.BalanceAmount);
+        storedInvoice.Status.Should().NotBe(InvoiceStatus.Paid);
+        submissions.Should().HaveCount(2);
+        submissions[0].Status.Should().Be(PaymentConfirmationStatus.Rejected);
+        submissions[1].Status.Should().Be(PaymentConfirmationStatus.Pending);
+    }
+
+    [Fact]
     public async Task SubscriberPackageInvoice_PaidPayment_ExposesReceiptDownload()
     {
         await _factory.EnsureSeededAsync();
@@ -471,6 +718,13 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
 
             invoice.LineItems.Should().ContainSingle();
             invoice.LineItems.Single().Description.Should().Contain("Starter Monthly");
+
+            var subscription = await dbContext.Subscriptions
+                .Include(x => x.Items).ThenInclude(x => x.ProductPlan)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .FirstAsync();
+            var monthlyItem = subscription.Items.Single(x => x.ProductPlan!.PlanCode == "STARTER-MONTHLY");
+            monthlyItem.NextBillingUtc.Should().Be(BillingCalculator.ComputeNextBillingUtc(invoice.PeriodEndUtc!.Value));
         }
     }
 

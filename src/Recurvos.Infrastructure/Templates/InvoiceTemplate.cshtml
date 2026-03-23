@@ -86,6 +86,10 @@
                 <div class="meta-row"><div class="meta-label">Invoice No</div><div class="meta-value">@Model.InvoiceNumber</div></div>
                 <div class="meta-row"><div class="meta-label">Invoice Date</div><div class="meta-value">@Model.InvoiceDateUtc.ToString("dd MMM yyyy")</div></div>
                 <div class="meta-row"><div class="meta-label">Due Date</div><div class="meta-value">@Model.DueDateUtc.ToString("dd MMM yyyy")</div></div>
+                @if (Model.PeriodStartUtc.HasValue && Model.PeriodEndUtc.HasValue)
+                {
+                    <div class="meta-row"><div class="meta-label">Billing Period</div><div class="meta-value">@Model.PeriodStartUtc.Value.ToString("dd MMM yyyy") - @Model.PeriodEndUtc.Value.ToString("dd MMM yyyy")</div></div>
+                }
                 <div class="meta-row"><div class="meta-label">Currency</div><div class="meta-value">@currency</div></div>
             </div>
         </header>

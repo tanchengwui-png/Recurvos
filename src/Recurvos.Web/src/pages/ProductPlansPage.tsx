@@ -25,7 +25,6 @@ type PlanFormState = {
   intervalCount: string;
   currency: string;
   unitAmount: string;
-  trialDays: string;
   taxBehavior: "Exclusive" | "Inclusive" | "Unspecified";
   isDefault: boolean;
   isActive: boolean;
@@ -41,7 +40,6 @@ type PlanFormState = {
   intervalCount: "1",
   currency: "MYR",
   unitAmount: "49.00",
-  trialDays: "0",
   taxBehavior: "Unspecified",
   isDefault: false,
   isActive: true,
@@ -122,7 +120,6 @@ export function ProductPlansPage() {
       intervalCount: form.billingType === "OneTime" ? 0 : Number(form.intervalCount),
       currency: "MYR",
       unitAmount: Number(form.unitAmount),
-      trialDays: form.billingType === "OneTime" ? 0 : Number(form.trialDays),
       taxBehavior: form.taxBehavior,
       isDefault: form.isDefault,
       isActive: form.isActive,
@@ -168,7 +165,6 @@ export function ProductPlansPage() {
       intervalCount: String(plan.intervalCount),
       currency: plan.currency,
       unitAmount: String(plan.unitAmount),
-      trialDays: String(plan.trialDays),
       taxBehavior: plan.taxBehavior,
       isDefault: plan.isDefault,
       isActive: plan.isActive,
@@ -189,7 +185,6 @@ export function ProductPlansPage() {
       intervalCount: String(plan.intervalCount),
       currency: plan.currency,
       unitAmount: String(plan.unitAmount),
-      trialDays: String(plan.trialDays),
       taxBehavior: plan.taxBehavior,
       isDefault: false,
       isActive: true,
@@ -246,7 +241,6 @@ export function ProductPlansPage() {
                   <th>Plan Code</th>
                   <th>Billing Type</th>
                   <th>Interval</th>
-                  <th>Trial Days</th>
                   <th>Default</th>
                 </tr>
               </thead>
@@ -339,7 +333,6 @@ export function ProductPlansPage() {
                     <td>{plan.planCode}</td>
                     <td><span className="badge">{plan.billingType === "OneTime" ? "One-Time" : "Recurring"}</span></td>
                     <td>{plan.billingLabel}</td>
-                    <td>{plan.trialDays}</td>
                     <td>{plan.isDefault ? "Yes" : "No"}</td>
                   </tr>
                 ))}
@@ -376,7 +369,7 @@ export function ProductPlansPage() {
             <div>
               <p className="eyebrow">{form.id ? "Edit plan" : "Add plan"}</p>
               <h3 className="section-title">{form.id ? "Update billing plan" : "Create billing plan"}</h3>
-              <p className="muted form-intro">Plans set the price, billing cycle, and trial for a product.</p>
+              <p className="muted form-intro">Plans set the price and billing cycle for a product. Trial is configured when creating the subscription.</p>
             </div>
           </div>
           <form className="form-stack" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
@@ -399,9 +392,6 @@ export function ProductPlansPage() {
               <FormLabel htmlFor="plan-currency">Currency<TextInput id="plan-currency" value="MYR" readOnly /></FormLabel>
               <FormLabel htmlFor="plan-amount">Amount<TextInput id="plan-amount" value={form.unitAmount} disabled={billingTermsLocked} onChange={(event) => setForm((current) => ({ ...current, unitAmount: event.target.value }))} /></FormLabel>
             </div>
-            {form.billingType === "Recurring" ? (
-              <FormLabel htmlFor="plan-trial-days">Trial Days<TextInput id="plan-trial-days" value={form.trialDays} disabled={billingTermsLocked} onChange={(event) => setForm((current) => ({ ...current, trialDays: event.target.value }))} /></FormLabel>
-            ) : null}
             <label className="checkbox-row"><input type="checkbox" checked={form.isDefault} onChange={(event) => setForm((current) => ({ ...current, isDefault: event.target.checked }))} /> Default plan</label>
             <label className="checkbox-row"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} /> Active</label>
             {formError ? <HelperText tone="error">{formError}</HelperText> : <HelperText>{billingTermsLocked ? "Safe edits only: name, code, default flag, and active status. Duplicate the plan to change price or billing cycle." : "Use an uppercase code like STARTER-MONTHLY."}</HelperText>}

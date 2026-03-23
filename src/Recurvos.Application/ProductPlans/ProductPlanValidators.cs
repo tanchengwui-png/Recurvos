@@ -37,11 +37,6 @@ public static class ProductPlanValidators
             errors.Add("Unit amount must be zero or more.");
         }
 
-        if (request.TrialDays < 0)
-        {
-            errors.Add("Trial days must be zero or more.");
-        }
-
         if (string.IsNullOrWhiteSpace(request.Currency))
         {
             errors.Add("Currency is required.");
@@ -61,11 +56,6 @@ public static class ProductPlanValidators
             if (request.IntervalCount != 0)
             {
                 errors.Add("One-time plans must use interval count 0.");
-            }
-
-            if (request.TrialDays != 0)
-            {
-                errors.Add("Trial days are only supported for recurring plans.");
             }
         }
 

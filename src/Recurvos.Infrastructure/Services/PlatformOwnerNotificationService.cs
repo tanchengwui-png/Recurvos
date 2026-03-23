@@ -71,7 +71,7 @@ public sealed class PlatformOwnerNotificationService(
             .Select(x => x.Name)
             .FirstOrDefaultAsync(cancellationToken) ?? "Unknown company";
         var customerName = payment.Invoice.Customer?.Name ?? "Unknown customer";
-        var actionUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payments";
+        var actionUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payments?tab=records";
         var paidAtLabel = (payment.PaidAtUtc ?? payment.CreatedAtUtc).ToString("dd MMM yyyy HH:mm 'UTC'");
         var reference = payment.ExternalPaymentId ?? payment.GatewayTransactionId ?? payment.GatewaySettlementRef ?? "Not provided";
         var body = EmailTemplateRenderer.RenderActionEmail(
