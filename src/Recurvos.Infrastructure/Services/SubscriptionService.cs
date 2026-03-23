@@ -55,6 +55,7 @@ public sealed class SubscriptionService(
         var companyId = companyIds[0];
         await billingReadinessService.EnsureReadyAsync(companyId, "subscription creation", cancellationToken);
         var startUtc = request.StartDateUtc.Kind == DateTimeKind.Utc ? request.StartDateUtc : request.StartDateUtc.ToUniversalTime();
+        ThrowIfInvalid(SubscriptionValidators.ValidateStartDate(startUtc, DateTime.UtcNow));
 
         var items = request.Items.Select(itemRequest =>
         {

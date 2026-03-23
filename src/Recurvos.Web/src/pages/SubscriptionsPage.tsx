@@ -28,7 +28,14 @@ function toDateInputValue(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
+function getEarliestSubscriptionStartDate() {
+  const earliest = new Date();
+  earliest.setMonth(earliest.getMonth() - 3);
+  return toDateInputValue(earliest);
+}
+
 export function SubscriptionsPage() {
+  const earliestSubscriptionStartDate = getEarliestSubscriptionStartDate();
   const navigate = useNavigate();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const pricingFormRef = useRef<HTMLDivElement | null>(null);
@@ -172,6 +179,10 @@ export function SubscriptionsPage() {
         : `Create a subscription for ${selectedCustomer?.name || "the selected customer"}?`,
       action: async () => {
         try {
+          if (form.startDateUtc < earliestSubscriptionStartDate) {
+            throw new Error("Start date cannot be more than 3 months in the past.");
+          }
+
           await api.post("/subscriptions", {
             customerId: form.customerId,
             startDateUtc: new Date(form.startDateUtc).toISOString(),
@@ -731,8 +742,9 @@ export function SubscriptionsPage() {
             )}
             <label className="form-label">
               Start date
-              <input className="text-input" type="date" value={form.startDateUtc} onChange={(event) => setForm((current) => ({ ...current, startDateUtc: event.target.value }))} />
+              <input className="text-input" type="date" min={earliestSubscriptionStartDate} value={form.startDateUtc} onChange={(event) => setForm((current) => ({ ...current, startDateUtc: event.target.value }))} />
             </label>
+            <HelperText>You can backdate the start date by up to 3 months.</HelperText>
             <label className="form-label">
               Notes
               <input className="text-input" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />

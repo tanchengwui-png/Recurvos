@@ -1330,7 +1330,13 @@ public sealed class InvoiceService(
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
         var link = await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
-        var pdfContent = await RegenerateInvoicePdfAsync(invoice, customer, cancellationToken);
+        var pdfContent = await RegenerateInvoicePdfAsync(
+            invoice,
+            customer,
+            cancellationToken,
+            paymentConfirmationLinkOverride: link is not null && link.Contains("/payment-confirmation", StringComparison.OrdinalIgnoreCase)
+                ? link
+                : null);
         var pdfFileName = $"{invoice.InvoiceNumber}.pdf";
         var body = EmailTemplateRenderer.RenderInvoiceEmail(
             company.Name,
@@ -1374,12 +1380,20 @@ public sealed class InvoiceService(
         return string.IsNullOrWhiteSpace(subscriberEmail) ? null : [subscriberEmail.Trim()];
     }
 
-    private async Task<byte[]> RegenerateInvoicePdfAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)
+    private async Task<byte[]> RegenerateInvoicePdfAsync(
+        Invoice invoice,
+        Customer customer,
+        CancellationToken cancellationToken,
+        string? paymentConfirmationLinkOverride = null)
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
         var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
-        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        var paymentConfirmationLink = paymentConfirmationLinkOverride;
+        if (string.IsNullOrWhiteSpace(paymentConfirmationLink))
+        {
+            paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        }
 
         var pdf = LocalInvoiceStorage.CreatePdf(
             company.Name,

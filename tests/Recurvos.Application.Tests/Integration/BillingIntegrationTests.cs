@@ -475,6 +475,33 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     }
 
     [Fact]
+    public async Task CreateSubscription_RejectsStartDateOlderThanThreeMonths()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customer = await dbContext.Customers.FirstAsync();
+        var monthlyPlan = await dbContext.ProductPlans.FirstAsync(x => x.PlanCode == "STARTER-MONTHLY");
+
+        var response = await TestWebApplicationFactory.Authorize(_factory.CreateClient(), token).PostAsJsonAsync("/api/subscriptions", new
+        {
+            customerId = customer.Id,
+            startDateUtc = DateTime.UtcNow.Date.AddMonths(-4),
+            notes = "too far backdated",
+            items = new[]
+            {
+                new { productPlanId = monthlyPlan.Id, quantity = 1 }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadAsStringAsync();
+        problem.Should().Contain("Start date cannot be more than 3 months in the past.");
+    }
+
+    [Fact]
     public async Task SetDefaultPlan_Unsets_PreviousDefault_ForSameProduct()
     {
         await _factory.EnsureSeededAsync();

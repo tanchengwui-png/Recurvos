@@ -5,6 +5,8 @@ namespace Recurvos.Application.Subscriptions;
 
 public static class SubscriptionValidators
 {
+    public const int MaxBackdatedStartMonths = 3;
+
     public static IReadOnlyCollection<string> ValidateRequest(SubscriptionRequest request)
     {
         var errors = new List<string>();
@@ -17,6 +19,19 @@ public static class SubscriptionValidators
         if (request.Notes?.Length > 1000)
         {
             errors.Add("Notes must be 1000 characters or fewer.");
+        }
+
+        return errors;
+    }
+
+    public static IReadOnlyCollection<string> ValidateStartDate(DateTime startUtc, DateTime nowUtc)
+    {
+        var errors = new List<string>();
+        var earliestAllowedStartUtc = nowUtc.Date.AddMonths(-MaxBackdatedStartMonths);
+
+        if (startUtc.Date < earliestAllowedStartUtc)
+        {
+            errors.Add($"Start date cannot be more than {MaxBackdatedStartMonths} months in the past.");
         }
 
         return errors;
