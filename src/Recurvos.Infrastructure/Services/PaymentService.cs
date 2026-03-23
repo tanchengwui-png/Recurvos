@@ -361,6 +361,7 @@ public sealed class PaymentService(
             payment.InvoiceId,
             payment.Invoice?.InvoiceNumber ?? string.Empty,
             payment.Amount,
+            payment.Currency,
             payment.Refunds.Where(x => x.Status == RefundStatus.Succeeded).Sum(x => x.Amount),
             payment.Amount - payment.Refunds.Where(x => x.Status == RefundStatus.Succeeded).Sum(x => x.Amount),
             payment.Status,

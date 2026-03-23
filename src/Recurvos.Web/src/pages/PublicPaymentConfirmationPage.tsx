@@ -70,7 +70,7 @@ export function PublicPaymentConfirmationPage() {
       const formData = new FormData();
       formData.append("token", token);
       formData.append("payerName", form.payerName);
-      formData.append("amount", form.amount);
+      formData.append("amount", invoice ? String(invoice.balanceAmount) : form.amount);
       formData.append("paidAtUtc", new Date(form.paidAtUtc).toISOString());
       formData.append("transactionReference", form.transactionReference);
       formData.append("notes", form.notes);
@@ -151,7 +151,7 @@ export function PublicPaymentConfirmationPage() {
                     min="0.01"
                     step="0.01"
                     value={form.amount}
-                    onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
+                    readOnly
                   />
                 </FormLabel>
                 <FormLabel htmlFor="payment-confirmation-date">
@@ -218,6 +218,7 @@ export function PublicPaymentConfirmationPage() {
                 />
               </label>
               <HelperText>{invoice ? `Proof is optional. PNG, JPG, JPEG, and WEBP images up to ${formatUploadSizeLabel(invoice.proofUploadMaxBytes)} are allowed.${invoice.autoCompressUploads ? " Large images are compressed automatically before upload." : ""}` : "Proof is optional."}</HelperText>
+              {invoice ? <HelperText>{`Payment confirmation is for the full outstanding balance of ${formatCurrency(invoice.balanceAmount, invoice.currency)}.`}</HelperText> : null}
               {form.proofFile ? <HelperText>{`Selected file: ${form.proofFile.name}`}</HelperText> : null}
             </div>
           ) : null}

@@ -50,6 +50,18 @@ public sealed class SettingsService(
     {
         var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
         await featureEntitlementService.EnsureCompanyHasFeatureAsync(resolvedCompanyId, PlatformFeatureKeys.DunningWorkflows, cancellationToken);
+        var duplicateActiveOffsets = request.Rules
+            .Where(x => x.IsActive)
+            .GroupBy(x => x.OffsetDays)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(x => x)
+            .ToList();
+        if (duplicateActiveOffsets.Count > 0)
+        {
+            throw new InvalidOperationException($"Only one active reminder is allowed for each day offset. Duplicate offsets: {string.Join(", ", duplicateActiveOffsets)}.");
+        }
+
         var existing = await dbContext.DunningRules.Where(x => x.CompanyId == resolvedCompanyId).ToListAsync(cancellationToken);
         dbContext.DunningRules.RemoveRange(existing);
 
@@ -135,6 +147,10 @@ public sealed class SettingsService(
         settings.ReceiptNextNumber = request.ReceiptNextNumber;
         settings.ReceiptPadding = NormalizeMinimumDigits(request.ReceiptPadding);
         settings.ReceiptResetYearly = request.ReceiptResetYearly;
+        settings.CreditNotePrefix = request.CreditNotePrefix.Trim();
+        settings.CreditNoteNextNumber = request.CreditNoteNextNumber;
+        settings.CreditNotePadding = NormalizeMinimumDigits(request.CreditNotePadding);
+        settings.CreditNoteResetYearly = request.CreditNoteResetYearly;
         settings.BankName = string.IsNullOrWhiteSpace(request.BankName) ? null : request.BankName.Trim();
         settings.BankAccountName = string.IsNullOrWhiteSpace(request.BankAccountName) ? null : request.BankAccountName.Trim();
         settings.BankAccount = string.IsNullOrWhiteSpace(request.BankAccount) ? null : request.BankAccount.Trim();
@@ -327,6 +343,9 @@ public sealed class SettingsService(
         settings.ReceiptNextNumber = request.ReceiptNextNumber;
         settings.ReceiptPadding = request.ReceiptMinimumDigits;
         settings.ReceiptResetYearly = request.ReceiptResetYearly;
+        settings.CreditNotePrefix = string.IsNullOrWhiteSpace(settings.CreditNotePrefix) ? "CN" : settings.CreditNotePrefix.Trim();
+        settings.CreditNotePadding = NormalizeMinimumDigits(settings.CreditNotePadding);
+        settings.CreditNoteNextNumber = Math.Max(1, settings.CreditNoteNextNumber);
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("settings.platform-document-numbering.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), settings.Prefix, cancellationToken);
         return MapPlatformDocumentNumberingSettings(settings);
@@ -704,6 +723,11 @@ public sealed class SettingsService(
             ReceiptPadding = DefaultMinimumDigits,
             ReceiptResetYearly = false,
             ReceiptLastResetYear = null,
+            CreditNotePrefix = "CN",
+            CreditNoteNextNumber = 1,
+            CreditNotePadding = DefaultMinimumDigits,
+            CreditNoteResetYearly = false,
+            CreditNoteLastResetYear = null,
             IsTaxEnabled = false,
             TaxName = "SST",
             TaxRate = null,
@@ -745,6 +769,7 @@ public sealed class SettingsService(
     {
         settings.Padding = NormalizeMinimumDigits(settings.Padding);
         settings.ReceiptPadding = NormalizeMinimumDigits(settings.ReceiptPadding);
+        settings.CreditNotePadding = NormalizeMinimumDigits(settings.CreditNotePadding);
         var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var monthlySent = dbContext.WhatsAppNotifications.Count(x => x.CompanyId == settings.CompanyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc);
         var monthlyLimit = dbContext.Companies
@@ -781,6 +806,11 @@ public sealed class SettingsService(
             settings.ReceiptPadding,
             settings.ReceiptResetYearly,
             settings.ReceiptLastResetYear,
+            settings.CreditNotePrefix,
+            settings.CreditNoteNextNumber,
+            settings.CreditNotePadding,
+            settings.CreditNoteResetYearly,
+            settings.CreditNoteLastResetYear,
             settings.BankName,
             settings.BankAccountName,
             settings.BankAccount,
@@ -856,7 +886,12 @@ public sealed class SettingsService(
             settings.ReceiptNextNumber,
             settings.ReceiptPadding,
             settings.ReceiptResetYearly,
-            settings.ReceiptLastResetYear);
+            settings.ReceiptLastResetYear,
+            settings.CreditNotePrefix,
+            settings.CreditNoteNextNumber,
+            settings.CreditNotePadding,
+            settings.CreditNoteResetYearly,
+            settings.CreditNoteLastResetYear);
 
     private static PlatformSmtpSettingsDto MapPlatformSmtpSettings(CompanyInvoiceSettings settings, string environment)
     {

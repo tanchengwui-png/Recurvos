@@ -26,4 +26,11 @@ public sealed class CreditNotesController(ICreditNoteService creditNoteService) 
             return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
         }
     }
+
+    [HttpGet("{id:guid}/download")]
+    public async Task<IActionResult> Download(Guid id, CancellationToken cancellationToken)
+    {
+        var file = await creditNoteService.DownloadAsync(id, cancellationToken);
+        return file is null ? NotFound() : File(file.Content, file.ContentType, file.FileName);
+    }
 }

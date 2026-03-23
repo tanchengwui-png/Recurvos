@@ -6,7 +6,9 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Recurvos.Application.Common;
+using Recurvos.Application.CreditNotes;
 using Recurvos.Application.Invoices;
+using Recurvos.Application.Settings;
 using Recurvos.Domain.Entities;
 using Recurvos.Domain.Enums;
 using Recurvos.Infrastructure.Persistence;
@@ -894,6 +896,85 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         refreshedInvoice.CreditNotes.Should().ContainSingle(x => x.Reason == "service adjustment");
         refreshedPayment!.Refunds.Should().ContainSingle(x => x.Reason == "partial goodwill refund");
         refreshedPayment.NetCollectedAmount.Should().Be(payment.Amount - 10m);
+    }
+
+    [Fact]
+    public async Task CreditNote_UsesConfiguredDocumentNumber_And_CanBeDownloaded()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var settings = await client.GetFromJsonAsync<CompanyInvoiceSettingsDto>("/api/settings/invoice-settings", TestWebApplicationFactory.JsonOptions);
+        settings.Should().NotBeNull();
+
+        var updateResponse = await client.PutAsJsonAsync("/api/settings/invoice-settings", new
+        {
+            prefix = settings!.Prefix,
+            nextNumber = settings.NextNumber,
+            padding = settings.Padding,
+            resetYearly = settings.ResetYearly,
+            receiptPrefix = settings.ReceiptPrefix,
+            receiptNextNumber = settings.ReceiptNextNumber,
+            receiptPadding = settings.ReceiptPadding,
+            receiptResetYearly = settings.ReceiptResetYearly,
+            creditNotePrefix = "CNTEST",
+            creditNoteNextNumber = 42,
+            creditNotePadding = 4,
+            creditNoteResetYearly = false,
+            bankName = settings.BankName,
+            bankAccountName = settings.BankAccountName,
+            bankAccount = settings.BankAccount,
+            paymentDueDays = settings.PaymentDueDays,
+            paymentLink = settings.PaymentLink,
+            paymentGatewayProvider = settings.PaymentGatewayProvider,
+            paymentGatewayTermsAccepted = settings.PaymentGatewayTermsAccepted,
+            subscriberBillplzApiKey = settings.SubscriberBillplzApiKey,
+            subscriberBillplzCollectionId = settings.SubscriberBillplzCollectionId,
+            subscriberBillplzXSignatureKey = settings.SubscriberBillplzXSignatureKey,
+            subscriberBillplzBaseUrl = settings.SubscriberBillplzBaseUrl,
+            subscriberBillplzRequireSignatureVerification = settings.SubscriberBillplzRequireSignatureVerification,
+            isTaxEnabled = settings.IsTaxEnabled,
+            taxName = settings.TaxName,
+            taxRate = settings.TaxRate,
+            taxRegistrationNo = settings.TaxRegistrationNo,
+            showCompanyAddressOnInvoice = settings.ShowCompanyAddressOnInvoice,
+            showCompanyAddressOnReceipt = settings.ShowCompanyAddressOnReceipt,
+            autoSendInvoices = settings.AutoSendInvoices,
+            ccSubscriberOnCustomerEmails = settings.CcSubscriberOnCustomerEmails,
+            whatsAppEnabled = settings.WhatsAppEnabled,
+            whatsAppTemplate = settings.WhatsAppTemplate,
+        });
+
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var invoice = (await client.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var createResponse = await client.PostAsJsonAsync("/api/credit-notes", new
+        {
+            invoiceId = invoice.Id,
+            reason = "configured numbering",
+            issuedAtUtc = DateTime.UtcNow,
+            lines = new[]
+            {
+                new
+                {
+                    description = "service correction",
+                    quantity = 1,
+                    unitAmount = 10m,
+                    taxAmount = 0m
+                }
+            }
+        });
+
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var creditNote = await createResponse.Content.ReadFromJsonAsync<CreditNoteDto>(TestWebApplicationFactory.JsonOptions);
+        creditNote.Should().NotBeNull();
+        creditNote!.CreditNoteNumber.Should().Be("CNTEST-2026-0042");
+
+        var downloadResponse = await client.GetAsync($"/api/credit-notes/{creditNote.Id}/download");
+        downloadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        downloadResponse.Content.Headers.ContentType!.MediaType.Should().Be("application/pdf");
+        downloadResponse.Content.Headers.ContentDisposition!.FileName.Should().Contain("CNTEST-2026-0042.pdf");
     }
 
     [Fact]

@@ -13,6 +13,11 @@ public sealed class CompanyInvoiceSettings
     public int ReceiptPadding { get; set; } = 6;
     public bool ReceiptResetYearly { get; set; }
     public int? ReceiptLastResetYear { get; set; }
+    public string CreditNotePrefix { get; set; } = "CN";
+    public int CreditNoteNextNumber { get; set; } = 1;
+    public int CreditNotePadding { get; set; } = 6;
+    public bool CreditNoteResetYearly { get; set; }
+    public int? CreditNoteLastResetYear { get; set; }
     public string? BankName { get; set; }
     public string? BankAccountName { get; set; }
     public string? BankAccount { get; set; }

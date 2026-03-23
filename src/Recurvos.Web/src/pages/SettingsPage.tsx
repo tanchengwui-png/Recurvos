@@ -47,7 +47,7 @@ const DEFAULT_WHATSAPP_TEMPLATE = [
 ].join("\n");
 
 type SettingsTab = "documents" | "payment" | "whatsapp" | "reminders";
-type DocumentSettingsTab = "invoice" | "receipt" | "delivery";
+type DocumentSettingsTab = "invoice" | "receipt" | "creditNote" | "delivery";
 type PaymentSettingsTab = "manual" | "qr" | "gateway" | "tax";
 
 export function SettingsPage() {
@@ -83,6 +83,10 @@ export function SettingsPage() {
       || invoiceSettings.receiptPadding !== savedInvoiceSettings.receiptPadding
       || invoiceSettings.receiptNextNumber !== savedInvoiceSettings.receiptNextNumber
       || invoiceSettings.receiptResetYearly !== savedInvoiceSettings.receiptResetYearly
+      || invoiceSettings.creditNotePrefix !== savedInvoiceSettings.creditNotePrefix
+      || invoiceSettings.creditNotePadding !== savedInvoiceSettings.creditNotePadding
+      || invoiceSettings.creditNoteNextNumber !== savedInvoiceSettings.creditNoteNextNumber
+      || invoiceSettings.creditNoteResetYearly !== savedInvoiceSettings.creditNoteResetYearly
     );
   const documentOptionsDirty = invoiceSettings !== null
     && savedInvoiceSettings !== null
@@ -120,6 +124,7 @@ export function SettingsPage() {
     );
   const invoiceNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.prefix, invoiceSettings.nextNumber, invoiceSettings.padding) : "";
   const receiptNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.receiptPrefix, invoiceSettings.receiptNextNumber, invoiceSettings.receiptPadding) : "";
+  const creditNoteNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.creditNotePrefix, invoiceSettings.creditNoteNextNumber, invoiceSettings.creditNotePadding) : "";
   const configurableWhatsAppEnabled = featureAccess?.featureKeys.includes("configurable_whatsapp") ?? false;
   const configurableWhatsAppHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "configurable_whatsapp");
   const emailRemindersEnabled = featureAccess?.featureKeys.includes("email_reminders") ?? false;
@@ -181,6 +186,11 @@ export function SettingsPage() {
       title: "Receipt number format",
       intro: "Manage receipt prefix, digit count, next running number, and yearly reset separately.",
     },
+    creditNote: {
+      eyebrow: "Credit note numbering",
+      title: "Credit note number format",
+      intro: "Manage credit note prefix, digit count, next running number, and yearly reset separately.",
+    },
     delivery: {
       eyebrow: "Document delivery",
       title: "Invoice and receipt options",
@@ -198,6 +208,10 @@ export function SettingsPage() {
       receiptNextNumber: settings.receiptNextNumber,
       receiptPadding: settings.receiptPadding,
       receiptResetYearly: settings.receiptResetYearly,
+      creditNotePrefix: settings.creditNotePrefix,
+      creditNoteNextNumber: settings.creditNoteNextNumber,
+      creditNotePadding: settings.creditNotePadding,
+      creditNoteResetYearly: settings.creditNoteResetYearly,
       bankName: settings.bankName,
       bankAccountName: settings.bankAccountName,
       bankAccount: settings.bankAccount,
@@ -357,7 +371,6 @@ export function SettingsPage() {
           </select>
         </div>
       </header>
-      {formError ? <HelperText tone="error">{formError}</HelperText> : null}
       {billingReadiness && !billingReadiness.isReady ? (
         <HelperText>
           {`Required before billing starts: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
@@ -378,6 +391,10 @@ export function SettingsPage() {
             <div className="settings-overview-stat">
               <span className="settings-stat-label">Receipt format</span>
               <strong>{receiptNumberExample}</strong>
+            </div>
+            <div className="settings-overview-stat">
+              <span className="settings-stat-label">Credit note format</span>
+              <strong>{creditNoteNumberExample}</strong>
             </div>
             <div className="settings-overview-stat">
               <span className="settings-stat-label">Payment QR</span>
@@ -409,12 +426,13 @@ export function SettingsPage() {
             {invoiceSettingsDirty ? "Unsaved edits" : "Saved"}
           </span>
         </div>
+        {formError ? <HelperText tone="error">{formError}</HelperText> : null}
         {invoiceSettings ? (
           <div className="form-stack">
             {activeTab === "documents" ? (
               <>
                 <HelperText>
-                  Set the invoice and receipt code, minimum digits, and next running number in one place.
+                  Set the invoice, receipt, and credit note code, minimum digits, and next running number in one place.
                 </HelperText>
                 <div className="settings-document-summary-grid">
                   <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "invoice" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>
@@ -425,6 +443,10 @@ export function SettingsPage() {
                     <span className="settings-stat-label">Receipt</span>
                     <strong>{receiptNumberExample}</strong>
                   </button>
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "creditNote" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("creditNote")}>
+                    <span className="settings-stat-label">Credit note</span>
+                    <strong>{creditNoteNumberExample}</strong>
+                  </button>
                   <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "delivery" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>
                     <span className="settings-stat-label">Delivery</span>
                     <strong>{documentOptionsDirty ? "Unsaved options" : "Options saved"}</strong>
@@ -433,6 +455,7 @@ export function SettingsPage() {
                 <div className="settings-subtab-strip" role="tablist" aria-label="Document settings sections">
                   <button type="button" className={`settings-subtab-button ${activeDocumentTab === "invoice" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>Invoice</button>
                   <button type="button" className={`settings-subtab-button ${activeDocumentTab === "receipt" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("receipt")}>Receipt</button>
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "creditNote" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("creditNote")}>Credit note</button>
                   <button type="button" className={`settings-subtab-button ${activeDocumentTab === "delivery" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>Delivery</button>
                 </div>
                 <p className="muted settings-subtab-intro">{activeDocumentTabMeta.intro}</p>
@@ -488,6 +511,79 @@ export function SettingsPage() {
                       onClick={() => setConfirmState({
                         title: "Save document numbering",
                         description: "Save the current invoice and receipt numbering settings for this company?",
+                        action: async () => {
+                          if (!invoiceSettings) {
+                            return;
+                          }
+
+                          try {
+                            await saveInvoiceSettings(invoiceSettings);
+                            setConfirmState(null);
+                            setFormError("");
+                            await load();
+                          } catch (error) {
+                            setFormError(error instanceof Error ? error.message : "Unable to save document numbering.");
+                          }
+                        },
+                      })}
+                    >
+                      Save numbering
+                    </button>
+                  </div>
+                </div>
+                ) : null}
+                {activeDocumentTab === "creditNote" ? (
+                <div className="settings-panel">
+                  <div className="settings-panel-header">
+                    <div>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
+                    </div>
+                    <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
+                      {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
+                    </span>
+                  </div>
+                  <div className="settings-numbering-workspace">
+                    <section className="settings-subpanel settings-numbering-card">
+                      <div className="settings-subpanel-header">
+                        <div>
+                          <p className="eyebrow">Credit note</p>
+                          <strong>Credit note number</strong>
+                        </div>
+                        <div className="settings-number-preview">
+                          <span className="settings-number-preview-label">Next output</span>
+                          <strong>{creditNoteNumberExample}</strong>
+                        </div>
+                      </div>
+                      <div className="settings-numbering-fields">
+                        <label className="form-label">
+                          Document code
+                          <input className="text-input" value={invoiceSettings.creditNotePrefix} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNotePrefix: event.target.value } : current)} />
+                        </label>
+                        <label className="form-label">
+                          Minimum digits
+                          <input className="text-input" type="number" min="1" max="12" value={String(invoiceSettings.creditNotePadding)} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNotePadding: clampMinimumDigits(event.target.value) } : current)} />
+                        </label>
+                        <label className="form-label settings-numbering-wide-field">
+                          Next running number
+                          <input className="text-input" type="number" min="1" value={String(invoiceSettings.creditNoteNextNumber)} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNoteNextNumber: Number(event.target.value) } : current)} />
+                        </label>
+                      </div>
+                      <label className="checkbox-row settings-checkbox-row">
+                        <input type="checkbox" checked={invoiceSettings.creditNoteResetYearly} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNoteResetYearly: event.target.checked } : current)} />
+                        <span>Reset credit note numbering every year</span>
+                      </label>
+                    </section>
+                  </div>
+                  <HelperText>The document code stays fixed while the running number increases automatically.</HelperText>
+                  <div className="settings-action-row settings-action-row-sticky">
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      disabled={!numberingDirty}
+                      onClick={() => setConfirmState({
+                        title: "Save document numbering",
+                        description: "Save the current invoice, receipt, and credit note numbering settings for this company?",
                         action: async () => {
                           if (!invoiceSettings) {
                             return;
@@ -1190,9 +1286,20 @@ export function SettingsPage() {
                         title: "Save payment reminders",
                         description: "Save the current payment reminder schedule?",
                         action: async () => {
-                          await api.put(`/settings/dunning-rules?companyId=${selectedCompanyId}`, { rules: rules.map((rule) => ({ name: rule.name, offsetDays: rule.offsetDays, isActive: rule.isActive })) });
-                          setConfirmState(null);
-                          await load();
+                          try {
+                            setFormError("");
+                            await api.put(`/settings/dunning-rules?companyId=${selectedCompanyId}`, {
+                              rules: rules.map((rule) => ({
+                                name: rule.name.trim(),
+                                offsetDays: rule.offsetDays,
+                                isActive: rule.isActive,
+                              })),
+                            });
+                            setConfirmState(null);
+                            await load();
+                          } catch (error) {
+                            setFormError(error instanceof Error ? error.message : "Unable to save payment reminders.");
+                          }
                         },
                       })}
                     >

@@ -48,6 +48,7 @@ public sealed record CreditNoteDto(
     Guid Id,
     Guid InvoiceId,
     Guid CustomerId,
+    string CreditNoteNumber,
     string Currency,
     decimal SubtotalReduction,
     decimal TaxReduction,
@@ -59,8 +60,11 @@ public sealed record CreditNoteDto(
     Guid? CreatedByUserId,
     IReadOnlyCollection<CreditNoteLineDto> Lines);
 
+public sealed record CreditNotePdfFile(string FileName, byte[] Content, string ContentType);
+
 public interface ICreditNoteService
 {
     Task<IReadOnlyCollection<CreditNoteDto>> GetAsync(CancellationToken cancellationToken = default);
     Task<CreditNoteDto> CreateAsync(CreateCreditNoteRequest request, CancellationToken cancellationToken = default);
+    Task<CreditNotePdfFile?> DownloadAsync(Guid id, CancellationToken cancellationToken = default);
 }

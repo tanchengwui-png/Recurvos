@@ -7,6 +7,7 @@ public sealed class CreditNote : CompanyOwnedEntity
 {
     public Guid InvoiceId { get; set; }
     public Guid CustomerId { get; set; }
+    public string CreditNoteNumber { get; set; } = string.Empty;
     public string Currency { get; set; } = "MYR";
     public decimal SubtotalReduction { get; set; }
     public decimal TaxReduction { get; set; }
@@ -14,6 +15,7 @@ public sealed class CreditNote : CompanyOwnedEntity
     public string Reason { get; set; } = string.Empty;
     public CreditNoteStatus Status { get; set; } = CreditNoteStatus.Issued;
     public DateTime IssuedAtUtc { get; set; }
+    public string? PdfPath { get; set; }
     public Guid? CreatedByUserId { get; set; }
     public Invoice? Invoice { get; set; }
     public Customer? Customer { get; set; }

@@ -2,7 +2,13 @@ namespace Recurvos.Infrastructure.Templates;
 
 public sealed class InvoiceTemplateModel
 {
+    public string DocumentTitle { get; init; } = "INVOICE";
+    public string DocumentNumberLabel { get; init; } = "Invoice No";
     public string InvoiceTypeLabel { get; init; } = "Invoice";
+    public bool ShowDueDate { get; init; } = true;
+    public string? SecondaryDocumentLabel { get; init; }
+    public string? SecondaryDocumentValue { get; init; }
+    public string? PeriodLabel { get; init; } = "Billing Period";
     public string InvoiceNumber { get; init; } = string.Empty;
     public DateTime InvoiceDateUtc { get; init; }
     public DateTime DueDateUtc { get; init; }

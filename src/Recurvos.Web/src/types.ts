@@ -280,6 +280,7 @@ export type Payment = {
   invoiceId: string;
   invoiceNumber: string;
   amount: number;
+  currency: string;
   refundedAmount: number;
   netCollectedAmount: number;
   status: string;
@@ -367,6 +368,7 @@ export type CreditNote = {
   id: string;
   invoiceId: string;
   customerId: string;
+  creditNoteNumber: string;
   currency: string;
   subtotalReduction: number;
   taxReduction: number;
@@ -414,6 +416,11 @@ export type CompanyInvoiceSettings = {
   receiptPadding: number;
   receiptResetYearly: boolean;
   receiptLastResetYear?: number | null;
+  creditNotePrefix: string;
+  creditNoteNextNumber: number;
+  creditNotePadding: number;
+  creditNoteResetYearly: boolean;
+  creditNoteLastResetYear?: number | null;
   bankName?: string | null;
   bankAccountName?: string | null;
   bankAccount?: string | null;

@@ -11,7 +11,7 @@ import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
-import type { BillingReadiness, CompanyInvoiceSettings, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
+import type { BillingReadiness, CompanyInvoiceSettings, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, Payment, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
 
 const DEFAULT_WHATSAPP_TEMPLATE = [
   "Hi {CustomerName},",
@@ -23,36 +23,94 @@ const DEFAULT_WHATSAPP_TEMPLATE = [
   "If payment has already been made, please ignore this message. Thank you.",
 ].join("\n");
 
+type InvoiceSortColumn = "invoice" | "customer" | "status" | "source" | "period" | "total" | "paid" | "balance" | "due";
+type InvoiceSortState = { column: InvoiceSortColumn; direction: "asc" | "desc" } | null;
+
+function compareInvoices(left: Invoice, right: Invoice, sortState: InvoiceSortState) {
+  if (!sortState) {
+    return 0;
+  }
+
+  const direction = sortState.direction === "asc" ? 1 : -1;
+  const compareText = (leftValue?: string | null, rightValue?: string | null) =>
+    (leftValue ?? "").localeCompare(rightValue ?? "", undefined, { numeric: true, sensitivity: "base" });
+  const compareNumber = (leftValue?: number | null, rightValue?: number | null) => (leftValue ?? 0) - (rightValue ?? 0);
+  const compareDate = (leftValue?: string | null, rightValue?: string | null) =>
+    new Date(leftValue ?? 0).getTime() - new Date(rightValue ?? 0).getTime();
+
+  let result = 0;
+  switch (sortState.column) {
+    case "invoice":
+      result = compareText(left.invoiceNumber, right.invoiceNumber);
+      break;
+    case "customer":
+      result = compareText(left.customerName, right.customerName);
+      break;
+    case "status":
+      result = compareText(left.statusLabel, right.statusLabel);
+      break;
+    case "source":
+      result = compareText(left.sourceType, right.sourceType);
+      break;
+    case "period":
+      result = compareDate(left.periodStartUtc, right.periodStartUtc);
+      break;
+    case "total":
+      result = compareNumber(left.total, right.total);
+      break;
+    case "paid":
+      result = compareNumber(left.paidAmount, right.paidAmount);
+      break;
+    case "balance":
+      result = compareNumber(left.balanceAmount, right.balanceAmount);
+      break;
+    case "due":
+      result = compareDate(left.dueDateUtc, right.dueDateUtc);
+      break;
+  }
+
+  if (result !== 0) {
+    return result * direction;
+  }
+
+  return compareText(left.invoiceNumber, right.invoiceNumber) * direction;
+}
+
 export function InvoicesPage() {
   const navigate = useNavigate();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const paymentFormRef = useRef<HTMLDivElement | null>(null);
   const creditNoteFormRef = useRef<HTMLDivElement | null>(null);
-  const reversePaymentFormRef = useRef<HTMLDivElement | null>(null);
+  const adjustPaymentFormRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState<Invoice[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [formError, setFormError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [paymentForm, setPaymentForm] = useState<{ invoiceId: string; amount: string; method: string; reference: string; paidAtUtc: string; proofFile: File | null; useFullBalance: boolean } | null>(null);
-  const [creditNoteForm, setCreditNoteForm] = useState<{ invoiceId: string; reason: string; issuedAtUtc: string; lines: { invoiceLineId?: string | null; description: string; quantity: string; unitAmount: string; taxAmount: string }[] } | null>(null);
-  const [reversePaymentForm, setReversePaymentForm] = useState<{ invoiceId: string; invoiceNumber: string; reason: string } | null>(null);
+  const [creditNoteForm, setCreditNoteForm] = useState<{ invoiceId: string; invoiceNumber: string; customerName: string; currency: string; eligibleCreditAmount: number; reason: string; issuedAtUtc: string; description: string; amount: string } | null>(null);
+  const [adjustPaymentForm, setAdjustPaymentForm] = useState<{ invoiceId: string; invoiceNumber: string; currency: string; invoiceTotal: number; paidAmount: number; mode: "reverse" | "refund"; selectedPaymentId: string; amount: string; reason: string } | null>(null);
   const [billingReadiness, setBillingReadiness] = useState<BillingReadiness | null>(null);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [invoiceSettings, setInvoiceSettings] = useState<CompanyInvoiceSettings | null>(null);
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy>(DEFAULT_UPLOAD_POLICY);
-  const pagination = useClientPagination(items, [items.length], 20);
+  const [sortState, setSortState] = useState<InvoiceSortState>(null);
+  const sortedItems = [...items].sort((left, right) => compareInvoices(left, right, sortState));
+  const pagination = useClientPagination(sortedItems, [sortedItems.length, sortState?.column, sortState?.direction], 20);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
 
   async function load() {
-    const [invoiceList, readiness, settings, policy, access] = await Promise.all([
+    const [invoiceList, paymentList, readiness, settings, policy, access] = await Promise.all([
       api.get<Invoice[]>("/invoices"),
+      api.get<Payment[]>("/payments").catch(() => []),
       api.get<BillingReadiness>("/settings/billing-readiness"),
       api.get<CompanyInvoiceSettings>("/settings/invoice-settings"),
       api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
       api.get<FeatureAccess>("/settings/feature-access").catch(() => null),
     ]);
     setItems(invoiceList);
+    setPayments(paymentList);
     setBillingReadiness(readiness);
     setInvoiceSettings(settings);
     setUploadPolicy(policy);
@@ -90,10 +148,10 @@ export function InvoicesPage() {
   }, [creditNoteForm]);
 
   useEffect(() => {
-    if (reversePaymentForm) {
-      reversePaymentFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (adjustPaymentForm) {
+      adjustPaymentFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [reversePaymentForm]);
+  }, [adjustPaymentForm]);
 
   async function downloadPdf(id: string, invoiceNumber: string) {
     const file = await api.download(`/invoices/${id}/download`);
@@ -113,6 +171,18 @@ export function InvoicesPage() {
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
     anchor.download = file.fileName ?? `${invoiceNumber}-receipt.pdf`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  async function downloadCreditNote(id: string, creditNoteNumber: string) {
+    const file = await api.download(`/credit-notes/${id}/download`);
+    const objectUrl = URL.createObjectURL(file.blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = file.fileName ?? `${creditNoteNumber}.pdf`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -255,6 +325,38 @@ export function InvoicesPage() {
     }
   }
 
+  function toggleSort(column: InvoiceSortColumn) {
+    setSortState((current) => {
+      if (!current || current.column !== column) {
+        return { column, direction: "asc" };
+      }
+
+      return {
+        column,
+        direction: current.direction === "asc" ? "desc" : "asc",
+      };
+    });
+  }
+
+  function renderSortHeader(label: string, column: InvoiceSortColumn, className?: string) {
+    const isActive = sortState?.column === column;
+    const icon = isActive ? (sortState?.direction === "asc" ? "▲" : "▼") : "↕";
+
+    return (
+      <th className={className} aria-sort={isActive ? (sortState?.direction === "asc" ? "ascending" : "descending") : "none"}>
+        <button
+          type="button"
+          className={`table-sort-button${isActive ? " table-sort-button-active" : ""}`}
+          onClick={() => toggleSort(column)}
+          aria-label={`Sort by ${label}`}
+        >
+          <span>{label}</span>
+          <span className="table-sort-icon" aria-hidden="true">{icon}</span>
+        </button>
+      </th>
+    );
+  }
+
   return (
     <div className="page">
       <header className="page-header">
@@ -287,15 +389,15 @@ export function InvoicesPage() {
           <table className="catalog-table invoice-table">
             <thead>
               <tr>
-                <th className="sticky-cell sticky-cell-left">Invoice</th>
-                <th>Customer</th>
-                <th>Status</th>
-                <th>Source</th>
-                <th>Period</th>
-                <th>Total</th>
-                <th>Paid</th>
-                <th>Balance</th>
-                <th>Due</th>
+                {renderSortHeader("Invoice", "invoice", "sticky-cell sticky-cell-left")}
+                {renderSortHeader("Customer", "customer")}
+                {renderSortHeader("Status", "status")}
+                {renderSortHeader("Source", "source")}
+                {renderSortHeader("Period", "period")}
+                {renderSortHeader("Total", "total")}
+                {renderSortHeader("Paid", "paid")}
+                {renderSortHeader("Balance", "balance")}
+                {renderSortHeader("Due", "due")}
               </tr>
             </thead>
             <tbody>
@@ -323,7 +425,12 @@ export function InvoicesPage() {
                             },
                             {
                               label: "Send invoice",
-                              disabled: !billingReadiness?.isReady,
+                              disabled: !billingReadiness?.isReady || item.status === "Voided",
+                              title: item.status === "Voided"
+                                ? "Voided invoices cannot be sent."
+                                : !billingReadiness?.isReady
+                                  ? "Complete billing setup before sending invoices."
+                                  : undefined,
                               onClick: () => setConfirmState({
                                 title: "Send invoice",
                                 description: `Send invoice ${item.invoiceNumber} to ${item.customerName}?`,
@@ -344,8 +451,14 @@ export function InvoicesPage() {
                             },
                             {
                               label: "Record payment",
+                              disabled: item.status === "Voided" || item.balanceAmount <= 0,
+                              title: item.status === "Voided"
+                                ? "Voided invoices cannot receive payments."
+                                : item.balanceAmount <= 0
+                                  ? "This invoice is already fully paid."
+                                  : undefined,
                               onClick: () => {
-                                setReversePaymentForm(null);
+                                setAdjustPaymentForm(null);
                                 setCreditNoteForm(null);
                                 setPaymentForm({
                                   invoiceId: item.id,
@@ -413,8 +526,14 @@ export function InvoicesPage() {
                             },
                             {
                               label: "Copy payment confirmation URL",
-                              disabled: !featureAccess?.featureKeys.includes("public_payment_confirmation"),
-                              title: !featureAccess?.featureKeys.includes("public_payment_confirmation") ? getFeatureHint("public_payment_confirmation") : undefined,
+                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("public_payment_confirmation"),
+                              title: item.status === "Voided"
+                                ? "Voided invoices cannot issue payment confirmation links."
+                                : item.balanceAmount <= 0
+                                  ? "This invoice is already fully paid."
+                                : !featureAccess?.featureKeys.includes("public_payment_confirmation")
+                                  ? getFeatureHint("public_payment_confirmation")
+                                  : undefined,
                               onClick: async () => {
                                 try {
                                   const link = await api.post<PaymentConfirmationLink>(`/payment-confirmations/invoices/${item.id}/link`);
@@ -432,46 +551,71 @@ export function InvoicesPage() {
                             },
                             {
                               label: "Copy WhatsApp message",
-                              disabled: !featureAccess?.featureKeys.includes("whatsapp_copy_message"),
-                              title: !featureAccess?.featureKeys.includes("whatsapp_copy_message") ? getFeatureHint("whatsapp_copy_message") : undefined,
+                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_copy_message"),
+                              title: item.status === "Voided"
+                                ? "Voided invoices should not be shared for payment."
+                                : item.balanceAmount <= 0
+                                  ? "This invoice is already fully paid."
+                                : !featureAccess?.featureKeys.includes("whatsapp_copy_message")
+                                  ? getFeatureHint("whatsapp_copy_message")
+                                  : undefined,
                               onClick: () => void copyWhatsAppMessage(item),
                             },
                             {
                               label: "Copy WhatsApp browser link",
-                              disabled: !featureAccess?.featureKeys.includes("whatsapp_browser_link"),
-                              title: !featureAccess?.featureKeys.includes("whatsapp_browser_link") ? getFeatureHint("whatsapp_browser_link") : undefined,
+                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_browser_link"),
+                              title: item.status === "Voided"
+                                ? "Voided invoices should not be shared for payment."
+                                : item.balanceAmount <= 0
+                                  ? "This invoice is already fully paid."
+                                : !featureAccess?.featureKeys.includes("whatsapp_browser_link")
+                                  ? getFeatureHint("whatsapp_browser_link")
+                                  : undefined,
                               onClick: () => void copyWhatsAppBrowserLink(item),
                             },
                             {
                               label: "Issue credit note",
-                              disabled: item.status === "Open" || item.paidAmount <= 0,
-                              title: item.status === "Open" || item.paidAmount <= 0
-                                ? "Credit notes are only available after payment. Use void for unpaid invoices."
-                                : undefined,
+                              disabled: item.status === "Voided" || item.eligibleCreditAmount <= 0,
+                              title: item.status === "Voided"
+                                ? "Voided invoices cannot receive credit notes."
+                                : item.eligibleCreditAmount <= 0
+                                  ? "This invoice has no remaining eligible amount for a credit note."
+                                  : undefined,
                               onClick: () => {
-                                setReversePaymentForm(null);
+                                setAdjustPaymentForm(null);
                                 setPaymentForm(null);
                                 setCreditNoteForm({
                                   invoiceId: item.id,
+                                  invoiceNumber: item.invoiceNumber,
+                                  customerName: item.customerName,
+                                  currency: item.currency,
+                                  eligibleCreditAmount: item.eligibleCreditAmount,
                                   reason: "",
                                   issuedAtUtc: new Date().toISOString().slice(0, 10),
-                                  lines: item.lineItems.map((line) => ({
-                                    description: line.description,
-                                    quantity: String(line.quantity),
-                                    unitAmount: String(line.unitAmount),
-                                    taxAmount: "0",
-                                  })),
+                                  description: `Credit note for invoice ${item.invoiceNumber}`,
+                                  amount: "",
                                 });
                               },
                             },
                             ...(item.paidAmount > 0 ? [{
-                              label: "Reverse payment",
+                              label: "Adjust payment",
                               onClick: () => {
+                                const refundablePayments = payments.filter((payment) =>
+                                  payment.invoiceId === item.id
+                                  && payment.status === "Succeeded"
+                                  && payment.attempts.length === 0
+                                  && payment.refundedAmount < payment.amount);
                                 setPaymentForm(null);
                                 setCreditNoteForm(null);
-                                setReversePaymentForm({
+                                setAdjustPaymentForm({
                                   invoiceId: item.id,
                                   invoiceNumber: item.invoiceNumber,
+                                  currency: item.currency,
+                                  invoiceTotal: item.total,
+                                  paidAmount: item.paidAmount,
+                                  mode: "reverse",
+                                  selectedPaymentId: refundablePayments[0]?.id ?? "",
+                                  amount: "",
                                   reason: "",
                                 });
                               },
@@ -483,8 +627,12 @@ export function InvoicesPage() {
                             {
                               label: "Void invoice",
                               tone: "danger",
-                              disabled: item.paidAmount > 0 || item.creditNotes.some((note) => note.status === "Issued"),
-                              title: item.paidAmount > 0
+                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || item.paidAmount > 0 || item.creditNotes.some((note) => note.status === "Issued"),
+                              title: item.status === "Voided"
+                                ? "This invoice is already voided."
+                                : item.balanceAmount <= 0
+                                  ? "Fully paid invoices cannot be voided."
+                                : item.paidAmount > 0
                                 ? "Paid invoices cannot be voided."
                                 : item.creditNotes.some((note) => note.status === "Issued")
                                   ? "Invoices with issued credit notes cannot be voided."
@@ -580,8 +728,26 @@ export function InvoicesPage() {
                               <div className="invoice-detail-list">
                                 {item.creditNotes.length > 0 ? item.creditNotes.map((note) => (
                                   <div key={note.id} className="invoice-detail-list-row">
-                                    <span>{`${formatCurrency(note.totalReduction, note.currency)} | ${note.reason}`}</span>
-                                    <span className="muted">{note.status}</span>
+                                    <span>{`${note.creditNoteNumber} | ${formatCurrency(note.totalReduction, note.currency)} | ${note.reason}`}</span>
+                                    <span style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
+                                      <span className="muted">{note.status}</span>
+                                      <button
+                                        type="button"
+                                        className="button button-secondary button-small"
+                                        onClick={() => {
+                                          void (async () => {
+                                            try {
+                                              setFormError("");
+                                              await downloadCreditNote(note.id, note.creditNoteNumber);
+                                            } catch (error) {
+                                              setFormError(error instanceof Error ? error.message : "Unable to download the credit note.");
+                                            }
+                                          })();
+                                        }}
+                                      >
+                                        Download
+                                      </button>
+                                    </span>
                                   </div>
                                 )) : <p className="muted">No credit notes issued.</p>}
                               </div>
@@ -622,7 +788,7 @@ export function InvoicesPage() {
                         </div>
                       </td>
                     </tr>
-                  ) : null}
+                    ) : null}
                 </Fragment>
               ))}
             </tbody>
@@ -759,7 +925,9 @@ export function InvoicesPage() {
         {creditNoteForm ? (
           <div ref={creditNoteFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
             <p className="eyebrow">Issue credit note</p>
-            <HelperText>Eligible amount is capped by the invoice total minus previously issued credit notes.</HelperText>
+            <HelperText>
+              {`This credit note is for invoice ${creditNoteForm.invoiceNumber} (${creditNoteForm.customerName}). Current creditable invoice amount is ${formatCurrency(creditNoteForm.eligibleCreditAmount, creditNoteForm.currency)}. The maximum credit allowed is ${formatCurrency(creditNoteForm.eligibleCreditAmount, creditNoteForm.currency)}.`}
+            </HelperText>
             <label className="form-label">
               Reason
               <input className="text-input" value={creditNoteForm.reason} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, reason: event.target.value } : current)} />
@@ -768,40 +936,36 @@ export function InvoicesPage() {
               Issued date
               <input className="text-input" type="date" value={creditNoteForm.issuedAtUtc} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, issuedAtUtc: event.target.value } : current)} />
             </label>
-            {creditNoteForm.lines.map((line, index) => (
-              <div key={index} className="inline-fields">
-                <label className="form-label">
-                  Description
-                  <input className="text-input" value={line.description} onChange={(event) => setCreditNoteForm((current) => current ? {
-                    ...current,
-                    lines: current.lines.map((entry, entryIndex) => entryIndex === index ? { ...entry, description: event.target.value } : entry),
-                  } : current)} />
-                </label>
-                <label className="form-label">
-                  Qty
-                  <input className="text-input" value={line.quantity} onChange={(event) => setCreditNoteForm((current) => current ? {
-                    ...current,
-                    lines: current.lines.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantity: event.target.value } : entry),
-                  } : current)} />
-                </label>
-                <label className="form-label">
-                  Unit
-                  <input className="text-input" value={line.unitAmount} onChange={(event) => setCreditNoteForm((current) => current ? {
-                    ...current,
-                    lines: current.lines.map((entry, entryIndex) => entryIndex === index ? { ...entry, unitAmount: event.target.value } : entry),
-                  } : current)} />
-                </label>
-                <label className="form-label">
-                  Tax
-                  <input className="text-input" value={line.taxAmount} onChange={(event) => setCreditNoteForm((current) => current ? {
-                    ...current,
-                    lines: current.lines.map((entry, entryIndex) => entryIndex === index ? { ...entry, taxAmount: event.target.value } : entry),
-                  } : current)} />
-                </label>
-              </div>
-            ))}
+            <label className="form-label">
+              Description
+              <input className="text-input" value={creditNoteForm.description} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, description: event.target.value } : current)} />
+            </label>
+            <label className="form-label">
+              Credit amount
+              <input className="text-input" type="number" min="0.01" step="0.01" max={String(creditNoteForm.eligibleCreditAmount)} value={creditNoteForm.amount} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, amount: event.target.value } : current)} />
+            </label>
+            <HelperText>
+              {(() => {
+                const amount = Number(creditNoteForm.amount || 0);
+                if (!Number.isFinite(amount) || amount <= 0) {
+                  return "Enter the credit amount to preview the new outstanding balance.";
+                }
+
+                const nextOutstanding = Math.max(0, creditNoteForm.eligibleCreditAmount - amount);
+                const capExceeded = amount > creditNoteForm.eligibleCreditAmount;
+                return capExceeded
+                  ? `This exceeds the cap. Maximum allowed is ${formatCurrency(creditNoteForm.eligibleCreditAmount, creditNoteForm.currency)}.`
+                  : `New outstanding after this credit note: ${formatCurrency(nextOutstanding, creditNoteForm.currency)}.`;
+              })()}
+            </HelperText>
             <div className="button-stack">
-              <button type="button" className="button button-primary" onClick={() => setConfirmState({
+              <button type="button" className="button button-primary" disabled={
+                !creditNoteForm.reason.trim()
+                || !creditNoteForm.description.trim()
+                || !Number.isFinite(Number(creditNoteForm.amount))
+                || Number(creditNoteForm.amount) <= 0
+                || Number(creditNoteForm.amount) > creditNoteForm.eligibleCreditAmount
+              } onClick={() => setConfirmState({
                 title: "Issue credit note",
                 description: "Issue this credit note against the invoice?",
                 action: async () => {
@@ -814,13 +978,12 @@ export function InvoicesPage() {
                       invoiceId: creditNoteForm.invoiceId,
                       reason: creditNoteForm.reason,
                       issuedAtUtc: new Date(creditNoteForm.issuedAtUtc).toISOString(),
-                      lines: creditNoteForm.lines.map((line) => ({
-                        invoiceLineId: line.invoiceLineId ?? null,
-                        description: line.description,
-                        quantity: Number(line.quantity),
-                        unitAmount: Number(line.unitAmount),
-                        taxAmount: Number(line.taxAmount),
-                      })),
+                      lines: [{
+                        description: creditNoteForm.description,
+                        quantity: 1,
+                        unitAmount: Number(creditNoteForm.amount),
+                        taxAmount: 0,
+                      }],
                     });
                     setConfirmState(null);
                     setCreditNoteForm(null);
@@ -835,44 +998,130 @@ export function InvoicesPage() {
             </div>
           </div>
         ) : null}
-        {reversePaymentForm ? (
-          <div ref={reversePaymentFormRef} className="form-stack invoice-inline-panel" style={{ marginTop: "1rem" }}>
-            <p className="eyebrow">Reverse payment</p>
-            <HelperText>Use this only for manual payment mistakes. Gateway-paid invoices should be corrected with refunds.</HelperText>
+        {adjustPaymentForm ? (
+          <div ref={adjustPaymentFormRef} className="form-stack invoice-inline-panel" style={{ marginTop: "1rem" }}>
+            <p className="eyebrow">Adjust payment</p>
+            {(() => {
+              const refundablePayments = payments.filter((payment) =>
+                payment.invoiceId === adjustPaymentForm.invoiceId
+                && payment.status === "Succeeded"
+                && payment.attempts.length === 0
+                && payment.refundedAmount < payment.amount);
+              const selectedPayment = refundablePayments.find((payment) => payment.id === adjustPaymentForm.selectedPaymentId) ?? refundablePayments[0] ?? null;
+              const remainingRefundable = selectedPayment ? Math.max(0, selectedPayment.amount - selectedPayment.refundedAmount) : 0;
+              const suggestedExcessRefund = selectedPayment ? Math.max(0, selectedPayment.netCollectedAmount - adjustPaymentForm.invoiceTotal) : 0;
+              return (
+                <>
+            <HelperText>
+              {adjustPaymentForm.mode === "reverse"
+                ? "Reverse the full latest manual payment only when the payment record itself was entered by mistake. This can reopen the invoice."
+                : selectedPayment
+                  ? `Choose the payment to refund. Remaining refundable amount on the selected payment is ${formatCurrency(remainingRefundable, adjustPaymentForm.currency)}.${suggestedExcessRefund > 0 ? ` Suggested excess refund: ${formatCurrency(suggestedExcessRefund, adjustPaymentForm.currency)}.` : ""}`
+                  : "No refundable manual payment is available for this invoice."}
+            </HelperText>
+            {formError ? <HelperText tone="error">{formError}</HelperText> : null}
+            <label className="form-label">
+              Adjustment type
+              <select value={adjustPaymentForm.mode} onChange={(event) => setAdjustPaymentForm((current) => current ? {
+                ...current,
+                mode: event.target.value === "refund" ? "refund" : "reverse",
+              } : current)}>
+                <option value="reverse">Reverse full payment</option>
+                <option value="refund">Refund amount</option>
+              </select>
+            </label>
+            {adjustPaymentForm.mode === "refund" ? (
+              <>
+                <label className="form-label">
+                  Payment to refund
+                  <select value={selectedPayment?.id ?? ""} onChange={(event) => setAdjustPaymentForm((current) => current ? { ...current, selectedPaymentId: event.target.value } : current)}>
+                    {refundablePayments.map((payment) => {
+                      const remaining = Math.max(0, payment.amount - payment.refundedAmount);
+                      return (
+                        <option key={payment.id} value={payment.id}>
+                          {`${formatCurrency(payment.amount, payment.currency)} paid on ${payment.paidAtUtc ? new Date(payment.paidAtUtc).toLocaleDateString() : "manual"} | refundable ${formatCurrency(remaining, payment.currency)}`}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label className="form-label">
+                  Refund amount
+                  <input
+                    className="text-input"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={adjustPaymentForm.amount}
+                    onChange={(event) => setAdjustPaymentForm((current) => current ? { ...current, amount: event.target.value } : current)}
+                  />
+                </label>
+                {suggestedExcessRefund > 0 ? (
+                  <div className="button-stack" style={{ justifyContent: "flex-start" }}>
+                    <button type="button" className="button button-secondary" onClick={() => setAdjustPaymentForm((current) => current ? { ...current, amount: String(suggestedExcessRefund) } : current)}>
+                      Use suggested excess refund
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
             <label className="form-label">
               Reason
               <input
                 className="text-input"
-                value={reversePaymentForm.reason}
-                onChange={(event) => setReversePaymentForm((current) => current ? { ...current, reason: event.target.value } : current)}
+                value={adjustPaymentForm.reason}
+                onChange={(event) => setAdjustPaymentForm((current) => current ? { ...current, reason: event.target.value } : current)}
               />
             </label>
             <div className="button-stack">
-              <button type="button" className="button button-primary" onClick={() => setConfirmState({
-                title: "Reverse payment",
-                description: `Reverse the latest manual payment on invoice ${reversePaymentForm.invoiceNumber}?`,
+              <button type="button" className="button button-primary" disabled={
+                !adjustPaymentForm.reason.trim()
+                || (adjustPaymentForm.mode === "refund" && (
+                  !selectedPayment
+                  || !Number.isFinite(Number(adjustPaymentForm.amount))
+                  || Number(adjustPaymentForm.amount) <= 0
+                  || Number(adjustPaymentForm.amount) > remainingRefundable))
+              } onClick={() => setConfirmState({
+                title: adjustPaymentForm.mode === "reverse" ? "Reverse payment" : "Refund payment",
+                description: adjustPaymentForm.mode === "reverse"
+                  ? `Reverse the latest manual payment on invoice ${adjustPaymentForm.invoiceNumber}?`
+                  : `Record a refund on the selected payment for invoice ${adjustPaymentForm.invoiceNumber}?`,
                 action: async () => {
-                  if (!reversePaymentForm) {
+                  if (!adjustPaymentForm) {
                     return;
                   }
 
                   try {
-                    await api.post(`/invoices/${reversePaymentForm.invoiceId}/reverse-payment`, {
-                      reason: reversePaymentForm.reason,
-                    });
+                    if (adjustPaymentForm.mode === "reverse") {
+                      await api.post(`/invoices/${adjustPaymentForm.invoiceId}/reverse-payment`, {
+                        reason: adjustPaymentForm.reason,
+                      });
+                      setSuccessMessage(`The latest manual payment on invoice ${adjustPaymentForm.invoiceNumber} was reversed.`);
+                    } else {
+                      await api.post(`/refunds/payments/${selectedPayment!.id}`, {
+                        amount: Number(adjustPaymentForm.amount),
+                        reason: adjustPaymentForm.reason,
+                        invoiceId: adjustPaymentForm.invoiceId,
+                      });
+                      setSuccessMessage(`A refund was recorded for invoice ${adjustPaymentForm.invoiceNumber}.`);
+                    }
+
                     setConfirmState(null);
-                    setReversePaymentForm(null);
-                    setSuccessMessage(`The latest manual payment on invoice ${reversePaymentForm.invoiceNumber} was reversed.`);
+                    setFormError("");
+                    setAdjustPaymentForm(null);
                     await load();
                   } catch (error) {
                     setConfirmState(null);
                     setSuccessMessage("");
-                    setFormError(error instanceof Error ? error.message : "Unable to reverse payment.");
+                    setFormError(error instanceof Error ? error.message : "Unable to adjust payment.");
                   }
                 },
-              })}>Reverse payment</button>
-              <button type="button" className="button button-secondary" onClick={() => setReversePaymentForm(null)}>Close</button>
+              })}>{adjustPaymentForm.mode === "reverse" ? "Reverse payment" : "Save refund"}</button>
+              <button type="button" className="button button-secondary" onClick={() => setAdjustPaymentForm(null)}>Close</button>
             </div>
+                </>
+              );
+            })()}
           </div>
         ) : null}
       </section>

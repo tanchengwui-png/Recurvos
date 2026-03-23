@@ -177,6 +177,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .IsRequired();
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.CreditNotePrefix)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.BankName)
             .HasMaxLength(100);
 
@@ -200,6 +205,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .Property(x => x.PaymentGatewayProvider)
             .HasMaxLength(40)
             .HasDefaultValue("none");
+
+        modelBuilder.Entity<CreditNote>()
+            .Property(x => x.CreditNoteNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<CreditNote>()
+            .Property(x => x.PdfPath)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<CreditNote>()
+            .HasIndex(x => new { x.CompanyId, x.CreditNoteNumber })
+            .IsUnique();
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.SubscriberBillplzApiKey)

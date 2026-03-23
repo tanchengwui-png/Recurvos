@@ -16,7 +16,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Invoice @Model.InvoiceNumber</title>
+    <title>@Model.DocumentTitle @Model.InvoiceNumber</title>
     <style>
         body { margin: 0; padding: 24px; background: #eef2f7; color: #0f172a; font-family: "Segoe UI", Arial, sans-serif; }
         .sheet { width: 210mm; min-height: 297mm; max-width: 100%; margin: 0 auto; background: #fff; padding: 18mm 16mm; }
@@ -25,11 +25,11 @@
         .issuer img { max-width: 180px; max-height: 56px; margin-bottom: 18px; object-fit: contain; display: block; }
         .issuer-name { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
         .issuer-meta { color: #475569; line-height: 1.7; }
-        .invoice-meta { min-width: 240px; text-align: right; }
+        .invoice-meta { min-width: 260px; text-align: right; }
         .title { font-size: 34px; font-weight: 800; letter-spacing: .08em; margin: 0 0 20px; }
-        .meta-row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; margin-bottom: 10px; }
+        .meta-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; margin-bottom: 10px; }
         .meta-label { color: #64748b; text-transform: uppercase; font-size: 11px; letter-spacing: .08em; text-align: left; }
-        .meta-value { font-weight: 600; }
+        .meta-value { font-weight: 600; white-space: nowrap; font-size: 14px; }
         .section { margin-top: 26px; }
         .section-title { margin: 0 0 12px; color: #64748b; text-transform: uppercase; font-size: 12px; letter-spacing: .08em; }
         .bill-to { border-top: 1px solid #dbe3ef; padding-top: 16px; max-width: 52%; line-height: 1.7; }
@@ -82,13 +82,20 @@
                 </div>
             </div>
             <div class="invoice-meta">
-                <h1 class="title">INVOICE</h1>
-                <div class="meta-row"><div class="meta-label">Invoice No</div><div class="meta-value">@Model.InvoiceNumber</div></div>
+                <h1 class="title">@Model.DocumentTitle</h1>
+                <div class="meta-row"><div class="meta-label">@Model.DocumentNumberLabel</div><div class="meta-value">@Model.InvoiceNumber</div></div>
                 <div class="meta-row"><div class="meta-label">Invoice Date</div><div class="meta-value">@Model.InvoiceDateUtc.ToString("dd MMM yyyy")</div></div>
-                <div class="meta-row"><div class="meta-label">Due Date</div><div class="meta-value">@Model.DueDateUtc.ToString("dd MMM yyyy")</div></div>
+                @if (Model.ShowDueDate)
+                {
+                    <div class="meta-row"><div class="meta-label">Due Date</div><div class="meta-value">@Model.DueDateUtc.ToString("dd MMM yyyy")</div></div>
+                }
+                @if (!string.IsNullOrWhiteSpace(Model.SecondaryDocumentLabel) && !string.IsNullOrWhiteSpace(Model.SecondaryDocumentValue))
+                {
+                    <div class="meta-row"><div class="meta-label">@Model.SecondaryDocumentLabel</div><div class="meta-value">@Model.SecondaryDocumentValue</div></div>
+                }
                 @if (Model.PeriodStartUtc.HasValue && Model.PeriodEndUtc.HasValue)
                 {
-                    <div class="meta-row"><div class="meta-label">Billing Period</div><div class="meta-value">@Model.PeriodStartUtc.Value.ToString("dd MMM yyyy") - @Model.PeriodEndUtc.Value.ToString("dd MMM yyyy")</div></div>
+                    <div class="meta-row"><div class="meta-label">@Model.PeriodLabel</div><div class="meta-value">@Model.PeriodStartUtc.Value.ToString("dd MMM yyyy") - @Model.PeriodEndUtc.Value.ToString("dd MMM yyyy")</div></div>
                 }
                 <div class="meta-row"><div class="meta-label">Currency</div><div class="meta-value">@currency</div></div>
             </div>

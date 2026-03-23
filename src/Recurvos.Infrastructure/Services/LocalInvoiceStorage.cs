@@ -12,11 +12,14 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
     private readonly IHostEnvironment _environment = environment;
 
     public async Task<string> SaveInvoicePdfAsync(Guid companyId, string invoiceNumber, byte[] content, CancellationToken cancellationToken = default)
+        => await SaveDocumentPdfAsync(companyId, invoiceNumber, content, cancellationToken);
+
+    public async Task<string> SaveDocumentPdfAsync(Guid companyId, string documentNumber, byte[] content, CancellationToken cancellationToken = default)
     {
         var invoiceRoot = StoragePathResolver.Resolve(_environment, _options.InvoiceDirectory);
         var directory = Path.Combine(invoiceRoot, companyId.ToString("N"));
         Directory.CreateDirectory(directory);
-        var filePath = Path.Combine(directory, $"{invoiceNumber}.pdf");
+        var filePath = Path.Combine(directory, $"{documentNumber}.pdf");
         await File.WriteAllBytesAsync(filePath, content, cancellationToken);
         return filePath.Replace("\\", "/");
     }
@@ -49,7 +52,15 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         IEnumerable<(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
         string currency,
-        string? paymentConfirmationLink = null)
+        string? paymentConfirmationLink = null,
+        string? documentTitle = null,
+        string? documentNumberLabel = null,
+        string? notes = null,
+        bool systemGeneratedFlag = true,
+        bool showDueDate = true,
+        string? secondaryDocumentLabel = null,
+        string? secondaryDocumentValue = null,
+        string? periodLabel = null)
         => InvoicePdfTemplate.Render(CreateTemplateModel(
             companyName,
             companyRegistrationNumber,
@@ -78,7 +89,15 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             items,
             total,
             currency,
-            paymentConfirmationLink));
+            paymentConfirmationLink,
+            documentTitle,
+            documentNumberLabel,
+            notes,
+            systemGeneratedFlag,
+            showDueDate,
+            secondaryDocumentLabel,
+            secondaryDocumentValue,
+            periodLabel));
 
     public static string CreateHtml(
         string companyName,
@@ -108,7 +127,15 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         IEnumerable<(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
         string currency,
-        string? paymentConfirmationLink = null)
+        string? paymentConfirmationLink = null,
+        string? documentTitle = null,
+        string? documentNumberLabel = null,
+        string? notes = null,
+        bool systemGeneratedFlag = true,
+        bool showDueDate = true,
+        string? secondaryDocumentLabel = null,
+        string? secondaryDocumentValue = null,
+        string? periodLabel = null)
         => InvoiceHtmlTemplateRenderer.Render(CreateTemplateModel(
             companyName,
             companyRegistrationNumber,
@@ -137,7 +164,15 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             items,
             total,
             currency,
-            paymentConfirmationLink));
+            paymentConfirmationLink,
+            documentTitle,
+            documentNumberLabel,
+            notes,
+            systemGeneratedFlag,
+            showDueDate,
+            secondaryDocumentLabel,
+            secondaryDocumentValue,
+            periodLabel));
 
     public static InvoiceTemplateModel CreateTemplateModel(
         string companyName,
@@ -167,7 +202,15 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         IEnumerable<(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
         string currency,
-        string? paymentConfirmationLink = null)
+        string? paymentConfirmationLink = null,
+        string? documentTitle = null,
+        string? documentNumberLabel = null,
+        string? notes = null,
+        bool systemGeneratedFlag = true,
+        bool showDueDate = true,
+        string? secondaryDocumentLabel = null,
+        string? secondaryDocumentValue = null,
+        string? periodLabel = null)
     {
         var normalizedCurrency = InvoiceTemplateSupport.NormalizeCurrency(currency);
         var logoDataUrl = InvoiceTemplateSupport.ToDataUrl(companyLogo, "image/png");
@@ -178,7 +221,13 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         var grandTotal = total + taxAmount;
         return new InvoiceTemplateModel
         {
+            DocumentTitle = string.IsNullOrWhiteSpace(documentTitle) ? "INVOICE" : documentTitle.Trim(),
+            DocumentNumberLabel = string.IsNullOrWhiteSpace(documentNumberLabel) ? "Invoice No" : documentNumberLabel.Trim(),
             InvoiceTypeLabel = periodStartUtc.HasValue && periodEndUtc.HasValue ? "Subscription Invoice" : "Manual Invoice",
+            ShowDueDate = showDueDate,
+            SecondaryDocumentLabel = string.IsNullOrWhiteSpace(secondaryDocumentLabel) ? null : secondaryDocumentLabel.Trim(),
+            SecondaryDocumentValue = string.IsNullOrWhiteSpace(secondaryDocumentValue) ? null : secondaryDocumentValue.Trim(),
+            PeriodLabel = string.IsNullOrWhiteSpace(periodLabel) ? "Billing Period" : periodLabel.Trim(),
             InvoiceNumber = invoiceNumber,
             InvoiceDateUtc = issueDateUtc,
             DueDateUtc = dueDateUtc,
@@ -210,8 +259,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             DiscountTotal = 0,
             AmountDue = grandTotal,
             PaidAmount = 0,
-            Notes = "Please include the invoice number with your payment reference.",
-            SystemGeneratedFlag = true,
+            Notes = string.IsNullOrWhiteSpace(notes) ? "Please include the invoice number with your payment reference." : notes.Trim(),
+            SystemGeneratedFlag = systemGeneratedFlag,
             Items = items.Select(item => new InvoiceTemplateLineItem
             {
                 Description = item.Description,

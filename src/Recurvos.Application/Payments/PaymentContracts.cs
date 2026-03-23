@@ -28,6 +28,7 @@ public sealed record PaymentDto(
     Guid InvoiceId,
     string InvoiceNumber,
     decimal Amount,
+    string Currency,
     decimal RefundedAmount,
     decimal NetCollectedAmount,
     PaymentStatus Status,

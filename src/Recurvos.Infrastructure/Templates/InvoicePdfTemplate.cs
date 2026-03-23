@@ -63,18 +63,25 @@ public static class InvoicePdfTemplate
                             }
                         });
 
-                        row.ConstantItem(228).Element(container => SectionCard(container, card =>
+                        row.ConstantItem(248).Element(container => SectionCard(container, card =>
                         {
                             card.Column(right =>
                             {
                                 right.Spacing(10);
-                                right.Item().AlignRight().Text("INVOICE").FontSize(28).SemiBold().FontColor("#0F172A");
-                                MetaRow(right, "Invoice No", model.InvoiceNumber);
+                                right.Item().AlignRight().Text(model.DocumentTitle).FontSize(26).SemiBold().FontColor("#0F172A");
+                                MetaRow(right, model.DocumentNumberLabel, model.InvoiceNumber);
                                 MetaRow(right, "Invoice Date", model.InvoiceDateUtc.ToString("dd MMM yyyy"));
-                                MetaRow(right, "Due Date", model.DueDateUtc.ToString("dd MMM yyyy"));
+                                if (model.ShowDueDate)
+                                {
+                                    MetaRow(right, "Due Date", model.DueDateUtc.ToString("dd MMM yyyy"));
+                                }
+                                if (!string.IsNullOrWhiteSpace(model.SecondaryDocumentLabel) && !string.IsNullOrWhiteSpace(model.SecondaryDocumentValue))
+                                {
+                                    MetaRow(right, model.SecondaryDocumentLabel!, model.SecondaryDocumentValue!);
+                                }
                                 if (model.PeriodStartUtc.HasValue && model.PeriodEndUtc.HasValue)
                                 {
-                                    MetaRow(right, "Billing Period", $"{model.PeriodStartUtc.Value:dd MMM yyyy} - {model.PeriodEndUtc.Value:dd MMM yyyy}");
+                                    MetaRow(right, model.PeriodLabel ?? "Billing Period", $"{model.PeriodStartUtc.Value:dd MMM yyyy} - {model.PeriodEndUtc.Value:dd MMM yyyy}");
                                 }
                                 MetaRow(right, "Currency", currency);
                             });
@@ -94,7 +101,7 @@ public static class InvoicePdfTemplate
                             });
                         }));
 
-                        row.ConstantItem(228).Element(container => SectionCard(container, card =>
+                        row.ConstantItem(248).Element(container => SectionCard(container, card =>
                         {
                             card.Column(summary =>
                             {
@@ -218,10 +225,11 @@ public static class InvoicePdfTemplate
 
     private static void MetaRow(ColumnDescriptor column, string label, string value)
     {
+        var valueFontSize = value.Length > 24 ? 9f : 10f;
         column.Item().Row(row =>
         {
-            row.ConstantItem(86).AlignLeft().Text(label).FontSize(9).FontColor("#64748B");
-            row.RelativeItem().AlignRight().Text(value).SemiBold().FontColor("#0F172A");
+            row.ConstantItem(72).AlignLeft().Text(label).FontSize(9).FontColor("#64748B");
+            row.RelativeItem().AlignRight().Text(value).FontSize(valueFontSize).SemiBold().FontColor("#0F172A");
         });
     }
 

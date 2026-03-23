@@ -28,6 +28,24 @@ function toDateInputValue(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
+function getGenerateInvoiceAvailability(subscription: Subscription) {
+  if (subscription.isDue) {
+    return { disabled: false, title: undefined as string | undefined };
+  }
+
+  if (subscription.nextBillingUtc) {
+    return {
+      disabled: true,
+      title: `Available when the next service period starts on ${new Date(subscription.nextBillingUtc).toLocaleDateString()}.`,
+    };
+  }
+
+  return {
+    disabled: true,
+    title: "No subscription items are due for invoicing yet.",
+  };
+}
+
 function getEarliestSubscriptionStartDate() {
   const earliest = new Date();
   earliest.setMonth(earliest.getMonth() - 3);
@@ -406,6 +424,8 @@ export function SubscriptionsPage() {
                               },
                               {
                                 label: "Generate invoice now",
+                                disabled: getGenerateInvoiceAvailability(item).disabled,
+                                title: getGenerateInvoiceAvailability(item).title,
                                 onClick: () => setConfirmState({
                                   title: "Generate invoice now",
                                   description: `Create the next real subscription invoice now for ${item.customerName}? This saves an invoice record for the current invoice date.`,

@@ -45,6 +45,17 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
 
     public bool ReceiptResetYearly { get; set; }
 
+    [Required, MaxLength(20)]
+    public string CreditNotePrefix { get; set; } = "CN";
+
+    [Range(1, int.MaxValue)]
+    public int CreditNoteNextNumber { get; set; } = 1;
+
+    [Range(1, 12)]
+    public int CreditNotePadding { get; set; } = 6;
+
+    public bool CreditNoteResetYearly { get; set; }
+
     [MaxLength(100)]
     public string? BankName { get; set; }
 
@@ -258,7 +269,12 @@ public sealed record PlatformDocumentNumberingSettingsDto(
     int ReceiptNextNumber,
     int ReceiptMinimumDigits,
     bool ReceiptResetYearly,
-    int? ReceiptLastResetYear);
+    int? ReceiptLastResetYear,
+    string CreditNotePrefix,
+    int CreditNoteNextNumber,
+    int CreditNoteMinimumDigits,
+    bool CreditNoteResetYearly,
+    int? CreditNoteLastResetYear);
 
 public sealed record PlatformSmtpSettingsDto(
     string Environment,
@@ -379,6 +395,11 @@ public sealed record CompanyInvoiceSettingsDto(
     int ReceiptPadding,
     bool ReceiptResetYearly,
     int? ReceiptLastResetYear,
+    string CreditNotePrefix,
+    int CreditNoteNextNumber,
+    int CreditNotePadding,
+    bool CreditNoteResetYearly,
+    int? CreditNoteLastResetYear,
     string? BankName,
     string? BankAccountName,
     string? BankAccount,

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Recurvos.Application.Invoices;
+using Recurvos.Application.Refunds;
 
 namespace Recurvos.Api.Controllers;
 
@@ -149,6 +150,21 @@ public sealed class InvoicesController(IInvoiceService invoiceService) : Control
         try
         {
             var invoice = await invoiceService.ReverseLatestManualPaymentAsync(id, request, cancellationToken);
+            return invoice is null ? NotFound() : Ok(invoice);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
+    [HttpPost("{id:guid}/refund-payment")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<InvoiceDto>> RefundPayment(Guid id, RecordRefundRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var invoice = await invoiceService.RefundLatestManualPaymentAsync(id, request, cancellationToken);
             return invoice is null ? NotFound() : Ok(invoice);
         }
         catch (InvalidOperationException exception)

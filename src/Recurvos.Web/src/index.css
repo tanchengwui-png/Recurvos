@@ -1041,6 +1041,38 @@ th {
   box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.12);
 }
 
+.table-sort-button {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.table-sort-button:hover,
+.table-sort-button:focus-visible,
+.table-sort-button-active {
+  color: #f8fafc;
+}
+
+.table-sort-button:focus-visible {
+  outline: 2px solid rgba(148, 163, 184, 0.6);
+  outline-offset: 3px;
+}
+
+.table-sort-icon {
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
 .audit-log-table {
   min-width: 1320px;
 }
