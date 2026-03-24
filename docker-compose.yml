@@ -38,6 +38,7 @@ services:
       Billplz__ApiKey: ${BILLPLZ_API_KEY:-}
       Billplz__CollectionId: ${BILLPLZ_COLLECTION_ID:-}
       Billplz__XSignatureKey: ${BILLPLZ_X_SIGNATURE_KEY:-}
+      WhatsAppWebJs__BaseUrl: ${WHATSAPP_WEBJS_BASE_URL:-http://worker:3011/api}
     ports:
       - "7001:8080"
     depends_on:
@@ -56,6 +57,18 @@ services:
       - "4173:80"
     depends_on:
       - api
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/Recurvos.WhatsAppWorker/Dockerfile
+    environment:
+      NODE_ENV: ${WORKER_NODE_ENV:-production}
+      WHATSAPP_SESSION_DIR: ${WHATSAPP_SESSION_DIR:-/app/storage/whatsapp-webjs}
+      WHATSAPP_WORKER_TOKEN: ${WHATSAPP_WORKER_TOKEN:-}
+      PORT: ${WHATSAPP_WORKER_PORT:-3011}
+    volumes:
+      - ${WHATSAPP_SESSION_VOLUME:-./storage/whatsapp-webjs}:/app/storage/whatsapp-webjs
 
 volumes:
   postgres-data:

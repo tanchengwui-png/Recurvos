@@ -168,7 +168,7 @@ ssh server@YOUR_PROD_IP -p YOUR_PORT
 cd /srv/recurvos/prod/repo
 git checkout main
 git pull origin main
-docker compose -f docker-compose.yml up -d --build postgres mailpit api web worker
+docker compose -f docker-compose.yml up -d --build postgres mailpit api web
 ```
 
 10. Verify production
