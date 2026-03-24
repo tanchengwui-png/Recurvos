@@ -1,6 +1,4 @@
 using Microsoft.AspNetCore.DataProtection;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -308,27 +306,7 @@ public sealed class PaymentConfirmationService(
             return null;
         }
 
-        var invoice = await ResolveSignedPublicInvoiceAsync(token, cancellationToken);
-        if (invoice is not null)
-        {
-            return invoice;
-        }
-
-        if (token.Length != 48 || token.Any(ch => !Uri.IsHexDigit(ch)))
-        {
-            return null;
-        }
-
-        var tokenHash = HashToken(token);
-        invoice = await dbContext.Invoices
-            .Include(x => x.Customer)
-            .FirstOrDefaultAsync(x => x.PaymentConfirmationTokenHash == tokenHash, cancellationToken);
-        if (invoice is null)
-        {
-            return null;
-        }
-
-        return invoice;
+        return await ResolveSignedPublicInvoiceAsync(token, cancellationToken);
     }
 
     private string EnsureInvoiceToken(Invoice invoice)
@@ -396,8 +374,6 @@ public sealed class PaymentConfirmationService(
         var utcValue = valueUtc.Kind == DateTimeKind.Utc ? valueUtc : valueUtc.ToUniversalTime();
         return new DateTime(utcValue.Ticks - (utcValue.Ticks % 10), DateTimeKind.Utc);
     }
-
-    private static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     private static PendingPaymentConfirmationDto Map(PaymentConfirmationSubmission submission) =>
         new(

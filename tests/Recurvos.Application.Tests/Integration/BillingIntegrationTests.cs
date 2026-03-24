@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -618,6 +619,38 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         submissions.Should().HaveCount(2);
         submissions[0].Status.Should().Be(PaymentConfirmationStatus.Rejected);
         submissions[1].Status.Should().Be(PaymentConfirmationStatus.Pending);
+    }
+
+    [Fact]
+    public async Task PublicPaymentConfirmation_LegacyHexToken_IsRejected()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var authorized = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var invoice = (await authorized.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var legacyRawToken = new string('A', 48);
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var storedInvoice = await dbContext.Invoices.FirstAsync(x => x.Id == invoice.Id);
+            storedInvoice.PaymentConfirmationTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(legacyRawToken)));
+            storedInvoice.PaymentConfirmationTokenIssuedAtUtc = DateTime.UtcNow;
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(legacyRawToken), "token");
+        form.Add(new StringContent("Nur Payment"), "payerName");
+        form.Add(new StringContent(invoice.BalanceAmount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)), "amount");
+        form.Add(new StringContent(DateTime.UtcNow.ToString("O")), "paidAtUtc");
+        form.Add(new StringContent("BANK-LEGACY"), "transactionReference");
+
+        var response = await _factory.CreateClient().PostAsync("/api/public/payment-confirmations", form);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("invalid");
     }
 
     [Fact]

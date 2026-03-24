@@ -41,6 +41,8 @@ services:
       Billplz__ApiKey: ${BILLPLZ_API_KEY}
       Billplz__CollectionId: ${BILLPLZ_COLLECTION_ID}
       Billplz__XSignatureKey: ${BILLPLZ_X_SIGNATURE_KEY}
+      Cors__AllowedOrigins__0: https://staging-app.recurvos.com
+      Cors__AllowedOrigins__1: https://staging.recurvos.com
       WhatsAppWebJs__BaseUrl: http://worker:3011/api
     ports:
       - "7002:8080"
