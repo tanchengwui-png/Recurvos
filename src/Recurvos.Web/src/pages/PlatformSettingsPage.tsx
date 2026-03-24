@@ -13,6 +13,16 @@ const platformJobs = [
     description: "Queue an immediate billing run for subscriptions that are due now.",
   },
   {
+    key: "generate-subscriber-package-invoices",
+    name: "Generate subscriber package invoices",
+    description: "Queue an immediate renewal run for subscriber package billing cycles that are due now.",
+  },
+  {
+    key: "reconcile-subscriber-package-statuses",
+    name: "Reconcile subscriber package statuses",
+    description: "Persist expired subscriber package grace or reactivation states to past due.",
+  },
+  {
     key: "send-invoice-reminders",
     name: "Send invoice reminders",
     description: "Run the reminder flow immediately using the current email and WhatsApp settings.",

@@ -64,6 +64,11 @@ git add .
 git commit -m "Short clear message"
 git push -u origin feature/short-description
 ```
+----
+git branch
+git branch -r
+git log --oneline --decorate -20
+----
 
 5. Merge your feature branch into `develop`
 ```powershell
@@ -77,6 +82,7 @@ git push origin develop
 6. Deploy `develop` to staging
 ```bash
 ssh server@115.187.22.70 -p 6262
+iZ0U1DoNuzyZevj30T
 cd /srv/recurvos/staging/repo
 git status
 git branch --show-current

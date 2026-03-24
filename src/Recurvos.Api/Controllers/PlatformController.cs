@@ -20,6 +20,8 @@ public sealed class PlatformController(
     private static readonly (string Key, string Name)[] SupportedPlatformJobs =
     [
         ("generate-invoices", "Generate invoices"),
+        ("generate-subscriber-package-invoices", "Generate subscriber package invoices"),
+        ("reconcile-subscriber-package-statuses", "Reconcile subscriber package statuses"),
         ("send-invoice-reminders", "Send invoice reminders"),
         ("retry-failed-payments", "Retry failed payments"),
         ("cleanup-stale-signups", "Cleanup stale signups")
@@ -189,6 +191,14 @@ public sealed class PlatformController(
                     "generate-invoices",
                     "Generate invoices",
                     backgroundJobClient.Enqueue<GenerateInvoicesJob>(job => job.ExecuteAsync())),
+                "generate-subscriber-package-invoices" => (
+                    "generate-subscriber-package-invoices",
+                    "Generate subscriber package invoices",
+                    backgroundJobClient.Enqueue<GenerateSubscriberPackageInvoicesJob>(job => job.ExecuteAsync())),
+                "reconcile-subscriber-package-statuses" => (
+                    "reconcile-subscriber-package-statuses",
+                    "Reconcile subscriber package statuses",
+                    backgroundJobClient.Enqueue<ReconcileSubscriberPackageStatusesJob>(job => job.ExecuteAsync())),
                 "send-invoice-reminders" => (
                     "send-invoice-reminders",
                     "Send invoice reminders",
