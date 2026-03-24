@@ -20,7 +20,10 @@ export function PlatformDashboardPage() {
     return {
       totalSubscribers: subscriberList.length,
       subscribersPaid: subscriberList.filter((item) => (item.packageStatus ?? "").toLowerCase() === "active").length,
-      subscribersPendingPayment: subscriberList.filter((item) => (item.packageStatus ?? "").toLowerCase() === "pending_payment").length,
+      subscribersPendingPayment: subscriberList.filter((item) => {
+        const status = (item.packageStatus ?? "").toLowerCase();
+        return status === "pending_payment" || status === "reactivation_pending_payment";
+      }).length,
       subscribersInGracePeriod: subscriberList.filter((item) => {
         const status = (item.packageStatus ?? "").toLowerCase();
         return status === "grace_period"

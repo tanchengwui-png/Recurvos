@@ -779,6 +779,7 @@ export type SubscriberPackageBillingSummary = {
   pendingUpgradePackageName?: string | null;
   currentCycleEndUtc?: string | null;
   isCompanyBillingAddressConfigured: boolean;
+  canCancelPendingUpgrade: boolean;
   availableUpgrades: SubscriberPackageUpgradeOption[];
   invoices: SubscriberPackageBillingInvoice[];
 };

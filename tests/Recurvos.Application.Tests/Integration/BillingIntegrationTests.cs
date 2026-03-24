@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Recurvos.Application.Common;
 using Recurvos.Application.CreditNotes;
 using Recurvos.Application.Invoices;
+using Recurvos.Application.Platform;
 using Recurvos.Application.Settings;
 using Recurvos.Domain.Entities;
 using Recurvos.Domain.Enums;
@@ -99,6 +100,347 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         summary.Invoices.Should().ContainSingle();
         summary.Invoices.Single().InvoiceNumber.Should().StartWith("SUB-");
         summary.Invoices.Single().Currency.Should().Be("MYR");
+    }
+
+    [Fact]
+    public async Task UnpaidUpgrade_KeepsCurrentPackageFeaturesActive()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var createResponse = await client.PostAsJsonAsync("/api/package-billing/upgrade", new
+        {
+            packageCode = "growth"
+        });
+
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var featureAccess = await client.GetFromJsonAsync<FeatureAccessView>("/api/settings/feature-access", TestWebApplicationFactory.JsonOptions);
+        featureAccess.Should().NotBeNull();
+        featureAccess!.PackageCode.Should().Be("starter");
+        featureAccess.PackageStatus.Should().Be("upgrade_pending_payment");
+        featureAccess.FeatureKeys.Should().Contain("customer_management");
+        featureAccess.FeatureKeys.Should().Contain("manual_invoices");
+    }
+
+    [Fact]
+    public async Task CancelPendingUpgrade_VoidsInvoice_And_RestoresActivePackageState()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var createResponse = await client.PostAsJsonAsync("/api/package-billing/upgrade", new
+        {
+            packageCode = "growth"
+        });
+
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var cancelResponse = await client.PostAsync("/api/package-billing/upgrade/cancel", JsonContent.Create(new { }));
+        cancelResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var summary = await cancelResponse.Content.ReadFromJsonAsync<SubscriberPackageBillingSummaryFullView>(TestWebApplicationFactory.JsonOptions);
+        summary.Should().NotBeNull();
+        summary!.PackageCode.Should().Be("starter");
+        summary.PackageStatus.Should().Be("active");
+        summary.PendingUpgradePackageCode.Should().BeNull();
+        summary.CanCancelPendingUpgrade.Should().BeFalse();
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+        company.SelectedPackage.Should().Be("starter");
+        company.PendingPackageCode.Should().BeNull();
+        company.PackageStatus.Should().Be("active");
+        company.PackageGracePeriodEndsAtUtc.Should().BeNull();
+
+        var invoice = await dbContext.Invoices
+            .Where(x => x.SubscriberCompanyId == companyId && x.SourceType == InvoiceSourceType.PlatformSubscription)
+            .OrderByDescending(x => x.IssueDateUtc)
+            .FirstAsync();
+        invoice.Status.Should().Be(InvoiceStatus.Voided);
+        invoice.AmountDue.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CancelPendingUpgrade_IsRejected_ForFirstTimePackageActivation()
+    {
+        await _factory.EnsureSeededAsync();
+        using var client = _factory.CreateClient();
+
+        var registerResponse = await client.PostAsJsonAsync("/api/auth/register", new
+        {
+            packageCode = "starter",
+            companyName = "Cancel Guard Co",
+            registrationNumber = "202699991234",
+            companyEmail = "finance@cancelguard.my",
+            fullName = "Cancel Guard Owner",
+            email = "owner@cancelguard.my",
+            password = "Passw0rd!",
+            acceptLegalTerms = true
+        });
+
+        registerResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var auth = await VerifyLatestRegistrationAsync("owner@cancelguard.my");
+        using var authorized = TestWebApplicationFactory.Authorize(_factory.CreateClient(), auth.AccessToken);
+
+        var cancelResponse = await authorized.PostAsync("/api/package-billing/upgrade/cancel", JsonContent.Create(new { }));
+        cancelResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await cancelResponse.Content.ReadAsStringAsync();
+        problem.Should().Contain("First-time package activation cannot be cancelled.");
+    }
+
+    [Fact]
+    public async Task GenerateDueRenewalInvoices_CreatesNextSubscriberPackageInvoice_WhenCycleHasEnded()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.SelectedPackage = "starter";
+            company.PendingPackageCode = null;
+            company.PackageStatus = "active";
+            company.PackageGracePeriodEndsAtUtc = null;
+            company.PackageBillingCycleStartUtc = DateTime.UtcNow.Date.AddMonths(-1);
+
+            var openInvoices = await dbContext.Invoices
+                .Where(x => x.SubscriberCompanyId == companyId
+                    && x.SourceType == InvoiceSourceType.PlatformSubscription
+                    && x.Status != InvoiceStatus.Paid
+                    && x.Status != InvoiceStatus.Voided)
+                .ToListAsync();
+            foreach (var invoice in openInvoices)
+            {
+                invoice.Status = InvoiceStatus.Voided;
+                invoice.AmountDue = 0;
+            }
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var billingService = scope.ServiceProvider.GetRequiredService<ISubscriberPackageBillingService>();
+            var created = await billingService.GenerateDueRenewalInvoicesAsync();
+            created.Should().BeGreaterThan(0);
+        }
+
+        await using (var assertScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.PackageStatus.Should().Be("pending_payment");
+            company.PackageGracePeriodEndsAtUtc.Should().NotBeNull();
+
+            var invoice = await dbContext.Invoices
+                .Where(x => x.SubscriberCompanyId == companyId && x.SourceType == InvoiceSourceType.PlatformSubscription)
+                .OrderByDescending(x => x.IssueDateUtc)
+                .FirstAsync();
+            invoice.Status.Should().Be(InvoiceStatus.Open);
+            invoice.InvoiceNumber.Should().NotBeNullOrWhiteSpace();
+        }
+    }
+
+    [Fact]
+    public async Task PayingRenewalInvoice_AdvancesCycle_And_DoesNotImmediatelyGenerateAnotherInvoice()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.SelectedPackage = "starter";
+            company.PendingPackageCode = null;
+            company.PackageStatus = "active";
+            company.PackageGracePeriodEndsAtUtc = null;
+            company.PackageBillingCycleStartUtc = DateTime.UtcNow.Date.AddMonths(-1);
+
+            var openInvoices = await dbContext.Invoices
+                .Where(x => x.SubscriberCompanyId == companyId
+                    && x.SourceType == InvoiceSourceType.PlatformSubscription
+                    && x.Status != InvoiceStatus.Paid
+                    && x.Status != InvoiceStatus.Voided)
+                .ToListAsync();
+            foreach (var invoice in openInvoices)
+            {
+                invoice.Status = InvoiceStatus.Voided;
+                invoice.AmountDue = 0;
+            }
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using (var generateScope = _factory.Services.CreateAsyncScope())
+        {
+            var billingService = generateScope.ServiceProvider.GetRequiredService<ISubscriberPackageBillingService>();
+            (await billingService.GenerateDueRenewalInvoicesAsync()).Should().BeGreaterThan(0);
+        }
+
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+        var summary = await client.GetFromJsonAsync<SubscriberPackageBillingSummaryFullView>("/api/package-billing", TestWebApplicationFactory.JsonOptions);
+        var invoiceId = summary!.Invoices.First(x => x.Status == "Open").Id;
+
+        var paymentLinkResponse = await client.PostAsync($"/api/package-billing/invoices/{invoiceId}/payment-link", JsonContent.Create(new { }));
+        paymentLinkResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        string externalPaymentId;
+        await using (var paymentScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = paymentScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            externalPaymentId = await dbContext.Payments
+                .Where(x => x.InvoiceId == invoiceId)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .Select(x => x.ExternalPaymentId!)
+                .FirstAsync();
+        }
+
+        var webhookResponse = await _factory.CreateClient()
+            .PostAsync($"/api/webhooks/billplz/complete?billplz[id]={Uri.EscapeDataString(externalPaymentId)}", new StringContent(string.Empty));
+        webhookResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        DateTime advancedCycleStartUtc;
+        await using (var assertScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.PackageStatus.Should().Be("active");
+            company.PackageGracePeriodEndsAtUtc.Should().BeNull();
+            company.PackageBillingCycleStartUtc.Should().NotBeNull();
+            advancedCycleStartUtc = company.PackageBillingCycleStartUtc!.Value;
+            advancedCycleStartUtc.Should().Be(DateTime.UtcNow.Date);
+        }
+
+        await using (var regenerateScope = _factory.Services.CreateAsyncScope())
+        {
+            var billingService = regenerateScope.ServiceProvider.GetRequiredService<ISubscriberPackageBillingService>();
+            var created = await billingService.GenerateDueRenewalInvoicesAsync();
+            created.Should().Be(0);
+        }
+    }
+
+    [Fact]
+    public async Task ExpiredGracePeriod_ResolvesToPastDue_EvenWhenRawStatusIsGracePeriod()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.PackageStatus = "grace_period";
+            company.PackageGracePeriodEndsAtUtc = DateTime.UtcNow.AddDays(-1);
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+        var summary = await client.GetFromJsonAsync<SubscriberPackageBillingSummaryFullView>("/api/package-billing", TestWebApplicationFactory.JsonOptions);
+        var featureAccess = await client.GetFromJsonAsync<FeatureAccessView>("/api/settings/feature-access", TestWebApplicationFactory.JsonOptions);
+
+        summary.Should().NotBeNull();
+        summary!.PackageStatus.Should().Be("past_due");
+        featureAccess.Should().NotBeNull();
+        featureAccess!.PackageStatus.Should().Be("past_due");
+        featureAccess.FeatureKeys.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task CreateReactivationInvoice_KeepsAccountRestricted_UntilPaymentSucceeds()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.SelectedPackage = "starter";
+            company.PendingPackageCode = null;
+            company.PackageStatus = "pending_payment";
+            company.PackageGracePeriodEndsAtUtc = DateTime.UtcNow.AddDays(-1);
+            company.PackageBillingCycleStartUtc = null;
+
+            var openInvoices = await dbContext.Invoices
+                .Where(x => x.SubscriberCompanyId == companyId
+                    && x.SourceType == InvoiceSourceType.PlatformSubscription
+                    && x.Status != InvoiceStatus.Paid
+                    && x.Status != InvoiceStatus.Voided)
+                .ToListAsync();
+            foreach (var invoice in openInvoices)
+            {
+                invoice.Status = InvoiceStatus.Voided;
+                invoice.AmountDue = 0;
+            }
+
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+        var reactivateResponse = await client.PostAsJsonAsync("/api/package-billing/reactivate", new
+        {
+            packageCode = "starter"
+        });
+
+        reactivateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var summary = await client.GetFromJsonAsync<SubscriberPackageBillingSummaryFullView>("/api/package-billing", TestWebApplicationFactory.JsonOptions);
+        var featureAccess = await client.GetFromJsonAsync<FeatureAccessView>("/api/settings/feature-access", TestWebApplicationFactory.JsonOptions);
+
+        summary.Should().NotBeNull();
+        summary!.PackageStatus.Should().Be("reactivation_pending_payment");
+        summary.Invoices.Should().Contain(x => x.Status == "Open");
+
+        featureAccess.Should().NotBeNull();
+        featureAccess!.PackageStatus.Should().Be("reactivation_pending_payment");
+        featureAccess.FeatureKeys.Should().BeEmpty();
+
+        await using var assertScope = _factory.Services.CreateAsyncScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var companyAfter = await assertDbContext.Companies.FirstAsync(x => x.Id == companyId);
+        companyAfter.PackageStatus.Should().Be("reactivation_pending_payment");
+        companyAfter.PackageGracePeriodEndsAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ReconcileExpiredPackageStatuses_PersistsPastDue_ForExpiredSubscriberStates()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.PackageStatus = "reactivation_pending_payment";
+            company.PackageGracePeriodEndsAtUtc = DateTime.UtcNow.AddDays(-2);
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using (var reconcileScope = _factory.Services.CreateAsyncScope())
+        {
+            var billingService = reconcileScope.ServiceProvider.GetRequiredService<ISubscriberPackageBillingService>();
+            var updated = await billingService.ReconcileExpiredPackageStatusesAsync();
+            updated.Should().BeGreaterThan(0);
+        }
+
+        await using var assertScope = _factory.Services.CreateAsyncScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var companyAfter = await assertDbContext.Companies.FirstAsync(x => x.Id == companyId);
+        companyAfter.PackageStatus.Should().Be("past_due");
     }
 
     [Fact]
@@ -1178,8 +1520,22 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         return (await verifyResponse.Content.ReadFromJsonAsync<AuthVerifyResponse>(TestWebApplicationFactory.JsonOptions))!;
     }
 
+    private static string ParseJwtClaim(string token, string claimType)
+    {
+        var parts = token.Split('.');
+        var payload = parts[1]
+            .Replace('-', '+')
+            .Replace('_', '/');
+        payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+        var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        return document.RootElement.GetProperty(claimType).GetString()!;
+    }
+
     private sealed record RegisterResponse(bool RequiresEmailVerification, string Email, string Message);
     private sealed record AuthVerifyResponse(string AccessToken, string RefreshToken, string Role);
+    private sealed record FeatureAccessView(string PackageCode, string PackageStatus, IReadOnlyCollection<string> FeatureKeys);
+    private sealed record SubscriberPackageBillingSummaryFullView(string? PackageCode, string? PackageStatus, string? PendingUpgradePackageCode, bool CanCancelPendingUpgrade, IReadOnlyCollection<SubscriberPackageBillingInvoiceView> Invoices);
     private sealed record PaymentResponse(string ExternalPaymentId);
     private sealed record PaymentView(Guid Id, Guid InvoiceId, decimal Amount, string Status, decimal NetCollectedAmount, bool HasProof, IReadOnlyCollection<RefundView> Refunds);
     private sealed record PaymentConfirmationLinkView(Guid InvoiceId, string InvoiceNumber, string Url);
@@ -1187,5 +1543,5 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     private sealed record RefundView(Guid Id, string Reason);
     private sealed record ReconciliationStatusView(string Phase, string Status, string Message);
     private sealed record SubscriberPackageBillingSummaryView(string PackageCode, IReadOnlyCollection<SubscriberPackageBillingInvoiceView> Invoices);
-    private sealed record SubscriberPackageBillingInvoiceView(Guid Id, string InvoiceNumber, string Currency, bool HasReceipt, string? PaymentLinkUrl);
+    private sealed record SubscriberPackageBillingInvoiceView(Guid Id, string InvoiceNumber, string Status, string Currency, bool HasReceipt, string? PaymentLinkUrl);
 }

@@ -231,6 +231,8 @@ app.UseAuthorization();
 app.UseHangfireDashboard("/hangfire");
 
 RecurringJob.AddOrUpdate<GenerateInvoicesJob>("generate-invoices", x => x.ExecuteAsync(), Cron.Hourly);
+RecurringJob.AddOrUpdate<GenerateSubscriberPackageInvoicesJob>("generate-subscriber-package-invoices", x => x.ExecuteAsync(), Cron.Hourly);
+RecurringJob.AddOrUpdate<ReconcileSubscriberPackageStatusesJob>("reconcile-subscriber-package-statuses", x => x.ExecuteAsync(), Cron.Hourly);
 RecurringJob.AddOrUpdate<SendInvoiceRemindersJob>("send-invoice-reminders", x => x.ExecuteAsync(), Cron.Daily);
 RecurringJob.AddOrUpdate<RetryFailedPaymentsJob>("retry-failed-payments", x => x.ExecuteAsync(), Cron.Hourly);
 RecurringJob.AddOrUpdate<CleanupStaleSignupsJob>("cleanup-stale-signups", x => x.ExecuteAsync(), Cron.Daily);

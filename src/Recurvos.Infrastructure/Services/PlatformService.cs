@@ -522,11 +522,28 @@ public sealed class PlatformService(
     {
         var normalized = (rawStatus ?? "pending_payment").Trim().ToLowerInvariant();
 
-        if (normalized == "pending_payment" && gracePeriodEndsAtUtc.HasValue)
+        if (normalized is "pending_payment" or "grace_period")
         {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return normalized == "grace_period" ? "past_due" : "pending_payment";
+            }
+
             return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
                 ? "grace_period"
-                : "pending_payment";
+                : "past_due";
+        }
+
+        if (normalized == "reactivation_pending_payment")
+        {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return "past_due";
+            }
+
+            return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
+                ? "pending_payment"
+                : "past_due";
         }
 
         return normalized;

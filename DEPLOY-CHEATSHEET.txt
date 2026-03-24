@@ -77,11 +77,15 @@ git push origin develop
 6. Deploy `develop` to staging
 ```bash
 ssh server@115.187.22.70 -p 6262
-iZ0U1DoNuzyZevj30T
 cd /srv/recurvos/staging/repo
+git status
+git branch --show-current
+git log --oneline -5
 git checkout develop
+git fetch origin
+git log --oneline origin/develop -5
 git pull origin develop
-docker compose -f docker-compose.staging.yml up -d --build postgres mailpit api web worker
+docker compose -f docker-compose.staging.yml up -d --build api web
 ```
 
 7. Verify staging
@@ -92,6 +96,56 @@ docker logs --tail 100 recurvos-staging-api
 docker logs --tail 100 recurvos-staging-web
 docker logs --tail 100 recurvos-staging-worker
 ```
+
+Staging update when `git pull` is blocked by local changes
+----------------------------------------------------------
+
+If staging says a file is modified and refuses to pull, do this first.
+
+1. Check what changed
+```bash
+cd /srv/recurvos/staging/repo
+git status
+git diff -- docker-compose.staging.yml
+```
+
+2. If the change is a server-only change you want to keep, stash it
+```bash
+git stash push -m "staging local change" -- docker-compose.staging.yml
+```
+
+3. Pull the latest `develop`
+```bash
+git fetch origin
+git checkout develop
+git pull origin develop
+git log --oneline -5
+```
+
+4. Re-apply the stash only if you still need it
+```bash
+git stash list
+git stash pop
+```
+
+5. Rebuild the containers you actually changed
+```bash
+docker compose -f docker-compose.staging.yml up -d --build api web
+```
+
+6. Verify the running code
+```bash
+docker compose -f docker-compose.staging.yml ps
+docker logs --tail 100 recurvos-staging-api
+docker logs --tail 100 recurvos-staging-web
+```
+
+Expected result
+- `git branch --show-current` should be `develop`
+- `git log --oneline -5` should show the latest commit from `origin/develop`
+- rebuild `api` whenever backend code or EF migrations changed
+- rebuild `web` whenever frontend code changed
+- rebuild both `api web` when a feature touches subscription behavior end to end
 
 8. If staging is good, merge `develop` into `main`
 ```powershell
@@ -204,6 +258,49 @@ git pull origin develop
 docker compose -f docker-compose.staging.yml up -d --build postgres mailpit api web worker
 ```
 
+Bugfix to staging
+-----------------
+
+Use this when you already fixed the bug locally and just want to push and refresh staging.
+
+1. Commit and push the fix to `develop`
+```powershell
+cd C:\recurvos
+git checkout develop
+git status
+git add .
+git commit -m "Short bugfix message"
+git push origin develop
+```
+
+2. Update the staging repo
+```bash
+ssh server@115.187.22.70 -p 6262
+cd /srv/recurvos/staging/repo
+git status
+git fetch origin
+git checkout develop
+git pull origin develop
+git log --oneline -5
+```
+
+3. Rebuild only the services affected by the fix
+```bash
+docker compose -f docker-compose.staging.yml up -d --build api web
+```
+
+4. Verify staging is really running the new code
+```bash
+docker compose -f docker-compose.staging.yml ps
+docker logs --tail 100 recurvos-staging-api
+docker logs --tail 100 recurvos-staging-web
+```
+
+5. Re-test the bug in staging
+- If the fix touched backend logic only, create a fresh test record after deploy when old staging data may already be polluted
+- If the fix touched both backend and frontend, always rebuild both `api web`
+- If the app still looks old, confirm `git log --oneline -5` on staging matches local `develop`
+
 Useful checks
 -------------
 
@@ -219,8 +316,10 @@ Staging git check
 ```bash
 cd /srv/recurvos/staging/repo
 git status
+git fetch origin
 git branch --show-current
 git log --oneline -5
+git log --oneline origin/develop -5
 ```
 
 Production git check

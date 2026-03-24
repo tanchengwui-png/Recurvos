@@ -94,6 +94,8 @@ public static class DependencyInjection
         services.AddScoped<StaleSignupCleanupService>();
         services.AddScoped<DbSeeder>();
         services.AddScoped<GenerateInvoicesJob>();
+        services.AddScoped<GenerateSubscriberPackageInvoicesJob>();
+        services.AddScoped<ReconcileSubscriberPackageStatusesJob>();
         services.AddScoped<SendInvoiceRemindersJob>();
         services.AddScoped<RetryFailedPaymentsJob>();
         services.AddScoped<CleanupStaleSignupsJob>();

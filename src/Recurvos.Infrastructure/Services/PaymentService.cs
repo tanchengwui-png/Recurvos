@@ -306,13 +306,16 @@ public sealed class PaymentService(
                         cancellationToken);
                     if (subscriberCompany?.SubscriberId is Guid subscriberId)
                     {
+                        var paidAtUtc = payment.PaidAtUtc ?? DateTime.UtcNow;
+                        var isUpgradePayment = !string.IsNullOrWhiteSpace(subscriberCompany.PendingPackageCode)
+                            || payment.Invoice.PeriodEndUtc.HasValue;
+
                         if (!string.IsNullOrWhiteSpace(subscriberCompany.PendingPackageCode))
                         {
                             subscriberCompany.SelectedPackage = subscriberCompany.PendingPackageCode;
                             subscriberCompany.PendingPackageCode = null;
                         }
 
-                        subscriberCompany.PackageBillingCycleStartUtc ??= payment.PaidAtUtc ?? DateTime.UtcNow;
                         var subscriberCompanies = await dbContext.Companies
                             .Where(x => x.SubscriberId == subscriberId && !x.IsPlatformAccount)
                             .ToListAsync(cancellationToken);
@@ -320,7 +323,9 @@ public sealed class PaymentService(
                         {
                             company.PackageStatus = "active";
                             company.PackageGracePeriodEndsAtUtc = null;
-                            company.PackageBillingCycleStartUtc ??= payment.PaidAtUtc ?? DateTime.UtcNow;
+                            company.PackageBillingCycleStartUtc = isUpgradePayment
+                                ? company.PackageBillingCycleStartUtc ?? paidAtUtc
+                                : await ResolveNextPackageCycleStartUtcAsync(company, paidAtUtc, cancellationToken);
                         }
                     }
                 }
@@ -477,4 +482,34 @@ public sealed class PaymentService(
         settings.ReceiptNextNumber += 1;
         return receiptNumber;
     }
+
+    private async Task<DateTime> ResolveNextPackageCycleStartUtcAsync(Company company, DateTime paidAtUtc, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(company.SelectedPackage))
+        {
+            return paidAtUtc;
+        }
+
+        var package = await dbContext.PlatformPackages.FirstOrDefaultAsync(x => x.Code == company.SelectedPackage, cancellationToken);
+        if (package is null)
+        {
+            return paidAtUtc;
+        }
+
+        if (!company.PackageBillingCycleStartUtc.HasValue)
+        {
+            return paidAtUtc;
+        }
+
+        return AddInterval(company.PackageBillingCycleStartUtc.Value, package.IntervalUnit, package.IntervalCount);
+    }
+
+    private static DateTime AddInterval(DateTime startUtc, IntervalUnit intervalUnit, int intervalCount) =>
+        intervalUnit switch
+        {
+            IntervalUnit.Month => startUtc.AddMonths(intervalCount),
+            IntervalUnit.Quarter => startUtc.AddMonths(intervalCount * 3),
+            IntervalUnit.Year => startUtc.AddYears(intervalCount),
+            _ => startUtc
+        };
 }

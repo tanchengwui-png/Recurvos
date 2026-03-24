@@ -35,10 +35,36 @@ function formatStatusLabel(value?: string | null) {
     .join(" ");
 }
 
+function getGracePeriodCountdown(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const endsAt = new Date(value);
+  const remainingMilliseconds = endsAt.getTime() - Date.now();
+
+  if (!Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) {
+    return "Payment deadline reached.";
+  }
+
+  const remainingDays = Math.ceil(remainingMilliseconds / (1000 * 60 * 60 * 24));
+
+  if (remainingDays <= 1) {
+    return "Less than 1 day left. Pay now to avoid access being restricted.";
+  }
+
+  if (remainingDays <= 3) {
+    return `${remainingDays} days left. Please pay now to avoid access being restricted.`;
+  }
+
+  return `${remainingDays} days left to pay before access is restricted.`;
+}
+
 export function SubscriberPackageBillingPage() {
   const [summary, setSummary] = useState<SubscriberPackageBillingSummary | null>(null);
   const [busyInvoiceId, setBusyInvoiceId] = useState<string | null>(null);
   const [busyUpgradeCode, setBusyUpgradeCode] = useState<string | null>(null);
+  const [cancellingUpgrade, setCancellingUpgrade] = useState(false);
   const [upgradePreview, setUpgradePreview] = useState<SubscriberPackageUpgradePreview | null>(null);
   const [reactivationPackages, setReactivationPackages] = useState<PlatformPackage[]>([]);
   const [reactivationPreview, setReactivationPreview] = useState<SubscriberPackageReactivationPreview | null>(null);
@@ -49,6 +75,9 @@ export function SubscriberPackageBillingPage() {
   const outstandingBalance = summary?.invoices.reduce((total, invoice) => total + invoice.amountDue, 0) ?? 0;
   const readyReceipts = summary?.invoices.filter((invoice) => invoice.hasReceipt).length ?? 0;
   const hasBillingAddress = summary?.isCompanyBillingAddressConfigured ?? true;
+  const gracePeriodCountdown = getGracePeriodCountdown(summary?.gracePeriodEndsAtUtc);
+  const packageStatus = (summary?.packageStatus ?? "").toLowerCase();
+  const isActivePackage = packageStatus === "active";
 
   useEffect(() => {
     void load();
@@ -102,6 +131,7 @@ export function SubscriberPackageBillingPage() {
         setReactivationPackages(await api.get<PlatformPackage[]>("/public/packages"));
       } else {
         setReactivationPackages([]);
+        setReactivationPreview(null);
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load package billing.");
@@ -220,6 +250,22 @@ export function SubscriberPackageBillingPage() {
     }
   }
 
+  async function cancelPendingUpgrade() {
+    try {
+      setCancellingUpgrade(true);
+      setError("");
+      setMessage("");
+      const updatedSummary = await api.post<SubscriberPackageBillingSummary>("/package-billing/upgrade/cancel", {});
+      setSummary(updatedSummary);
+      setUpgradePreview(null);
+      setMessage("Pending package upgrade cancelled. Your current package stays active.");
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : "Unable to cancel pending upgrade.");
+    } finally {
+      setCancellingUpgrade(false);
+    }
+  }
+
   async function download(path: string, fallbackFileName: string) {
     const file = await api.download(path);
     const objectUrl = URL.createObjectURL(file.blob);
@@ -283,10 +329,11 @@ export function SubscriberPackageBillingPage() {
             <p className="eyebrow">Payment reminder</p>
             <strong>Package payment is still pending</strong>
             <p className="muted">{`Your billing access remains available until ${formatDate(summary.gracePeriodEndsAtUtc)}.`}</p>
+            {gracePeriodCountdown ? <p className="muted">{gracePeriodCountdown}</p> : null}
           </div>
         </section>
       ) : null}
-      {summary?.packageStatus === "past_due" ? (
+      {packageStatus === "past_due" ? (
         <section className="subscriber-billing-alert subscriber-billing-alert-danger">
           <div>
             <p className="eyebrow">Action needed</p>
@@ -295,13 +342,32 @@ export function SubscriberPackageBillingPage() {
           </div>
         </section>
       ) : null}
+      {packageStatus === "reactivation_pending_payment" ? (
+        <section className="subscriber-billing-alert subscriber-billing-alert-danger">
+          <div>
+            <p className="eyebrow">Reactivation pending</p>
+            <strong>Reactivation invoice is waiting for payment</strong>
+            <p className="muted">Your account remains restricted until the reactivation invoice below is paid.</p>
+          </div>
+        </section>
+      ) : null}
       {summary?.packageStatus === "upgrade_pending_payment" && summary.pendingUpgradePackageName ? (
         <section className="subscriber-billing-alert subscriber-billing-alert-warning">
           <div>
             <p className="eyebrow">Upgrade pending</p>
             <strong>{`Upgrade to ${summary.pendingUpgradePackageName} is waiting for payment`}</strong>
-            <p className="muted">Pay the upgrade invoice below before the package changes.</p>
+            <p className="muted">Pay the upgrade invoice below before the package changes. Until then, your current package stays active.</p>
           </div>
+          {summary.canCancelPendingUpgrade ? (
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={cancellingUpgrade}
+              onClick={() => void cancelPendingUpgrade()}
+            >
+              {cancellingUpgrade ? "Cancelling..." : "Cancel upgrade"}
+            </button>
+          ) : null}
         </section>
       ) : null}
       {summary && !summary.isCompanyBillingAddressConfigured ? (
@@ -319,7 +385,7 @@ export function SubscriberPackageBillingPage() {
       {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
 
-      {summary?.packageStatus === "past_due" && reactivationPackages.length > 0 ? (
+      {packageStatus === "past_due" && reactivationPackages.length > 0 ? (
         <section className="card">
           <div className="dashboard-widget-header">
             <div>
@@ -373,7 +439,7 @@ export function SubscriberPackageBillingPage() {
         </section>
       ) : null}
 
-      {summary && summary.availableUpgrades.length > 0 ? (
+      {summary && isActivePackage && summary.availableUpgrades.length > 0 ? (
         <section className="card">
           <div className="dashboard-widget-header">
             <div>

@@ -131,13 +131,28 @@ public sealed class FakePaymentGateway : IPaymentGateway
     public Task<PaymentLinkResult> CreatePaymentLinkAsync(CreatePaymentLinkCommand command, CancellationToken cancellationToken = default)
         => Task.FromResult(new PaymentLinkResult($"fake_{command.InvoiceNumber}", $"https://payments.test/{command.InvoiceNumber}", "{}"));
 
-    public Task<WebhookParseResult> ParseWebhookAsync(string payload, IDictionary<string, string> headers, CancellationToken cancellationToken = default)
+    public string? ExtractExternalPaymentId(string payload, IDictionary<string, string> headers)
     {
-        var paymentId = System.Text.Json.JsonDocument.Parse(payload).RootElement.GetProperty("paymentId").GetString()!;
-        var eventId = System.Text.Json.JsonDocument.Parse(payload).RootElement.GetProperty("eventId").GetString()!;
-        var succeeded = System.Text.Json.JsonDocument.Parse(payload).RootElement.GetProperty("succeeded").GetBoolean();
+        using var document = JsonDocument.Parse(payload);
+        return document.RootElement.GetProperty("paymentId").GetString();
+    }
+
+    public Task<WebhookParseResult> ParseWebhookAsync(string payload, IDictionary<string, string> headers, Guid companyId, CancellationToken cancellationToken = default)
+    {
+        using var document = JsonDocument.Parse(payload);
+        var paymentId = document.RootElement.GetProperty("paymentId").GetString()!;
+        var eventId = document.RootElement.GetProperty("eventId").GetString()!;
+        var succeeded = document.RootElement.GetProperty("succeeded").GetBoolean();
         return Task.FromResult(new WebhookParseResult(eventId, succeeded ? "payment.succeeded" : "payment.failed", paymentId, succeeded, payload));
     }
+
+    public Task<WebhookParseResult> VerifyPaymentAsync(string externalPaymentId, Guid companyId, CancellationToken cancellationToken = default)
+        => Task.FromResult(new WebhookParseResult(
+            ExternalEventId: $"verify_{externalPaymentId}",
+            EventType: "payment.succeeded",
+            ExternalPaymentId: externalPaymentId,
+            PaymentSucceeded: true,
+            RawPayload: "{}"));
 }
 
 public sealed record TestAuthResponse(string AccessToken);

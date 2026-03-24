@@ -114,7 +114,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
 
         var packageCode = company.SelectedPackage?.Trim().ToLowerInvariant() ?? string.Empty;
         var packageStatus = ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc);
-        var allowBillingFeatures = packageStatus is "active" or "pending_payment" or "grace_period";
+        var allowBillingFeatures = packageStatus is "active" or "pending_payment" or "grace_period" or "upgrade_pending_payment";
         var featureKeys = allowBillingFeatures
             ? await ResolvePackageFeatureKeysAsync(packageCode, cancellationToken)
             : Array.Empty<string>();
@@ -260,15 +260,33 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
     private static string ResolvePackageStatus(string? rawStatus, DateTime? gracePeriodEndsAtUtc)
     {
         var normalized = rawStatus?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (normalized == "pending_payment")
+
+        if (normalized is "pending_payment" or "grace_period")
         {
             if (!gracePeriodEndsAtUtc.HasValue)
             {
-                return "pending_payment";
+                return normalized == "grace_period" ? "past_due" : "pending_payment";
             }
 
             return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
                 ? "grace_period"
+                : "past_due";
+        }
+
+        if (normalized == "upgrade_pending_payment")
+        {
+            return "upgrade_pending_payment";
+        }
+
+        if (normalized == "reactivation_pending_payment")
+        {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return "past_due";
+            }
+
+            return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
+                ? "reactivation_pending_payment"
                 : "past_due";
         }
 

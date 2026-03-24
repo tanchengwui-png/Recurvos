@@ -33,6 +33,31 @@ function formatStatusLabel(status?: string | null) {
     .join(" ");
 }
 
+function getGracePeriodCountdown(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const endsAt = new Date(value);
+  const remainingMilliseconds = endsAt.getTime() - Date.now();
+
+  if (!Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) {
+    return "Payment deadline reached.";
+  }
+
+  const remainingDays = Math.ceil(remainingMilliseconds / (1000 * 60 * 60 * 24));
+
+  if (remainingDays <= 1) {
+    return "Less than 1 day left. Pay now to avoid access being restricted.";
+  }
+
+  if (remainingDays <= 3) {
+    return `${remainingDays} days left. Please pay now to avoid access being restricted.`;
+  }
+
+  return `${remainingDays} days left to pay before access is restricted.`;
+}
+
 function getFeatureRequirementLabel(featureAccess: FeatureAccess | null, featureKey: string) {
   const requirement = featureAccess?.featureRequirements?.find((item) => item.featureKey === featureKey);
   return requirement ? `Available on ${requirement.packageName}` : "Upgrade required";
@@ -185,7 +210,7 @@ export function AppShell() {
     auth &&
     !auth.isPlatformOwner &&
     location.pathname !== "/package-billing" &&
-    ["pending_payment", "grace_period", "past_due"].includes(resolvedPackageStatus),
+    ["pending_payment", "grace_period", "past_due", "upgrade_pending_payment", "reactivation_pending_payment"].includes(resolvedPackageStatus),
   );
   const showPaymentConfirmationReminder = Boolean(
     auth &&
@@ -205,9 +230,10 @@ export function AppShell() {
 
   function getBillingReminderCopy() {
     if (resolvedPackageStatus === "grace_period" && packageBilling?.gracePeriodEndsAtUtc) {
+      const countdown = getGracePeriodCountdown(packageBilling.gracePeriodEndsAtUtc);
       return {
         title: "Package payment is still pending",
-        body: `Your billing access remains available until ${formatDate(packageBilling.gracePeriodEndsAtUtc)}. Pay your package invoice before then to avoid interruption.`,
+        body: `Your billing access remains available until ${formatDate(packageBilling.gracePeriodEndsAtUtc)}. ${countdown ?? "Pay your package invoice before then to avoid interruption."}`,
         tone: "warning",
       } as const;
     }
@@ -216,6 +242,22 @@ export function AppShell() {
       return {
         title: "Package payment is overdue",
         body: "Your account is past due. Open My Plan and pay the package invoice to restore full billing access.",
+        tone: "danger",
+      } as const;
+    }
+
+    if (resolvedPackageStatus === "upgrade_pending_payment" && packageBilling?.pendingUpgradePackageName) {
+      return {
+        title: "Package upgrade is waiting for payment",
+        body: `Your current package stays active until you pay the upgrade invoice for ${packageBilling.pendingUpgradePackageName}.`,
+        tone: "warning",
+      } as const;
+    }
+
+    if (resolvedPackageStatus === "reactivation_pending_payment") {
+      return {
+        title: "Reactivation invoice is waiting for payment",
+        body: "Your account remains restricted until the reactivation invoice is paid.",
         tone: "danger",
       } as const;
     }
