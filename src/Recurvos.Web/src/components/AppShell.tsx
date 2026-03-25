@@ -452,7 +452,7 @@ export function AppShell() {
             <button
               type="button"
               className="button"
-              onClick={() => navigate("/payments?tab=records")}
+              onClick={() => navigate("/payments?tab=pending")}
             >
               Review payments
             </button>

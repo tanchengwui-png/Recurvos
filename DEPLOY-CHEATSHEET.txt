@@ -91,7 +91,9 @@ git checkout develop
 git fetch origin
 git log --oneline origin/develop -5
 git pull origin develop
-docker compose -f docker-compose.staging.yml up -d --build api web
+docker compose -f docker-compose.staging.yml up -d --build
+or
+docker compose -f docker-compose.staging.yml up -d --build postgres mailpit api web worker
 ```
 
 7. Verify staging

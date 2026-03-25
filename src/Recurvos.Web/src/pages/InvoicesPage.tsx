@@ -18,7 +18,7 @@ const DEFAULT_WHATSAPP_TEMPLATE = [
   "",
   "This is a friendly reminder from {CompanyName}.",
   "Invoice {InvoiceNumber} for {AmountDue} is due on {DueDate}.",
-  "Payment link: {ActionLink}",
+  "Payment confirmation link: {ActionLink}",
   "",
   "If payment has already been made, please ignore this message. Thank you.",
 ].join("\n");
