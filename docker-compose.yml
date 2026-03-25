@@ -8,15 +8,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
+      - "${MAILPIT_UI_HOST_PORT:-8025}:8025"
 
   api:
     build:
@@ -40,7 +40,7 @@ services:
       Billplz__XSignatureKey: ${BILLPLZ_X_SIGNATURE_KEY:-}
       WhatsAppWebJs__BaseUrl: ${WHATSAPP_WEBJS_BASE_URL:-http://worker:3011/api}
     ports:
-      - "7001:8080"
+      - "${API_HOST_PORT:-7001}:8080"
     depends_on:
       - postgres
       - mailpit
@@ -50,11 +50,11 @@ services:
       context: .
       dockerfile: src/Recurvos.Web/Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:7001/api
-        VITE_PUBLIC_SITE_URL: http://localhost:4173
-        VITE_APP_SITE_URL: http://localhost:4173
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:7001/api}
+        VITE_PUBLIC_SITE_URL: ${VITE_PUBLIC_SITE_URL:-http://localhost:4173}
+        VITE_APP_SITE_URL: ${VITE_APP_SITE_URL:-http://localhost:4173}
     ports:
-      - "4173:80"
+      - "${WEB_HOST_PORT:-4173}:80"
     depends_on:
       - api
 

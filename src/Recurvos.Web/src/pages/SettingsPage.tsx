@@ -41,7 +41,7 @@ const DEFAULT_WHATSAPP_TEMPLATE = [
   "",
   "This is a friendly reminder from {CompanyName}.",
   "Invoice {InvoiceNumber} for {AmountDue} is due on {DueDate}.",
-  "Payment link: {ActionLink}",
+  "Payment confirmation link: {ActionLink}",
   "",
   "If payment has already been made, please ignore this message. Thank you.",
 ].join("\n");
@@ -426,7 +426,7 @@ export function SettingsPage() {
             {invoiceSettingsDirty ? "Unsaved edits" : "Saved"}
           </span>
         </div>
-        {formError ? <HelperText tone="error">{formError}</HelperText> : null}
+        {formError && !(activeTab === "payment" && activePaymentTab === "gateway") ? <HelperText tone="error">{formError}</HelperText> : null}
         {invoiceSettings ? (
           <div className="form-stack">
             {activeTab === "documents" ? (
@@ -982,6 +982,7 @@ export function SettingsPage() {
                           />
                           <span>I understand this payment gateway is configured and operated under my own Billplz account, and I use it at my own risk.</span>
                         </label>
+                        {formError ? <HelperText tone="error">{formError}</HelperText> : null}
                         <HelperText>Only save this after you have confirmed the keys belong to this subscriber’s own Billplz account. The platform does not take responsibility for the subscriber’s gateway account setup, settlement, or disputes.</HelperText>
                         <div className="settings-action-row settings-action-row-wide">
                           <button
