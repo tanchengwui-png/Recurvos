@@ -2134,9 +2134,7 @@ public sealed class InvoiceService(
                 ShowCompanyAddressOnInvoice = true,
                 ShowCompanyAddressOnReceipt = true
             };
-        dbContext.CompanyInvoiceSettings.Add(settings);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return settings;
+        return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 
     private async Task<string> GenerateInvoiceNumberAsync(Guid companyId, CancellationToken cancellationToken)

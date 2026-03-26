@@ -35,8 +35,8 @@ export function LoginPage() {
         const isStaging = result.activeEnvironment === "staging";
         setShowStagingQuickLogin(isStaging);
         if (isStaging) {
-          setEmail((current) => current || "tanchengwui+basic@hotmail.com");
-          setPassword((current) => current || "Passw0rd!");
+          setEmail((current) => current || "Recurvos-Basic@hotmail.com");
+          setPassword((current) => current || "P@ssw0rd!@#$%");
         }
       })
       .catch(() => {
@@ -44,8 +44,8 @@ export function LoginPage() {
         const allowDevQuickLogin = import.meta.env.DEV;
         setShowStagingQuickLogin(allowDevQuickLogin);
         if (allowDevQuickLogin) {
-          setEmail((current) => current || "tanchengwui+basic@hotmail.com");
-          setPassword((current) => current || "Passw0rd!");
+          setEmail((current) => current || "Recurvos-Basic@hotmail.com");
+          setPassword((current) => current || "P@ssw0rd!@#$%");
         }
       });
 
@@ -139,7 +139,7 @@ export function LoginPage() {
                   type="button"
                   variant="secondary"
                   disabled={isSubmitting}
-                  onClick={() => quickLogin("owner@recurvo.com", "Passw0rd!")}
+                  onClick={() => quickLogin("owner@recurvo.com", "P@ssw0rd!@#$%")}
                 >
                   Login as Platform Owner
                 </Button>
@@ -147,7 +147,7 @@ export function LoginPage() {
                   type="button"
                   variant="secondary"
                   disabled={isSubmitting}
-                  onClick={() => quickLogin("tanchengwui+basic@hotmail.com", "Passw0rd!")}
+                  onClick={() => quickLogin("Recurvos-Basic@hotmail.com", "P@ssw0rd!@#$%")}
                 >
                   Login as Subscriber
                 </Button>

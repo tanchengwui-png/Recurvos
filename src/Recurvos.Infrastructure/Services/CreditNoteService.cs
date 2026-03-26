@@ -321,7 +321,6 @@ public sealed class CreditNoteService(
             UploadImageQuality = 80
         };
 
-        dbContext.CompanyInvoiceSettings.Add(settings);
-        return settings;
+        return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 }

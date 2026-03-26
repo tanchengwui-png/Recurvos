@@ -43,7 +43,7 @@ public sealed class AuthService(
         var normalizedPackageCode = request.PackageCode.Trim().ToLowerInvariant();
         var normalizedRegistrationNumber = request.RegistrationNumber.Trim().ToUpperInvariant();
 
-        if (await dbContext.Users.AnyAsync(x => x.Email == normalizedUserEmail, cancellationToken))
+        if (await dbContext.Users.AnyAsync(x => x.Email.ToLower() == normalizedUserEmail, cancellationToken))
         {
             throw new InvalidOperationException("A user with this email already exists.");
         }
@@ -116,7 +116,7 @@ public sealed class AuthService(
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken)
+        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken)
             ?? throw new UnauthorizedAccessException("Invalid credentials.");
 
         if (!passwordHasher.Verify(request.Password, user.PasswordHash))
@@ -187,7 +187,7 @@ public sealed class AuthService(
     public async Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken);
+        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken);
         if (user is null || user.IsEmailVerified)
         {
             return;
@@ -204,7 +204,7 @@ public sealed class AuthService(
         var normalizedEmail = NormalizeEmail(request.Email);
         var user = await dbContext.Users
             .Include(x => x.Company)
-            .FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken);
 
         if (user is null || user.Company is null || !user.IsEmailVerified)
         {

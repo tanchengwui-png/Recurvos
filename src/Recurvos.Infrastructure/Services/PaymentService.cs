@@ -464,7 +464,7 @@ public sealed class PaymentService(
                 ShowCompanyAddressOnInvoice = true,
                 ShowCompanyAddressOnReceipt = true
             };
-            dbContext.CompanyInvoiceSettings.Add(settings);
+            settings = await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
         }
 
         var currentYear = DateTime.UtcNow.Year;

@@ -39,7 +39,7 @@ public sealed class RegistrationGuardService(
             throw new InvalidOperationException("Too many signup attempts for the same details. Please wait a while and try again.");
         }
 
-        if (await dbContext.Companies.AnyAsync(x => x.Email == normalizedCompanyEmail, cancellationToken))
+        if (await dbContext.Companies.AnyAsync(x => x.Email.ToLower() == normalizedCompanyEmail, cancellationToken))
         {
             throw new InvalidOperationException("A company with this billing email already exists.");
         }

@@ -269,10 +269,10 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
 
     Console.WriteLine("Recurvos demo data reset complete.");
     Console.WriteLine("Seeded accounts:");
-    Console.WriteLine("  Platform owner: owner@recurvo.com / Passw0rd!");
-    Console.WriteLine("  Subscriber Basic: tanchengwui+basic@hotmail.com / Passw0rd!");
-    Console.WriteLine("  Subscriber Growth: tanchengwui+growth@hotmail.com / Passw0rd!");
-    Console.WriteLine("  Subscriber Premium: tanchengwui+premium@hotmail.com / Passw0rd!");
+    Console.WriteLine("  Platform owner: owner@recurvo.com / P@ssw0rd!@#$%");
+    Console.WriteLine("  Subscriber Basic: Recurvos-Basic@hotmail.com / P@ssw0rd!@#$%");
+    Console.WriteLine("  Subscriber Growth: Recurvos-growth@hotmail.com / P@ssw0rd!@#$%");
+    Console.WriteLine("  Subscriber Premium: Recurvos-premium@hotmail.com / P@ssw0rd!@#$%");
 }
 
 static void ClearDirectory(string path)

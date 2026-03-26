@@ -280,16 +280,12 @@ export function PlatformSettingsPage() {
         <aside className="platform-settings-sidebar">
         <section className="card settings-form-card platform-settings-sticky">
           <div className="card-section-header">
-            <div>
-              <p className="eyebrow">Live mode</p>
-              <h3 className="section-title">Which settings are live now?</h3>
-              <p className="muted form-intro">SMTP, Billplz, and billing identity use the live mode below. You can still edit staging and production separately.</p>
-            </div>
+            <p className="eyebrow">Live mode</p>
             <span className={`status-pill ${runtimeProfile.activeEnvironment === "production" ? "status-pill-active" : "status-pill-inactive"}`}>
               {`Currently live: ${liveModeLabel}`}
             </span>
           </div>
-          <HelperText>{`${editingModeLabel} are shown below. Changing the selection reloads the SMTP and Billplz values for that environment.`}</HelperText>
+          <HelperText>Controls which billing identity, SMTP, and Billplz profile is used at runtime.</HelperText>
           <div className="platform-settings-toggle" role="tablist" aria-label="Live mode">
             <button
               type="button"
@@ -338,26 +334,32 @@ export function PlatformSettingsPage() {
               className={`platform-settings-toggle-option ${editingEnvironment === "staging" ? "platform-settings-toggle-option-active" : ""}`}
               onClick={() => setEditingEnvironment("staging")}
             >
-              Staging settings
+              Staging
             </button>
             <button
               type="button"
               className={`platform-settings-toggle-option ${editingEnvironment === "production" ? "platform-settings-toggle-option-active" : ""}`}
               onClick={() => setEditingEnvironment("production")}
             >
-              Production settings
+              Production
             </button>
           </div>
-          <nav className="platform-settings-nav" aria-label="Platform settings sections">
+          <HelperText>{`${editingModeLabel}. Applies only to billing identity, SMTP, and Billplz.`}</HelperText>
+          <nav className="platform-settings-nav" aria-label="Environment-based platform settings sections">
+            <p className="eyebrow">Environment</p>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "issuer" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("issuer")}>Billing identity</button>
-            <button type="button" className={`platform-settings-nav-link ${activeSection === "documents" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("documents")}>Documents</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "smtp" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("smtp")}>SMTP</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "billplz" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("billplz")}>Billplz</button>
+            <p className="eyebrow">Shared</p>
+            <button type="button" className={`platform-settings-nav-link ${activeSection === "documents" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("documents")}>Documents</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "feedback" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("feedback")}>Owner email</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "whatsapp" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("whatsapp")}>WhatsApp</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "upload" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("upload")}>Upload policy</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "jobs" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("jobs")}>Jobs</button>
-            <button type="button" className={`platform-settings-nav-link ${activeSection === "reset" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("reset")}>Factory reset</button>
+          </nav>
+          <nav className="platform-settings-nav" aria-label="Dangerous platform settings actions">
+            <p className="eyebrow">Danger zone</p>
+            <button type="button" className={`platform-settings-nav-link platform-settings-nav-link-danger ${activeSection === "reset" ? "platform-settings-nav-link-danger-active" : ""}`} onClick={() => setActiveSection("reset")}>Factory reset</button>
           </nav>
         </section>
         </aside>

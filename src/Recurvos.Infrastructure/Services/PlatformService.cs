@@ -191,7 +191,7 @@ public sealed class PlatformService(
         }
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        if (await dbContext.Users.AnyAsync(x => x.Email == normalizedEmail, cancellationToken))
+        if (await dbContext.Users.AnyAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken))
         {
             throw new InvalidOperationException("A user with this email already exists.");
         }
