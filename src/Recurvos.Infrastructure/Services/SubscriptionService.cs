@@ -189,6 +189,87 @@ public sealed class SubscriptionService(
         return Map(subscription);
     }
 
+    public async Task<SubscriptionDto?> MigrateItemAsync(Guid id, Guid subscriptionItemId, MigrateSubscriptionItemRequest request, CancellationToken cancellationToken = default)
+    {
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.RecurringInvoices, cancellationToken);
+        ThrowIfInvalid(SubscriptionValidators.ValidateMigration(request));
+
+        var subscription = await Query().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (subscription is null)
+        {
+            return null;
+        }
+
+        if (subscription.EndedAtUtc.HasValue || subscription.Status == SubscriptionStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Ended or cancelled subscriptions cannot be migrated.");
+        }
+
+        var item = subscription.Items.FirstOrDefault(x => x.Id == subscriptionItemId)
+            ?? throw new InvalidOperationException("Subscription item not found.");
+
+        if (item.EndedAtUtc.HasValue)
+        {
+            throw new InvalidOperationException("Ended subscription items cannot be migrated.");
+        }
+
+        if (item.ProductPlanId == request.TargetProductPlanId)
+        {
+            throw new InvalidOperationException("This item is already using the selected plan.");
+        }
+
+        var targetPlan = await dbContext.ProductPlans
+            .Include(x => x.Product)
+            .FirstOrDefaultAsync(
+                x => OwnedCompanyIdsQuery().Contains(x.CompanyId)
+                    && x.CompanyId == subscription.CompanyId
+                    && x.Id == request.TargetProductPlanId,
+                cancellationToken)
+            ?? throw new InvalidOperationException("Target plan not found.");
+
+        if (!targetPlan.IsActive)
+        {
+            throw new InvalidOperationException("Only active plans can be used for migration.");
+        }
+
+        var effectiveStartUtc = item.TrialEndUtc.HasValue && item.TrialEndUtc.Value > DateTime.UtcNow
+            ? item.TrialEndUtc.Value
+            : DateTime.UtcNow;
+        var cycle = ComputeBillingCycle(
+            effectiveStartUtc,
+            null,
+            targetPlan.BillingType,
+            targetPlan.BillingType == BillingType.OneTime ? IntervalUnit.None : targetPlan.IntervalUnit,
+            targetPlan.BillingType == BillingType.OneTime ? 0 : targetPlan.IntervalCount);
+
+        item.ProductPlanId = targetPlan.Id;
+        item.ProductPlan = targetPlan;
+        item.UnitAmount = targetPlan.UnitAmount;
+        item.Currency = targetPlan.Currency.Trim().ToUpperInvariant();
+        item.BillingType = targetPlan.BillingType;
+        item.IntervalUnit = targetPlan.BillingType == BillingType.OneTime ? IntervalUnit.None : targetPlan.IntervalUnit;
+        item.IntervalCount = targetPlan.BillingType == BillingType.OneTime ? 0 : targetPlan.IntervalCount;
+        item.AutoRenew = targetPlan.BillingType == BillingType.Recurring;
+        item.CurrentPeriodStartUtc = cycle.CurrentPeriodStartUtc;
+        item.CurrentPeriodEndUtc = cycle.CurrentPeriodEndUtc;
+        item.NextBillingUtc = cycle.NextBillingUtc;
+
+        SyncAggregateSnapshot(subscription);
+        ThrowIfInvalid(SubscriptionValidators.ValidateSnapshot(subscription));
+        subscription.UpdatedAtUtc = DateTime.UtcNow;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync(
+            "subscription.item-plan-migrated",
+            nameof(Subscription),
+            subscription.Id.ToString(),
+            string.IsNullOrWhiteSpace(request.Reason)
+                ? $"{item.Id}: {targetPlan.PlanName}"
+                : request.Reason.Trim(),
+            cancellationToken);
+        return Map(subscription);
+    }
+
     public Task<SubscriptionDto?> PauseAsync(Guid id, CancellationToken cancellationToken = default) =>
         UpdateStatusAsync(id, subscription =>
         {

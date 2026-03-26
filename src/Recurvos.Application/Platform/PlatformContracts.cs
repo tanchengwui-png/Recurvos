@@ -130,6 +130,8 @@ public sealed record PlatformJobStatusDto(
     string TimeZoneId,
     DateTime? NextExecutionAtUtc,
     DateTime? LastExecutionAtUtc,
+    DateTime? LastManualTriggerAtUtc,
+    string? LastManualTriggerJobId,
     string? LastJobId,
     string? LastJobState,
     string? Error,

@@ -1090,8 +1090,12 @@ export function PlatformSettingsPage() {
                       <strong>{formatUtcDateTime(jobStatus?.nextExecutionAtUtc)}</strong>
                     </div>
                     <div className="platform-job-meta-item">
-                      <span>Last run</span>
+                      <span>Last scheduled run</span>
                       <strong>{formatUtcDateTime(jobStatus?.lastExecutionAtUtc)}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Last manual trigger</span>
+                      <strong>{formatUtcDateTime(jobStatus?.lastManualTriggerAtUtc)}</strong>
                     </div>
                     <div className="platform-job-meta-item">
                       <span>Cron</span>
@@ -1105,6 +1109,11 @@ export function PlatformSettingsPage() {
                   {jobStatus?.lastJobId ? (
                     <p className="platform-job-caption muted">
                       {`Last Hangfire job: ${jobStatus.lastJobId} | Created ${formatUtcDateTime(jobStatus.lastJobCreatedAtUtc)}`}
+                    </p>
+                  ) : null}
+                  {jobStatus?.lastManualTriggerJobId ? (
+                    <p className="platform-job-caption muted">
+                      {`Last manual Hangfire job: ${jobStatus.lastManualTriggerJobId}`}
                     </p>
                   ) : null}
                   {jobStatus?.error ? (

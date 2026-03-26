@@ -660,6 +660,8 @@ export type PlatformJobStatus = {
   timeZoneId: string;
   nextExecutionAtUtc?: string | null;
   lastExecutionAtUtc?: string | null;
+  lastManualTriggerAtUtc?: string | null;
+  lastManualTriggerJobId?: string | null;
   lastJobId?: string | null;
   lastJobState?: string | null;
   error?: string | null;

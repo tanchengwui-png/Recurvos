@@ -59,6 +59,15 @@ public sealed class UpdateSubscriptionPricingRequest
     public string? Reason { get; set; }
 }
 
+public sealed class MigrateSubscriptionItemRequest
+{
+    [Required]
+    public Guid TargetProductPlanId { get; set; }
+
+    [MaxLength(1000)]
+    public string? Reason { get; set; }
+}
+
 public sealed class CancelSubscriptionRequest
 {
     public bool EndOfPeriod { get; set; } = true;
@@ -122,6 +131,7 @@ public interface ISubscriptionService
     Task<SubscriptionDto> CreateAsync(SubscriptionRequest request, CancellationToken cancellationToken = default);
     Task<SubscriptionDto?> UpdateAsync(Guid id, SubscriptionUpdateRequest request, CancellationToken cancellationToken = default);
     Task<SubscriptionDto?> UpdatePricingAsync(Guid id, UpdateSubscriptionPricingRequest request, CancellationToken cancellationToken = default);
+    Task<SubscriptionDto?> MigrateItemAsync(Guid id, Guid subscriptionItemId, MigrateSubscriptionItemRequest request, CancellationToken cancellationToken = default);
     Task<SubscriptionDto?> PauseAsync(Guid id, CancellationToken cancellationToken = default);
     Task<SubscriptionDto?> ResumeAsync(Guid id, CancellationToken cancellationToken = default);
     Task<SubscriptionDto?> CancelAsync(Guid id, CancelSubscriptionRequest request, CancellationToken cancellationToken = default);

@@ -65,6 +65,8 @@ export function SubscriptionsPage() {
   const [message, setMessage] = useState("");
   const [cancelSchedule, setCancelSchedule] = useState<{ id: string; date: string } | null>(null);
   const [pricingEdit, setPricingEdit] = useState<{ id: string; unitPrice: string; currency: string; intervalUnit: "None" | "Month" | "Quarter" | "Year"; intervalCount: string; quantity: string; reason: string } | null>(null);
+  const [migrationEdit, setMigrationEdit] = useState<{ subscriptionId: string; subscriptionItemId: string; currentPlanName: string; targetProductPlanId: string; reason: string } | null>(null);
+  const [migrationPlans, setMigrationPlans] = useState<ProductPlan[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const pagination = useClientPagination(items, [items.length], 20);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
@@ -168,12 +170,12 @@ export function SubscriptionsPage() {
   }, [form.companyId, customers]);
 
   useEffect(() => {
-    if (!pricingEdit) {
+    if (!pricingEdit && !migrationEdit) {
       return;
     }
 
     pricingFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [pricingEdit]);
+  }, [pricingEdit, migrationEdit]);
 
   async function createSubscription(event: FormEvent) {
     event.preventDefault();
@@ -258,6 +260,35 @@ export function SubscriptionsPage() {
     });
 
     setPricingEdit(null);
+    await load();
+  }
+
+  async function startMigrationEdit(subscription: Subscription, subscriptionItemId: string, currentPlanId: string, currentPlanName: string) {
+    const companyPlans = await api.get<ProductPlan[]>(`/companies/${subscription.companyId}/product-plans`);
+    const targetPlans = companyPlans.filter((plan) => plan.id !== currentPlanId && plan.isActive);
+    setMigrationPlans(targetPlans);
+    setPricingEdit(null);
+    setMigrationEdit({
+      subscriptionId: subscription.id,
+      subscriptionItemId,
+      currentPlanName,
+      targetProductPlanId: targetPlans[0]?.id ?? "",
+      reason: "",
+    });
+  }
+
+  async function submitItemMigration() {
+    if (!migrationEdit) {
+      return;
+    }
+
+    await api.post(`/subscriptions/${migrationEdit.subscriptionId}/items/${migrationEdit.subscriptionItemId}/migrate-plan`, {
+      targetProductPlanId: migrationEdit.targetProductPlanId,
+      reason: migrationEdit.reason || null,
+    });
+
+    setMigrationEdit(null);
+    setMigrationPlans([]);
     await load();
   }
 
@@ -576,18 +607,49 @@ export function SubscriptionsPage() {
                                   type="button"
                                   className="button button-secondary"
                                   disabled={item.items.length !== 1}
-                                  onClick={() => setPricingEdit({
-                                    id: item.id,
-                                    unitPrice: String(item.unitPrice),
-                                    currency: item.currency,
-                                    intervalUnit: item.intervalUnit,
-                                    intervalCount: String(item.intervalCount),
-                                    quantity: String(item.quantity),
-                                    reason: "",
-                                  })}
+                                  onClick={() => {
+                                    setMigrationEdit(null);
+                                    setMigrationPlans([]);
+                                    setPricingEdit({
+                                      id: item.id,
+                                      unitPrice: String(item.unitPrice),
+                                      currency: item.currency,
+                                      intervalUnit: item.intervalUnit,
+                                      intervalCount: String(item.intervalCount),
+                                      quantity: String(item.quantity),
+                                      reason: "",
+                                    });
+                                  }}
                                 >
                                   Edit pricing
                                 </button>
+                              </div>
+                            </div>
+                            <div className="subscription-detail-wide">
+                              <div className="row">
+                                <div>
+                                  <p className="eyebrow">Plan Migration</p>
+                                  <p>Move one item to a different active plan. Historical invoices stay unchanged.</p>
+                                </div>
+                              </div>
+                              <div className="stack dashboard-list" style={{ marginTop: "0.75rem" }}>
+                                {item.items.map((child) => (
+                                  <div key={`${child.id}-migration`} className="dashboard-list-item">
+                                    <div>
+                                      <strong>{child.productPlanName}</strong>
+                                      <p className="muted">{`${formatCurrency(child.unitAmount, child.currency)} x ${child.quantity} | ${child.intervalUnit === "None" ? "One-time" : `${child.intervalCount} ${child.intervalUnit}`} | Next invoice: ${child.nextBillingUtc ? new Date(child.nextBillingUtc).toLocaleDateString() : "-"}`}</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="button button-secondary"
+                                      onClick={() => {
+                                        void startMigrationEdit(item, child.id, child.productPlanId, child.productPlanName);
+                                      }}
+                                    >
+                                      Migrate item
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           </div>
@@ -690,6 +752,56 @@ export function SubscriptionsPage() {
                   },
                 })}>Save future billing</button>
                 <button type="button" className="button button-secondary" onClick={() => setPricingEdit(null)}>Close</button>
+              </div>
+            </div>
+          ) : null}
+          {migrationEdit ? (
+            <div ref={pricingFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
+              <p className="eyebrow">Migrate subscription item</p>
+              <HelperText>Use this when the wrong plan was attached. This changes future billing for the selected item only and keeps historical invoices intact.</HelperText>
+              <div className="inline-fields">
+                <label className="form-label">
+                  Current plan
+                  <input className="text-input" value={migrationEdit.currentPlanName} readOnly />
+                </label>
+                <label className="form-label">
+                  Target plan
+                  <select
+                    value={migrationEdit.targetProductPlanId}
+                    onChange={(event) => setMigrationEdit((current) => current ? { ...current, targetProductPlanId: event.target.value } : current)}
+                  >
+                    {migrationPlans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>{`${plan.planName} | ${plan.billingLabel} | ${formatCurrency(plan.unitAmount, plan.currency)}`}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="form-label">
+                Reason
+                <input className="text-input" value={migrationEdit.reason} onChange={(event) => setMigrationEdit((current) => current ? { ...current, reason: event.target.value } : current)} />
+              </label>
+              {migrationPlans.length === 0 ? (
+                <HelperText tone="error">No alternative active plans are available for this company.</HelperText>
+              ) : (
+                <HelperText>If the old invoice was created by mistake, void it separately before generating a new one from the migrated item.</HelperText>
+              )}
+              <div className="button-stack">
+                <button
+                  type="button"
+                  className="button button-primary"
+                  disabled={!migrationEdit.targetProductPlanId}
+                  onClick={() => setConfirmState({
+                    title: "Migrate subscription item",
+                    description: "Move this item to the selected plan for future billing only?",
+                    action: async () => {
+                      await submitItemMigration();
+                      setConfirmState(null);
+                    },
+                  })}
+                >
+                  Save migration
+                </button>
+                <button type="button" className="button button-secondary" onClick={() => { setMigrationEdit(null); setMigrationPlans([]); }}>Close</button>
               </div>
             </div>
           ) : null}

@@ -2,9 +2,12 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Hangfire;
 using Hangfire.Storage;
+using Microsoft.EntityFrameworkCore;
+using Recurvos.Application.Abstractions;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
 using Recurvos.Infrastructure.Jobs;
+using Recurvos.Infrastructure.Persistence;
 
 namespace Recurvos.Api.Controllers;
 
@@ -15,7 +18,9 @@ public sealed class PlatformController(
     IPlatformService platformService,
     IInvoiceService invoiceService,
     IBackgroundJobClient backgroundJobClient,
-    JobStorage jobStorage) : ControllerBase
+    JobStorage jobStorage,
+    IAuditService auditService,
+    AppDbContext dbContext) : ControllerBase
 {
     private static readonly (string Key, string Name)[] SupportedPlatformJobs =
     [
@@ -181,7 +186,7 @@ public sealed class PlatformController(
     }
 
     [HttpPost("jobs/{jobKey}/trigger")]
-    public ActionResult<PlatformJobTriggerResultDto> TriggerJob(string jobKey)
+    public async Task<ActionResult<PlatformJobTriggerResultDto>> TriggerJob(string jobKey, CancellationToken cancellationToken)
     {
         try
         {
@@ -213,6 +218,17 @@ public sealed class PlatformController(
                     backgroundJobClient.Enqueue<CleanupStaleSignupsJob>(job => job.ExecuteAsync())),
                 _ => throw new InvalidOperationException("Unknown platform job.")
             };
+            var platformCompanyId = await dbContext.Companies
+                .Where(x => x.IsPlatformAccount)
+                .Select(x => x.Id)
+                .FirstAsync(cancellationToken);
+            await auditService.WriteAsync(
+                "platform.job.manual-triggered",
+                "PlatformJob",
+                normalizedJobKey,
+                platformCompanyId,
+                $"hangfireJobId={hangfireJobId}",
+                cancellationToken);
 
             return Ok(new PlatformJobTriggerResultDto(
                 normalizedJobKey,
@@ -228,17 +244,34 @@ public sealed class PlatformController(
     }
 
     [HttpGet("jobs")]
-    public ActionResult<IReadOnlyCollection<PlatformJobStatusDto>> GetJobs()
+    public async Task<ActionResult<IReadOnlyCollection<PlatformJobStatusDto>>> GetJobs(CancellationToken cancellationToken)
     {
         using var connection = jobStorage.GetConnection();
         var recurringJobs = connection.GetRecurringJobs()
             .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
         var monitoringApi = jobStorage.GetMonitoringApi();
+        var jobKeys = SupportedPlatformJobs.Select(x => x.Key).ToArray();
+        var manualTriggerLogs = await dbContext.AuditLogs
+            .Where(x => x.EntityName == "PlatformJob"
+                && x.Action == "platform.job.manual-triggered"
+                && jobKeys.Contains(x.EntityId))
+            .GroupBy(x => x.EntityId)
+            .Select(x => x
+                .OrderByDescending(entry => entry.CreatedAtUtc)
+                .Select(entry => new
+                {
+                    JobKey = x.Key,
+                    entry.CreatedAtUtc,
+                    entry.Metadata
+                })
+                .First())
+            .ToDictionaryAsync(x => x.JobKey, cancellationToken);
 
         var results = SupportedPlatformJobs
             .Select(definition =>
             {
                 recurringJobs.TryGetValue(definition.Key, out var recurringJob);
+                manualTriggerLogs.TryGetValue(definition.Key, out var manualTrigger);
                 var lastJobId = recurringJob?.LastJobId;
                 var jobDetails = string.IsNullOrWhiteSpace(lastJobId) ? null : monitoringApi.JobDetails(lastJobId);
                 var recentHistory = jobDetails?.History?
@@ -259,6 +292,8 @@ public sealed class PlatformController(
                     recurringJob?.TimeZoneId ?? "UTC",
                     recurringJob?.NextExecution,
                     recurringJob?.LastExecution,
+                    manualTrigger?.CreatedAtUtc,
+                    TryParseManualTriggerJobId(manualTrigger?.Metadata),
                     lastJobId,
                     recurringJob?.LastJobState,
                     recurringJob?.Error,
@@ -269,5 +304,13 @@ public sealed class PlatformController(
             .ToArray();
 
         return Ok(results);
+    }
+
+    private static string? TryParseManualTriggerJobId(string? metadata)
+    {
+        const string prefix = "hangfireJobId=";
+        return string.IsNullOrWhiteSpace(metadata) || !metadata.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : metadata[prefix.Length..];
     }
 }

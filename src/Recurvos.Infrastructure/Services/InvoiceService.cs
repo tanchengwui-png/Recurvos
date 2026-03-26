@@ -1682,15 +1682,7 @@ public sealed class InvoiceService(
     }
 
     private async Task<string?> ResolveInvoiceEmailActionLinkAsync(Invoice invoice, CancellationToken cancellationToken)
-    {
-        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(paymentConfirmationLink))
-        {
-            return paymentConfirmationLink;
-        }
-
-        return await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
-    }
+        => await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
 
     private async Task<string?> ResolveGatewayPaymentLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {

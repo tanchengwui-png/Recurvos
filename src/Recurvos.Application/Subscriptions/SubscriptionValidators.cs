@@ -175,4 +175,21 @@ public static class SubscriptionValidators
 
         return errors;
     }
+
+    public static IReadOnlyCollection<string> ValidateMigration(MigrateSubscriptionItemRequest request)
+    {
+        var errors = new List<string>();
+
+        if (request.TargetProductPlanId == Guid.Empty)
+        {
+            errors.Add("Target product plan is required.");
+        }
+
+        if (request.Reason?.Length > 1000)
+        {
+            errors.Add("Reason must be 1000 characters or fewer.");
+        }
+
+        return errors;
+    }
 }
