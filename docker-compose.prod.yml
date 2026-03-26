@@ -1,23 +1,23 @@
 services:
   postgres:
-    container_name: recurvos-staging-postgres
+    container_name: recurvos-prod-postgres
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
-      - /srv/recurvos-storage/staging/postgres:/var/lib/postgresql/data
+      - /srv/recurvos-storage/prod/postgres:/var/lib/postgresql/data
     restart: unless-stopped
 
   mailpit:
-    container_name: recurvos-staging-mailpit
+    container_name: recurvos-prod-mailpit
     ports:
-      - "1026:1025"
-      - "8026:8025"
+      - "1025:1025"
+      - "8025:8025"
     restart: unless-stopped
 
   api:
-    container_name: recurvos-staging-api
+    container_name: recurvos-prod-api
     environment:
-      ASPNETCORE_ENVIRONMENT: Staging
+      ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Jwt__SecretKey: ${JWT_SECRET_KEY}
       AppUrls__ApiBaseUrl: ${APP_API_BASE_URL}
@@ -31,26 +31,26 @@ services:
       Billplz__ApiKey: ${BILLPLZ_API_KEY}
       Billplz__CollectionId: ${BILLPLZ_COLLECTION_ID}
       Billplz__XSignatureKey: ${BILLPLZ_X_SIGNATURE_KEY}
-      Cors__AllowedOrigins__0: https://staging-app.recurvos.com
-      Cors__AllowedOrigins__1: https://staging.recurvos.com
+      Cors__AllowedOrigins__0: https://app.recurvos.com
+      Cors__AllowedOrigins__1: https://recurvos.com
       WhatsAppWebJs__BaseUrl: http://worker:3011/api
     ports:
-      - "7002:8080"
+      - "7001:8080"
     restart: unless-stopped
 
   web:
-    container_name: recurvos-staging-web
+    container_name: recurvos-prod-web
     build:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
         VITE_PUBLIC_SITE_URL: ${VITE_PUBLIC_SITE_URL}
         VITE_APP_SITE_URL: ${VITE_APP_SITE_URL}
     ports:
-      - "4174:80"
+      - "4173:80"
     restart: unless-stopped
 
   worker:
-    container_name: recurvos-staging-worker
+    container_name: recurvos-prod-worker
     depends_on:
       - postgres
     environment:
@@ -59,5 +59,5 @@ services:
       WHATSAPP_WORKER_TOKEN: ${WHATSAPP_WORKER_TOKEN}
       PORT: 3011
     volumes:
-      - /srv/recurvos-storage/staging/whatsapp:/app/storage/whatsapp-webjs
+      - /srv/recurvos-storage/prod/whatsapp:/app/storage/whatsapp-webjs
     restart: unless-stopped
