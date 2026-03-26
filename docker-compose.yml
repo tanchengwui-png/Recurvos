@@ -5,16 +5,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-recurvos}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
   mailpit:
     image: axllent/mailpit:latest
-    ports:
-      - "${MAILPIT_SMTP_HOST_PORT:-1025}:1025"
-      - "${MAILPIT_UI_HOST_PORT:-8025}:8025"
 
   api:
     build:
@@ -36,8 +31,7 @@ services:
       Billplz__ApiKey: ${BILLPLZ_API_KEY:-}
       Billplz__CollectionId: ${BILLPLZ_COLLECTION_ID:-}
       Billplz__XSignatureKey: ${BILLPLZ_X_SIGNATURE_KEY:-}
-    ports:
-      - "${API_HOST_PORT:-7001}:8080"
+      WhatsAppWebJs__BaseUrl: ${WHATSAPP_WEBJS_BASE_URL:-http://worker:3011/api}
     depends_on:
       - postgres
       - mailpit
@@ -50,10 +44,20 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:7001/api}
         VITE_PUBLIC_SITE_URL: ${VITE_PUBLIC_SITE_URL:-http://localhost:4173}
         VITE_APP_SITE_URL: ${VITE_APP_SITE_URL:-http://localhost:4173}
-    ports:
-      - "${WEB_HOST_PORT:-4173}:80"
     depends_on:
       - api
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/Recurvos.WhatsAppWorker/Dockerfile
+    environment:
+      NODE_ENV: ${WORKER_NODE_ENV:-production}
+      WHATSAPP_SESSION_DIR: ${WHATSAPP_SESSION_DIR:-/app/storage/whatsapp-webjs}
+      WHATSAPP_WORKER_TOKEN: ${WHATSAPP_WORKER_TOKEN:-}
+      PORT: ${WHATSAPP_WORKER_PORT:-3011}
+    volumes:
+      - ${WHATSAPP_SESSION_VOLUME:-./storage/whatsapp-webjs}:/app/storage/whatsapp-webjs
 
 volumes:
   postgres-data:
