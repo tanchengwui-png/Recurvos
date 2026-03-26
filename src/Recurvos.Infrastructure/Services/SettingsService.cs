@@ -80,6 +80,51 @@ public sealed class SettingsService(
         return rules.OrderBy(x => x.OffsetDays).Select(x => new DunningRuleDto(x.Id, x.Name, x.OffsetDays, x.IsActive)).ToList();
     }
 
+    public async Task<ReminderHistoryPageDto> GetReminderHistoryAsync(Guid? companyId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+        await featureEntitlementService.EnsureCompanyHasFeatureAsync(resolvedCompanyId, PlatformFeatureKeys.DunningWorkflows, cancellationToken);
+
+        var safePage = page < 1 ? 1 : page;
+        var safePageSize = pageSize switch
+        {
+            <= 0 => 20,
+            > 100 => 100,
+            _ => pageSize
+        };
+
+        var query = dbContext.ReminderSchedules
+            .AsNoTracking()
+            .Include(x => x.Invoice)
+                .ThenInclude(x => x!.Customer)
+            .Include(x => x.DunningRule)
+            .Where(x => x.CompanyId == resolvedCompanyId)
+            .OrderByDescending(x => x.ScheduledAtUtc)
+            .ThenByDescending(x => x.CreatedAtUtc);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .Select(x => new ReminderHistoryItemDto(
+                x.Id,
+                x.DunningRule != null && !string.IsNullOrWhiteSpace(x.DunningRule.Name) ? x.DunningRule.Name : "Reminder",
+                x.InvoiceId,
+                x.Invoice != null ? x.Invoice.InvoiceNumber : string.Empty,
+                x.Invoice != null && x.Invoice.Customer != null ? x.Invoice.Customer.Name : string.Empty,
+                x.ScheduledAtUtc,
+                x.SentAtUtc,
+                x.Cancelled,
+                x.Cancelled
+                    ? "cancelled"
+                    : x.SentAtUtc.HasValue
+                        ? "sent"
+                        : "pending"))
+            .ToListAsync(cancellationToken);
+
+        return new ReminderHistoryPageDto(items, safePage, safePageSize, totalCount);
+    }
+
     public async Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default)
     {
         var settings = await EnsureInvoiceSettingsAsync(await GetOwnedCompanyIdAsync(companyId, cancellationToken), cancellationToken);

@@ -1549,6 +1549,24 @@ select {
   transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
 }
 
+.text-input[type="date"],
+input[type="date"] {
+  color-scheme: light;
+  padding-right: 2.75rem;
+}
+
+.text-input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.9;
+  filter: invert(1) brightness(1.25) contrast(0.95);
+}
+
+.text-input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
 .text-input:hover,
 select:hover {
   border-color: rgba(148, 163, 184, 0.36);

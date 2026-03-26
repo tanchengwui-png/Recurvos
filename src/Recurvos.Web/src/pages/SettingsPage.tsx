@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { TablePagination } from "../components/TablePagination";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
-import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy } from "../types";
+import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy, ReminderHistoryItem, ReminderHistoryPage } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
 
@@ -36,6 +37,22 @@ function clampMinimumDigits(value: string) {
   return Math.min(12, Math.max(1, Math.trunc(parsed)));
 }
 
+function formatReminderDateTime(value?: string | null) {
+  if (!value) {
+    return "Not sent";
+  }
+
+  return new Date(value).toLocaleString();
+}
+
+function formatReminderStatus(status: ReminderHistoryItem["status"]) {
+  return status === "sent"
+    ? "Sent"
+    : status === "cancelled"
+      ? "Cancelled"
+      : "Pending";
+}
+
 const DEFAULT_WHATSAPP_TEMPLATE = [
   "Hi {CustomerName},",
   "",
@@ -52,6 +69,7 @@ type PaymentSettingsTab = "manual" | "qr" | "gateway" | "tax";
 
 export function SettingsPage() {
   const [rules, setRules] = useState<DunningRule[]>([]);
+  const [reminderHistory, setReminderHistory] = useState<ReminderHistoryItem[]>([]);
   const [invoiceSettings, setInvoiceSettings] = useState<CompanyInvoiceSettings | null>(null);
   const [savedInvoiceSettings, setSavedInvoiceSettings] = useState<CompanyInvoiceSettings | null>(null);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
@@ -63,6 +81,11 @@ export function SettingsPage() {
   const [paymentGatewayTestMessage, setPaymentGatewayTestMessage] = useState("");
   const [paymentGatewayTestTone, setPaymentGatewayTestTone] = useState<"default" | "error">("default");
   const [testingPaymentGateway, setTestingPaymentGateway] = useState(false);
+  const [reminderHistoryError, setReminderHistoryError] = useState("");
+  const [loadingReminderHistory, setLoadingReminderHistory] = useState(false);
+  const [reminderHistoryCurrentPage, setReminderHistoryCurrentPage] = useState(1);
+  const [reminderHistoryPageSize, setReminderHistoryPageSize] = useState(10);
+  const [reminderHistoryTotalCount, setReminderHistoryTotalCount] = useState(0);
   const [paymentQrFile, setPaymentQrFile] = useState<File | null>(null);
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("documents");
@@ -197,6 +220,9 @@ export function SettingsPage() {
       intro: "Control what appears on documents and whether invoices are sent automatically by email.",
     },
   }[activeDocumentTab];
+  const reminderHistoryTotalPages = Math.max(1, Math.ceil(reminderHistoryTotalCount / reminderHistoryPageSize));
+  const reminderHistoryRangeStart = reminderHistoryTotalCount === 0 ? 0 : (reminderHistoryCurrentPage - 1) * reminderHistoryPageSize + 1;
+  const reminderHistoryRangeEnd = reminderHistoryTotalCount === 0 ? 0 : Math.min(reminderHistoryTotalCount, reminderHistoryCurrentPage * reminderHistoryPageSize);
 
   function buildInvoiceSettingsPayload(settings: CompanyInvoiceSettings) {
     return {
@@ -314,6 +340,35 @@ export function SettingsPage() {
     setPaymentGatewayTestTone("default");
   }
 
+  async function loadReminderHistory(
+    companyId = selectedCompanyId,
+    currentFeatureAccess = featureAccess,
+    page = reminderHistoryCurrentPage,
+    pageSize = reminderHistoryPageSize,
+  ) {
+    if (!companyId || !currentFeatureAccess?.featureKeys.includes("dunning_workflows")) {
+      setReminderHistory([]);
+      setReminderHistoryTotalCount(0);
+      setReminderHistoryError("");
+      return;
+    }
+
+    setLoadingReminderHistory(true);
+    setReminderHistoryError("");
+
+    try {
+      const result = await api.get<ReminderHistoryPage>(`/settings/reminder-history?companyId=${companyId}&page=${page}&pageSize=${pageSize}`);
+      setReminderHistory(result.items);
+      setReminderHistoryTotalCount(result.totalCount);
+    } catch (error) {
+      setReminderHistory([]);
+      setReminderHistoryTotalCount(0);
+      setReminderHistoryError(error instanceof Error ? error.message : "Unable to load reminder history.");
+    } finally {
+      setLoadingReminderHistory(false);
+    }
+  }
+
   async function testPaymentGateway(currentSettings: CompanyInvoiceSettings) {
     setTestingPaymentGateway(true);
     setPaymentGatewayTestMessage("");
@@ -357,6 +412,10 @@ export function SettingsPage() {
     void load();
   }, [selectedCompanyId]);
 
+  useEffect(() => {
+    void loadReminderHistory();
+  }, [selectedCompanyId, reminderHistoryCurrentPage, reminderHistoryPageSize, featureAccess]);
+
   return (
     <div className="page">
       <header className="page-header">
@@ -366,7 +425,10 @@ export function SettingsPage() {
           <p className="muted">Manage invoice numbering, payment instructions, and billing rules for the selected company.</p>
         </div>
         <div className="catalog-toolbar" style={{ gridTemplateColumns: "minmax(0, 280px)" }}>
-          <select value={selectedCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)}>
+          <select value={selectedCompanyId} onChange={(event) => {
+            setSelectedCompanyId(event.target.value);
+            setReminderHistoryCurrentPage(1);
+          }}>
             {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
           </select>
         </div>
@@ -1298,6 +1360,7 @@ export function SettingsPage() {
                             });
                             setConfirmState(null);
                             await load();
+                            await loadReminderHistory();
                           } catch (error) {
                             setFormError(error instanceof Error ? error.message : "Unable to save payment reminders.");
                           }
@@ -1307,6 +1370,74 @@ export function SettingsPage() {
                       Save rules
                     </button>
                   </div>
+                  <section className="settings-subpanel settings-numbering-card" style={{ marginTop: "1.5rem" }}>
+                    <div className="settings-subpanel-header">
+                      <div>
+                        <p className="eyebrow">History</p>
+                        <strong>Recent reminder activity</strong>
+                      </div>
+                      <span className={`status-pill ${reminderHistoryTotalCount > 0 ? "status-pill-active" : "status-pill-inactive"}`}>
+                        {reminderHistoryTotalCount} record{reminderHistoryTotalCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <HelperText>Latest scheduled reminders and whether they have already been sent.</HelperText>
+                    {reminderHistoryError ? <HelperText tone="error">{reminderHistoryError}</HelperText> : null}
+                    {loadingReminderHistory ? (
+                      <HelperText>Loading recent reminder activity...</HelperText>
+                    ) : reminderHistory.length > 0 ? (
+                      <>
+                        <div className="table-scroll">
+                          <table className="catalog-table">
+                            <thead>
+                              <tr>
+                                <th>Reminder details</th>
+                                <th>Scheduled</th>
+                                <th>Sent</th>
+                                <th>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {reminderHistory.map((item) => (
+                                <tr key={item.id}>
+                                  <td className="table-primary-cell">
+                                    <div className="table-primary-cell-stack">
+                                      <div>
+                                        <strong className="table-primary-title">{item.reminderName}</strong>
+                                        <div className="table-meta">
+                                          <span className="table-meta-item">{item.invoiceNumber}</span>
+                                          <span className="table-meta-item">{item.customerName}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td>{formatReminderDateTime(item.scheduledAtUtc)}</td>
+                                  <td>{formatReminderDateTime(item.sentAtUtc)}</td>
+                                  <td>
+                                    <span className={`status-pill ${item.status === "sent" ? "status-pill-active" : "status-pill-inactive"}`}>
+                                      {formatReminderStatus(item.status)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <TablePagination
+                          currentPage={reminderHistoryCurrentPage}
+                          pageSize={reminderHistoryPageSize}
+                          totalItems={reminderHistoryTotalCount}
+                          totalPages={reminderHistoryTotalPages}
+                          rangeStart={reminderHistoryRangeStart}
+                          rangeEnd={reminderHistoryRangeEnd}
+                          onPageChange={setReminderHistoryCurrentPage}
+                          onPageSizeChange={setReminderHistoryPageSize}
+                          pageSizeOptions={[10, 20, 50]}
+                        />
+                      </>
+                    ) : (
+                      <HelperText>No reminder activity yet for this company.</HelperText>
+                    )}
+                  </section>
                 </div>
               ) : (
                 <HelperText>Your current package does not include payment reminder workflows.</HelperText>

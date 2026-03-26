@@ -253,4 +253,8 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
     [Authorize(Policy = "OwnerOnly")]
     public async Task<ActionResult<IReadOnlyCollection<DunningRuleDto>>> UpdateDunningRules([FromQuery] Guid? companyId, UpdateDunningRulesRequest request, CancellationToken cancellationToken) =>
         Ok(await settingsService.UpdateDunningRulesAsync(companyId, request, cancellationToken));
+
+    [HttpGet("reminder-history")]
+    public async Task<ActionResult<ReminderHistoryPageDto>> GetReminderHistory([FromQuery] Guid? companyId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetReminderHistoryAsync(companyId, page, pageSize, cancellationToken));
 }

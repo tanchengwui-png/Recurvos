@@ -404,6 +404,25 @@ export type DunningRule = {
   isActive: boolean;
 };
 
+export type ReminderHistoryItem = {
+  id: string;
+  reminderName: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  scheduledAtUtc: string;
+  sentAtUtc?: string | null;
+  cancelled: boolean;
+  status: "sent" | "pending" | "cancelled";
+};
+
+export type ReminderHistoryPage = {
+  items: ReminderHistoryItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+};
+
 export type CompanyInvoiceSettings = {
   companyId: string;
   prefix: string;

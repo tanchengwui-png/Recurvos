@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "./ConfirmModal";
 import { api } from "../lib/api";
@@ -100,6 +100,7 @@ export function AppShell() {
   const auth = getAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const contentRef = useRef<HTMLElement | null>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
@@ -111,6 +112,11 @@ export function AppShell() {
 
   useEffect(() => {
     setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
 
   useEffect(() => {
@@ -396,7 +402,7 @@ export function AppShell() {
           <Link className="inline-link" to="/terms" state={{ backgroundLocation: location }}>Terms</Link>
         </div>
       </aside>
-      <main className="content">
+      <main ref={contentRef} className="content">
         <header className="mobile-appbar">
           <button
             type="button"
