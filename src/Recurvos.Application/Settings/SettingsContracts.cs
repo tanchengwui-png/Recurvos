@@ -47,7 +47,7 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
     public int NextNumber { get; set; } = 1;
 
     [Range(1, 12)]
-    public int Padding { get; set; } = 6;
+    public int Padding { get; set; } = 4;
 
     public bool ResetYearly { get; set; }
 
@@ -58,7 +58,7 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
     public int ReceiptNextNumber { get; set; } = 1;
 
     [Range(1, 12)]
-    public int ReceiptPadding { get; set; } = 6;
+    public int ReceiptPadding { get; set; } = 4;
 
     public bool ReceiptResetYearly { get; set; }
 
@@ -69,7 +69,7 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
     public int CreditNoteNextNumber { get; set; } = 1;
 
     [Range(1, 12)]
-    public int CreditNotePadding { get; set; } = 6;
+    public int CreditNotePadding { get; set; } = 4;
 
     public bool CreditNoteResetYearly { get; set; }
 

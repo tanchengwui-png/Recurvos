@@ -103,7 +103,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     IsPlatformAccount = false,
                     SelectedPackage = demoSubscriber.PackageCode,
                     PackageStatus = "active",
-                    InvoiceSequence = 1001
+                    InvoiceSequence = 1
                 };
                 dbContext.Companies.Add(subscriberCompany);
             }
@@ -117,7 +117,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 subscriberCompany.PackageStatus ??= "active";
                 if (subscriberCompany.InvoiceSequence == 0)
                 {
-                    subscriberCompany.InvoiceSequence = 1001;
+                    subscriberCompany.InvoiceSequence = 1;
                 }
             }
 
@@ -368,15 +368,20 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 {
                     CompanyId = company.Id,
                     Prefix = "INV-",
-                    NextNumber = company.InvoiceSequence > 0 ? company.InvoiceSequence : 1001,
-                    Padding = 6,
+                    NextNumber = 1,
+                    Padding = 4,
                     ResetYearly = false,
                     LastResetYear = null,
                     ReceiptPrefix = "RCT-",
-                    ReceiptNextNumber = 1001,
-                    ReceiptPadding = 6,
+                    ReceiptNextNumber = 1,
+                    ReceiptPadding = 4,
                     ReceiptResetYearly = false,
                     ReceiptLastResetYear = null,
+                    CreditNotePrefix = "CN",
+                    CreditNoteNextNumber = 1,
+                    CreditNotePadding = 4,
+                    CreditNoteResetYearly = false,
+                    CreditNoteLastResetYear = null,
                     PaymentDueDays = 7,
                     ShowCompanyAddressOnInvoice = true,
                     ShowCompanyAddressOnReceipt = true,

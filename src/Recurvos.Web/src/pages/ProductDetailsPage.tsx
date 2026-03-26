@@ -20,7 +20,7 @@ const emptyPlanForm = {
   intervalUnit: "Month",
   intervalCount: "1",
   currency: "MYR",
-  unitAmount: "49.00",
+  unitAmount: "0.00",
   taxBehavior: "Unspecified",
   isDefault: false,
   isActive: true,

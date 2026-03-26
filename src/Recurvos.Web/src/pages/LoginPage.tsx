@@ -91,13 +91,13 @@ export function LoginPage() {
             </div>
             <div>
               <p className="eyebrow">Recurvo Billing</p>
-              <h1 className="brand-title">Subscription billing for Malaysian businesses</h1>
+              <h1 className="brand-title">Automate invoices, subscriptions, and recurring billing for Malaysian businesses.</h1>
             </div>
           </a>
 
           <div className="login-showcase-copy">
             <p className="login-lead">
-              Run invoices, recurring billing, reminders, and payment collection from one focused workspace.
+              Keep customers, subscriptions, invoices, reminders, and payment tracking connected in one focused workspace.
             </p>
             <div className="login-pill-row">
               <span className="login-pill">No contract</span>
@@ -108,13 +108,13 @@ export function LoginPage() {
 
           <div className="login-highlight-grid">
             <article className="login-highlight-card">
-              <p className="eyebrow">Built for operators</p>
-              <h3>Clean billing flow</h3>
+              <p className="eyebrow">Simple billing flow</p>
+              <h3>One connected workspace</h3>
               <p className="muted">Customers, plans, subscriptions, invoices, and payments stay connected.</p>
             </article>
             <article className="login-highlight-card">
-              <p className="eyebrow">Malaysia-first</p>
-              <h3>Invoice-ready setup</h3>
+              <p className="eyebrow">Made for Malaysian billing workflows</p>
+              <h3>Ready to issue invoices</h3>
               <p className="muted">Issuer details, branded invoices, bank transfer instructions, and payment QR support.</p>
             </article>
             <article className="login-highlight-card">

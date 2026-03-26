@@ -30,7 +30,7 @@ public sealed class SettingsService(
     IHostEnvironment environment) : ISettingsService
 {
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
-    private const int DefaultMinimumDigits = 6;
+    private const int DefaultMinimumDigits = 4;
     private readonly BillplzOptions _billplzOptions = billplzOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
@@ -759,7 +759,7 @@ public sealed class SettingsService(
         {
             CompanyId = companyId,
             Prefix = "INV",
-            NextNumber = company.InvoiceSequence > 0 ? company.InvoiceSequence : 1,
+            NextNumber = 1,
             Padding = DefaultMinimumDigits,
             ResetYearly = false,
             LastResetYear = null,
