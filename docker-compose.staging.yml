@@ -1,6 +1,11 @@
 services:
   postgres:
+    image: postgres:16
     container_name: recurvos-staging-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
@@ -8,6 +13,7 @@ services:
     restart: unless-stopped
 
   mailpit:
+    image: axllent/mailpit:latest
     container_name: recurvos-staging-mailpit
     ports:
       - "1026:1025"
@@ -15,9 +21,13 @@ services:
     restart: unless-stopped
 
   api:
+    build:
+      context: .
+      dockerfile: src/Recurvos.Api/Dockerfile
     container_name: recurvos-staging-api
     environment:
-      ASPNETCORE_ENVIRONMENT: Staging
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+      ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Jwt__SecretKey: ${JWT_SECRET_KEY}
       AppUrls__ApiBaseUrl: ${APP_API_BASE_URL}
@@ -36,28 +46,35 @@ services:
       WhatsAppWebJs__BaseUrl: http://worker:3011/api
     ports:
       - "7002:8080"
+    depends_on:
+      - postgres
+      - mailpit
     restart: unless-stopped
 
   web:
-    container_name: recurvos-staging-web
     build:
+      context: .
+      dockerfile: src/Recurvos.Web/Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
         VITE_PUBLIC_SITE_URL: ${VITE_PUBLIC_SITE_URL}
         VITE_APP_SITE_URL: ${VITE_APP_SITE_URL}
+    container_name: recurvos-staging-web
     ports:
       - "4174:80"
+    depends_on:
+      - api
     restart: unless-stopped
-
   worker:
+    build:
+      context: .
+      dockerfile: src/Recurvos.WhatsAppWorker/Dockerfile
     container_name: recurvos-staging-worker
     depends_on:
       - postgres
     environment:
       NODE_ENV: production
       WHATSAPP_SESSION_DIR: /app/storage/whatsapp-webjs
-      WHATSAPP_WORKER_TOKEN: ${WHATSAPP_WORKER_TOKEN}
-      PORT: 3011
     volumes:
       - /srv/recurvos-storage/staging/whatsapp:/app/storage/whatsapp-webjs
     restart: unless-stopped
