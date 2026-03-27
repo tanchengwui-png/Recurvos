@@ -78,6 +78,8 @@ export function SubscriberPackageBillingPage() {
   const gracePeriodCountdown = getGracePeriodCountdown(summary?.gracePeriodEndsAtUtc);
   const packageStatus = (summary?.packageStatus ?? "").toLowerCase();
   const isActivePackage = packageStatus === "active";
+  const hasPendingUpgrade = !!summary?.pendingUpgradePackageCode || !!summary?.pendingUpgradePackageName;
+  const currentPackageName = summary?.packageName ?? summary?.packageCode ?? "your current package";
 
   useEffect(() => {
     void load();
@@ -323,7 +325,7 @@ export function SubscriberPackageBillingPage() {
         </section>
       ) : null}
 
-      {summary?.packageStatus === "grace_period" && summary.gracePeriodEndsAtUtc ? (
+      {summary?.packageStatus === "grace_period" && summary.gracePeriodEndsAtUtc && !hasPendingUpgrade ? (
         <section className="subscriber-billing-alert subscriber-billing-alert-warning">
           <div>
             <p className="eyebrow">Payment reminder</p>
@@ -351,12 +353,16 @@ export function SubscriberPackageBillingPage() {
           </div>
         </section>
       ) : null}
-      {summary?.packageStatus === "upgrade_pending_payment" && summary.pendingUpgradePackageName ? (
+      {hasPendingUpgrade && summary?.pendingUpgradePackageName ? (
         <section className="subscriber-billing-alert subscriber-billing-alert-warning">
           <div>
             <p className="eyebrow">Upgrade pending</p>
             <strong>{`Upgrade to ${summary.pendingUpgradePackageName} is waiting for payment`}</strong>
-            <p className="muted">Pay the upgrade invoice below before the package changes. Until then, your current package stays active.</p>
+            <p className="muted">{`Pay the upgrade invoice below to activate ${summary.pendingUpgradePackageName}. Until payment is completed, your current package remains ${currentPackageName}.`}</p>
+            {summary.gracePeriodEndsAtUtc ? (
+              <p className="muted">{`Your current ${currentPackageName} access remains available until ${formatDate(summary.gracePeriodEndsAtUtc)}.`}</p>
+            ) : null}
+            {gracePeriodCountdown ? <p className="muted">{gracePeriodCountdown}</p> : null}
           </div>
           {summary.canCancelPendingUpgrade ? (
             <button
