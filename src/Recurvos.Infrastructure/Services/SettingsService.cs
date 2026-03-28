@@ -108,7 +108,11 @@ public sealed class SettingsService(
             .Take(safePageSize)
             .Select(x => new ReminderHistoryItemDto(
                 x.Id,
-                x.DunningRule != null && !string.IsNullOrWhiteSpace(x.DunningRule.Name) ? x.DunningRule.Name : "Reminder",
+                !string.IsNullOrWhiteSpace(x.ReminderName)
+                    ? x.ReminderName
+                    : x.DunningRule != null && !string.IsNullOrWhiteSpace(x.DunningRule.Name)
+                        ? x.DunningRule.Name
+                        : "Reminder",
                 x.InvoiceId,
                 x.Invoice != null ? x.Invoice.InvoiceNumber : string.Empty,
                 x.Invoice != null && x.Invoice.Customer != null ? x.Invoice.Customer.Name : string.Empty,
@@ -1175,16 +1179,42 @@ public sealed class SettingsService(
                 x.DueDateUtc
             })
             .ToListAsync(cancellationToken);
+        var openInvoiceIds = openInvoices.Select(invoice => invoice.Id).ToList();
+
+        var sentOffsetsByInvoice = await dbContext.ReminderSchedules
+            .Where(x => x.CompanyId == companyId
+                && x.SentAtUtc != null
+                && openInvoiceIds.Contains(x.InvoiceId))
+            .Select(x => new
+            {
+                x.InvoiceId,
+                x.OffsetDays
+            })
+            .ToListAsync(cancellationToken);
+
+        var sentOffsetLookup = sentOffsetsByInvoice
+            .GroupBy(x => x.InvoiceId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(item => item.OffsetDays).ToHashSet());
 
         foreach (var invoice in openInvoices)
         {
             foreach (var rule in activeRules)
             {
+                if (sentOffsetLookup.TryGetValue(invoice.Id, out var sentOffsets)
+                    && sentOffsets.Contains(rule.OffsetDays))
+                {
+                    continue;
+                }
+
                 dbContext.ReminderSchedules.Add(new ReminderSchedule
                 {
                     CompanyId = companyId,
                     InvoiceId = invoice.Id,
                     DunningRuleId = rule.Id,
+                    ReminderName = rule.Name,
+                    OffsetDays = rule.OffsetDays,
                     ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
                 });
             }

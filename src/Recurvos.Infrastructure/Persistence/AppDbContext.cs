@@ -510,8 +510,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .IsUnique();
 
         modelBuilder.Entity<ReminderSchedule>()
-            .HasIndex(x => new { x.CompanyId, x.InvoiceId, x.DunningRuleId })
+            .Property(x => x.ReminderName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<ReminderSchedule>()
+            .HasIndex(x => new { x.CompanyId, x.InvoiceId, x.OffsetDays })
             .IsUnique();
+
+        modelBuilder.Entity<ReminderSchedule>()
+            .HasOne(x => x.DunningRule)
+            .WithMany()
+            .HasForeignKey(x => x.DunningRuleId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         modelBuilder.Entity<WhatsAppNotification>()
             .HasIndex(x => new { x.CompanyId, x.CreatedAtUtc });

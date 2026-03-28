@@ -181,6 +181,8 @@ public sealed class InvoiceService(
                 CompanyId = companyId,
                 Invoice = invoice,
                 DunningRuleId = rule.Id,
+                ReminderName = rule.Name,
+                OffsetDays = rule.OffsetDays,
                 ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
             });
         }
@@ -809,6 +811,8 @@ public sealed class InvoiceService(
                             CompanyId = subscription.CompanyId,
                             Invoice = invoice,
                             DunningRuleId = rule.Id,
+                            ReminderName = rule.Name,
+                            OffsetDays = rule.OffsetDays,
                             ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
                         });
                     }
@@ -2021,6 +2025,8 @@ public sealed class InvoiceService(
                 CompanyId = subscription.CompanyId,
                 Invoice = invoice,
                 DunningRuleId = rule.Id,
+                ReminderName = rule.Name,
+                OffsetDays = rule.OffsetDays,
                 ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
             });
         }
