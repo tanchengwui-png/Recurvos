@@ -24,7 +24,7 @@ public sealed class PaymentService(
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : IPaymentService
 {
-    private readonly IPaymentGateway _gateway = gateways.First(x => x.Name == "Billplz");
+    private readonly IReadOnlyDictionary<string, IPaymentGateway> _gateways = gateways.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
     private readonly AppUrlOptions _appUrlOptions = appUrlOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
@@ -91,7 +91,8 @@ public sealed class PaymentService(
             return null;
         }
 
-        var result = await _gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
+        var gateway = await ResolveGatewayAsync(invoice.CompanyId, cancellationToken);
+        var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
         {
             CompanyId = invoice.CompanyId,
             GatewayConfigurationCompanyId = invoice.CompanyId,
@@ -103,7 +104,7 @@ public sealed class PaymentService(
             CustomerEmail = invoice.Customer.Email,
             CustomerMobile = invoice.Customer.PhoneNumber,
             Description = $"Invoice {invoice.InvoiceNumber}",
-            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/billplz",
+            CallbackUrl = BuildWebhookUrl(gateway),
             RedirectUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payment-success/{invoice.Id:D}"
         }, cancellationToken);
 
@@ -113,7 +114,7 @@ public sealed class PaymentService(
             InvoiceId = invoice.Id,
             Amount = invoice.AmountDue,
             Currency = invoice.Currency,
-            GatewayName = _gateway.Name,
+            GatewayName = gateway.Name,
             Status = PaymentStatus.Pending,
             ExternalPaymentId = result.ExternalPaymentId,
             PaymentLinkUrl = result.PaymentUrl
@@ -227,7 +228,8 @@ public sealed class PaymentService(
                 continue;
             }
 
-            var result = await _gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
+            var gateway = await ResolveGatewayAsync(payment.CompanyId, cancellationToken);
+            var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
             {
                 CompanyId = payment.CompanyId,
                 GatewayConfigurationCompanyId = payment.CompanyId,
@@ -239,7 +241,7 @@ public sealed class PaymentService(
                 CustomerEmail = payment.Invoice?.Customer?.Email ?? string.Empty,
                 CustomerMobile = payment.Invoice?.Customer?.PhoneNumber,
                 Description = $"Invoice {payment.Invoice?.InvoiceNumber}",
-                CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/billplz",
+                CallbackUrl = BuildWebhookUrl(gateway),
                 RedirectUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payment-success/{payment.InvoiceId:D}"
             }, cancellationToken);
 
@@ -259,6 +261,28 @@ public sealed class PaymentService(
         await dbContext.SaveChangesAsync(cancellationToken);
         return failed.Count;
     }
+
+    private async Task<IPaymentGateway> ResolveGatewayAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var provider = await dbContext.Companies
+            .Where(x => x.Id == companyId)
+            .Select(x => x.InvoiceSettings != null ? x.InvoiceSettings.PaymentGatewayProvider : null)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(provider) || string.Equals(provider, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("No active payment gateway is configured for this company.");
+        }
+
+        if (_gateways.TryGetValue(provider, out var gateway))
+        {
+            return gateway;
+        }
+
+        throw new InvalidOperationException($"Payment gateway '{provider}' is not registered.");
+    }
+
+    private string BuildWebhookUrl(IPaymentGateway gateway) =>
+        $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/{gateway.Name.ToLowerInvariant()}";
 
     internal async Task MarkPaymentAsync(string externalPaymentId, bool succeeded, string rawPayload, CancellationToken cancellationToken = default)
     {

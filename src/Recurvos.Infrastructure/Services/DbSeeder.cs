@@ -832,6 +832,46 @@ public sealed class DbSeeder(AppDbContext dbContext)
 
         await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "StripePublishableKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "StripeSecretKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "StripeWebhookSecret" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionStripePublishableKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionStripeSecretKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionStripeWebhookSecret" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "PlatformPaymentGatewayProvider" character varying(40) NOT NULL DEFAULT 'billplz';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionPlatformPaymentGatewayProvider" character varying(40) NOT NULL DEFAULT 'billplz';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
             ADD COLUMN IF NOT EXISTS "SmtpUseSsl" boolean NULL;
             """, cancellationToken);
 
@@ -1414,11 +1454,19 @@ public sealed class DbSeeder(AppDbContext dbContext)
         settings.BillplzXSignatureKey = "0bad97332fbb5a173caa81d314e1b9e6df3e1b99055447f44ea4a7c9497235c67fb8d4d983bb6a196a1d2a3591c769cc61b4e3b17c0b68851c006b31266353d8";
         settings.BillplzBaseUrl = "https://www.billplz-sandbox.com";
         settings.BillplzRequireSignatureVerification = true;
+        settings.StripePublishableKey = null;
+        settings.StripeSecretKey = null;
+        settings.StripeWebhookSecret = null;
         settings.ProductionBillplzApiKey = null;
         settings.ProductionBillplzCollectionId = null;
         settings.ProductionBillplzXSignatureKey = null;
         settings.ProductionBillplzBaseUrl = null;
         settings.ProductionBillplzRequireSignatureVerification = null;
+        settings.ProductionStripePublishableKey = null;
+        settings.ProductionStripeSecretKey = null;
+        settings.ProductionStripeWebhookSecret = null;
+        settings.PlatformPaymentGatewayProvider = "billplz";
+        settings.ProductionPlatformPaymentGatewayProvider = "billplz";
     }
 
     private async Task<ProductPlan> EnsurePlanAsync(

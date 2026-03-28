@@ -572,6 +572,7 @@ export type PlatformBillplzSettings = {
   xSignatureKey?: string | null;
   baseUrl?: string | null;
   requireSignatureVerification: boolean;
+  isActiveProvider: boolean;
   isActiveProfile: boolean;
   isReady: boolean;
 };
@@ -581,6 +582,21 @@ export type PlatformRuntimeProfile = {
 };
 
 export type PlatformBillplzTestResult = {
+  success: boolean;
+  message: string;
+};
+
+export type PlatformStripeSettings = {
+  environment: "staging" | "production";
+  publishableKey?: string | null;
+  secretKey?: string | null;
+  webhookSecret?: string | null;
+  useAsActiveProvider: boolean;
+  isActiveProfile: boolean;
+  isReady: boolean;
+};
+
+export type PlatformStripeTestResult = {
   success: boolean;
   message: string;
 };

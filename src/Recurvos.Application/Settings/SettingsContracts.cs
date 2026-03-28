@@ -241,6 +241,7 @@ public sealed class UpdatePlatformBillplzSettingsRequest
     public string? BaseUrl { get; set; }
 
     public bool RequireSignatureVerification { get; set; } = true;
+    public bool UseAsActiveProvider { get; set; }
 }
 
 public sealed record PlatformWhatsAppSettingsDto(
@@ -315,8 +316,26 @@ public sealed record PlatformBillplzSettingsDto(
     string? XSignatureKey,
     string? BaseUrl,
     bool RequireSignatureVerification,
+    bool IsActiveProvider,
     bool IsActiveProfile,
     bool IsReady);
+
+public sealed class UpdatePlatformStripeSettingsRequest
+{
+    [Required, RegularExpression("staging|production")]
+    public string Environment { get; set; } = "staging";
+
+    [MaxLength(200)]
+    public string? PublishableKey { get; set; }
+
+    [MaxLength(200)]
+    public string? SecretKey { get; set; }
+
+    [MaxLength(200)]
+    public string? WebhookSecret { get; set; }
+
+    public bool UseAsActiveProvider { get; set; }
+}
 
 public sealed class UpdatePlatformRuntimeProfileRequest
 {
@@ -328,6 +347,19 @@ public sealed record PlatformRuntimeProfileDto(
     string ActiveEnvironment);
 
 public sealed record PlatformBillplzTestResultDto(
+    bool Success,
+    string Message);
+
+public sealed record PlatformStripeSettingsDto(
+    string Environment,
+    string? PublishableKey,
+    string? SecretKey,
+    string? WebhookSecret,
+    bool UseAsActiveProvider,
+    bool IsActiveProfile,
+    bool IsReady);
+
+public sealed record PlatformStripeTestResultDto(
     bool Success,
     string Message);
 
@@ -475,6 +507,9 @@ public interface ISettingsService
     Task<PlatformBillplzSettingsDto> GetPlatformBillplzSettingsAsync(string environment, CancellationToken cancellationToken = default);
     Task<PlatformBillplzSettingsDto> UpdatePlatformBillplzSettingsAsync(UpdatePlatformBillplzSettingsRequest request, CancellationToken cancellationToken = default);
     Task<PlatformBillplzTestResultDto> TestPlatformBillplzAsync(UpdatePlatformBillplzSettingsRequest request, CancellationToken cancellationToken = default);
+    Task<PlatformStripeSettingsDto> GetPlatformStripeSettingsAsync(string environment, CancellationToken cancellationToken = default);
+    Task<PlatformStripeSettingsDto> UpdatePlatformStripeSettingsAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default);
+    Task<PlatformStripeTestResultDto> TestPlatformStripeAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default);
     Task<CompanyPaymentGatewayTestResultDto> TestCompanyPaymentGatewayAsync(Guid? companyId, TestCompanyPaymentGatewayRequest request, CancellationToken cancellationToken = default);
     Task<PlatformUploadPolicyDto> GetPlatformUploadPolicyAsync(CancellationToken cancellationToken = default);
     Task<PlatformUploadPolicyDto> UpdatePlatformUploadPolicyAsync(UpdatePlatformUploadPolicyRequest request, CancellationToken cancellationToken = default);

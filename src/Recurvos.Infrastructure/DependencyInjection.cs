@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.Configure<BillplzOptions>(configuration.GetSection(BillplzOptions.SectionName));
+        services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
         services.Configure<AppUrlOptions>(configuration.GetSection(AppUrlOptions.SectionName));
         services.Configure<WhatsAppWebJsOptions>(configuration.GetSection(WhatsAppWebJsOptions.SectionName));
 
@@ -66,7 +67,9 @@ public static class DependencyInjection
         services.AddHttpClient<IPlatformWhatsAppGateway, PlatformWhatsAppGateway>();
         services.AddScoped<IInvoiceStorage, LocalInvoiceStorage>();
         services.AddHttpClient<BillplzPaymentGateway>();
+        services.AddHttpClient<StripePaymentGateway>();
         services.AddScoped<IPaymentGateway, BillplzPaymentGateway>();
+        services.AddScoped<IPaymentGateway, StripePaymentGateway>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IRegistrationGuardService, RegistrationGuardService>();
         services.AddScoped<ICompanyService, CompanyService>();

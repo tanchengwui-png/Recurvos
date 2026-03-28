@@ -3341,6 +3341,26 @@ select:focus,
   min-width: 0;
 }
 
+.platform-payment-control-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: end;
+  margin-top: 0.4rem;
+  margin-bottom: 1.15rem;
+}
+
+.platform-payment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.platform-payment-provider-card {
+  min-height: 100%;
+}
+
 .platform-settings-nav {
   display: grid;
   gap: 0.45rem;
@@ -5442,11 +5462,17 @@ select:focus,
   .settings-payment-summary-grid,
   .settings-document-summary-grid,
   .payments-tab-summary-grid,
+  .platform-payment-grid,
   .settings-inline-fields-wide,
   .public-payment-fields,
   .settings-numbering-fields,
   .settings-action-row {
     grid-template-columns: 1fr;
+  }
+
+  .platform-payment-control-row {
+    grid-template-columns: 1fr;
+    align-items: start;
   }
 
   .settings-action-row-sticky {

@@ -199,6 +199,31 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
         }
     }
 
+    [HttpGet("platform-stripe")]
+    public async Task<ActionResult<PlatformStripeSettingsDto>> GetPlatformStripe([FromQuery] string environment = "staging", CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetPlatformStripeSettingsAsync(environment, cancellationToken));
+
+    [HttpPut("platform-stripe")]
+    public async Task<ActionResult<PlatformStripeSettingsDto>> UpdatePlatformStripe(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken) =>
+        Ok(await settingsService.UpdatePlatformStripeSettingsAsync(request, cancellationToken));
+
+    [HttpPost("platform-stripe/test")]
+    public async Task<ActionResult<PlatformStripeTestResultDto>> TestPlatformStripe(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await settingsService.TestPlatformStripeAsync(request, cancellationToken));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Problem(statusCode: StatusCodes.Status403Forbidden, title: "Only platform owners can test Stripe settings.");
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
     [HttpGet("platform-upload-policy")]
     public async Task<ActionResult<PlatformUploadPolicyDto>> GetPlatformUploadPolicy(CancellationToken cancellationToken) =>
         Ok(await settingsService.GetPlatformUploadPolicyAsync(cancellationToken));
