@@ -87,16 +87,20 @@ export function SubscriberPackageBillingPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const paymentId = params.get("billplz[id]");
-    const paid = params.get("billplz[paid]");
+    const billplzPaymentId = params.get("billplz[id]");
+    const billplzPaid = params.get("billplz[paid]");
+    const stripeStatus = params.get("stripe_status");
+    const stripeSessionId = params.get("session_id") ?? params.get("sessionId");
+    const hasBillplzReturn = Boolean(billplzPaymentId || billplzPaid);
+    const hasStripeReturn = Boolean(stripeStatus || stripeSessionId);
 
-    if (!paymentId && !paid) {
+    if (!hasBillplzReturn && !hasStripeReturn) {
       return;
     }
 
-    async function handleBillplzReturn() {
+    async function handleGatewayReturn() {
       try {
-        if (paid === "true") {
+        if (hasBillplzReturn && billplzPaid === "true") {
           setError("");
           setMessage("Payment received. Refreshing your billing status...");
           const response = await fetch(`${API_BASE_URL}/webhooks/billplz/complete?${params.toString()}`, {
@@ -109,19 +113,39 @@ export function SubscriberPackageBillingPage() {
             throw new Error(rawError || `Billplz completion returned HTTP ${response.status}.`);
           }
           await load();
-        } else if (paid === "false") {
+        } else if (hasBillplzReturn && billplzPaid === "false") {
           setMessage("");
           setError("Billplz returned without a completed payment.");
+        } else if (hasStripeReturn && stripeStatus === "success") {
+          if (!stripeSessionId) {
+            throw new Error("Stripe return is missing the session id.");
+          }
+
+          setError("");
+          setMessage("Payment received. Refreshing your billing status...");
+          const response = await fetch(`${API_BASE_URL}/webhooks/stripe/complete?${params.toString()}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+          });
+          if (!response.ok) {
+            const rawError = await response.text();
+            throw new Error(rawError || `Stripe completion returned HTTP ${response.status}.`);
+          }
+          await load();
+        } else if (hasStripeReturn && stripeStatus === "cancelled") {
+          setMessage("");
+          setError("Stripe returned without a completed payment.");
         }
-      } catch (billplzReturnError) {
+      } catch (gatewayReturnError) {
         setMessage("");
-        setError(billplzReturnError instanceof Error ? billplzReturnError.message : "Unable to confirm Billplz payment return.");
+        setError(gatewayReturnError instanceof Error ? gatewayReturnError.message : "Unable to confirm payment return.");
       } finally {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
 
-    void handleBillplzReturn();
+    void handleGatewayReturn();
   }, []);
 
   async function load() {
