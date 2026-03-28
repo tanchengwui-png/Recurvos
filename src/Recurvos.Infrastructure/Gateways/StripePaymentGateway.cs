@@ -74,11 +74,28 @@ public sealed class StripePaymentGateway(AppDbContext dbContext, IOptions<Stripe
         try
         {
             using var document = JsonDocument.Parse(payload);
-            return document.RootElement
+            var stripeObject = document.RootElement
                 .GetProperty("data")
-                .GetProperty("object")
-                .GetProperty("id")
-                .GetString();
+                .GetProperty("object");
+
+            if (TryGetString(stripeObject, "id", out var directId) && IsCheckoutSessionId(directId))
+            {
+                return directId;
+            }
+
+            if (TryGetNestedString(stripeObject, ["payment_details", "order_reference"], out var orderReference)
+                && IsCheckoutSessionId(orderReference))
+            {
+                return orderReference;
+            }
+
+            if (TryGetNestedString(stripeObject, ["metadata", "checkout_session_id"], out var metadataSessionId)
+                && IsCheckoutSessionId(metadataSessionId))
+            {
+                return metadataSessionId;
+            }
+
+            return null;
         }
         catch
         {
@@ -112,16 +129,17 @@ public sealed class StripePaymentGateway(AppDbContext dbContext, IOptions<Stripe
                 : exception.Message);
         }
 
-        if (stripeEvent.Data.Object is not Session session || string.IsNullOrWhiteSpace(session.Id))
+        var externalPaymentId = ExtractExternalPaymentId(payload, headers);
+        if (string.IsNullOrWhiteSpace(externalPaymentId))
         {
-            throw new InvalidOperationException("Stripe webhook does not contain a checkout session.");
+            throw new InvalidOperationException("Stripe webhook does not contain a checkout session reference.");
         }
 
         return new WebhookParseResult(
             stripeEvent.Id,
             stripeEvent.Type,
-            session.Id,
-            IsPaymentSucceeded(stripeEvent.Type, session.PaymentStatus),
+            externalPaymentId,
+            IsPaymentSucceeded(stripeEvent),
             payload);
     }
 
@@ -179,9 +197,53 @@ public sealed class StripePaymentGateway(AppDbContext dbContext, IOptions<Stripe
                 : (string.IsNullOrWhiteSpace(platformSettings?.StripeWebhookSecret) ? _options.WebhookSecret : platformSettings.StripeWebhookSecret!));
     }
 
-    private static bool IsPaymentSucceeded(string eventType, string? paymentStatus) =>
-        string.Equals(eventType, "checkout.session.completed", StringComparison.OrdinalIgnoreCase)
-        && string.Equals(paymentStatus, "paid", StringComparison.OrdinalIgnoreCase);
+    private static bool IsPaymentSucceeded(Event stripeEvent)
+    {
+        return stripeEvent.Data.Object switch
+        {
+            Session session => string.Equals(stripeEvent.Type, "checkout.session.completed", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(session.PaymentStatus, "paid", StringComparison.OrdinalIgnoreCase),
+            PaymentIntent paymentIntent => string.Equals(paymentIntent.Status, "succeeded", StringComparison.OrdinalIgnoreCase),
+            Charge charge => charge.Paid && string.Equals(charge.Status, "succeeded", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    private static bool TryGetString(JsonElement element, string propertyName, out string? value)
+    {
+        value = null;
+        if (!element.TryGetProperty(propertyName, out var property) || property.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = property.GetString();
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryGetNestedString(JsonElement element, IReadOnlyList<string> path, out string? value)
+    {
+        value = null;
+        var current = element;
+        foreach (var segment in path)
+        {
+            if (!current.TryGetProperty(segment, out current))
+            {
+                return false;
+            }
+        }
+
+        if (current.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        value = current.GetString();
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool IsCheckoutSessionId(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && value.StartsWith("cs_", StringComparison.OrdinalIgnoreCase);
 
     private static long ConvertToSmallestUnit(decimal amount) =>
         (long)Math.Round(amount * 100m, MidpointRounding.AwayFromZero);

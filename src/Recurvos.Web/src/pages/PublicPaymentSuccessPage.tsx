@@ -24,10 +24,13 @@ export function PublicPaymentSuccessPage() {
       .join("&");
     const params = new URLSearchParams(combinedQuery);
     const paymentId =
+      params.get("session_id") ??
+      params.get("sessionId") ??
       params.get("billplz[id]") ??
       params.get("id") ??
       params.get("billplz_id");
     const invoiceId = params.get("invoiceId") ?? routeParams.invoiceId ?? null;
+    const stripeStatus = params.get("stripe_status");
     const paid =
       params.get("billplz[paid]") ??
       params.get("paid");
@@ -53,7 +56,7 @@ export function PublicPaymentSuccessPage() {
     const externalPaymentId = paymentId;
     const invoiceLookupId = invoiceId;
 
-    if (paid === "false") {
+    if (paid === "false" || stripeStatus === "cancelled") {
       setTitle("Payment not completed");
       setSubtitle("The payment gateway returned without a completed payment.");
       setMessage("");
@@ -83,6 +86,7 @@ export function PublicPaymentSuccessPage() {
     async function confirmAndTrackPayment() {
       try {
         const hasPositiveGatewayReturn = paid === "true";
+        const hasPositiveStripeReturn = stripeStatus === "success" && Boolean(externalPaymentId);
 
         if (paid === "true") {
           setTitle("Payment received");
@@ -90,6 +94,18 @@ export function PublicPaymentSuccessPage() {
           setError("");
           setMessage("Payment received. We are verifying it now...");
           await fetch(`${API_BASE_URL}/webhooks/billplz/complete?${params.toString()}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+          });
+        }
+
+        if (hasPositiveStripeReturn) {
+          setTitle("Payment received");
+          setSubtitle("We received a successful return from Stripe and are verifying it now.");
+          setError("");
+          setMessage("Payment received. We are verifying it now...");
+          await fetch(`${API_BASE_URL}/webhooks/stripe/complete?${params.toString()}`, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: params.toString(),
@@ -117,7 +133,7 @@ export function PublicPaymentSuccessPage() {
             return;
           }
 
-          if (hasPositiveGatewayReturn) {
+          if (hasPositiveGatewayReturn || hasPositiveStripeReturn) {
             setTitle("Payment received");
             setSubtitle("We are waiting for the payment confirmation to finish syncing.");
             if (status?.invoiceNumber) {
@@ -141,12 +157,12 @@ export function PublicPaymentSuccessPage() {
         }
 
         if (!cancelled) {
-          setTitle(hasPositiveGatewayReturn ? "Payment received" : "Payment status pending");
-          setSubtitle(hasPositiveGatewayReturn
+          setTitle(hasPositiveGatewayReturn || hasPositiveStripeReturn ? "Payment received" : "Payment status pending");
+          setSubtitle(hasPositiveGatewayReturn || hasPositiveStripeReturn
             ? "The payment was received, but final verification is still in progress."
             : "The payment gateway has not confirmed a successful payment yet.");
           setError("");
-          setMessage(hasPositiveGatewayReturn
+          setMessage(hasPositiveGatewayReturn || hasPositiveStripeReturn
             ? "Payment received. Verification is still in progress. You may close this page and check again shortly."
             : "We are still waiting for the final payment result. Please return to the invoice and try again if the payment did not go through.");
         }
