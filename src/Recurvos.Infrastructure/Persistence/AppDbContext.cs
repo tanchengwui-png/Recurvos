@@ -236,6 +236,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(200);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.PlatformPaymentGatewayProvider)
+            .HasMaxLength(40)
+            .HasDefaultValue("billplz");
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionPlatformPaymentGatewayProvider)
+            .HasMaxLength(40)
+            .HasDefaultValue("billplz");
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.TaxName)
             .HasMaxLength(50)
             .HasDefaultValue("SST");
@@ -378,6 +388,30 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.ProductionBillplzBaseUrl)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.StripePublishableKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.StripeSecretKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.StripeWebhookSecret)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionStripePublishableKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionStripeSecretKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionStripeWebhookSecret)
             .HasMaxLength(200);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()

@@ -13,6 +13,9 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using MailKit;
 using MimeKit;
+using StripeBalanceService = Stripe.BalanceService;
+using StripeClient = Stripe.StripeClient;
+using StripeException = Stripe.StripeException;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -26,12 +29,14 @@ public sealed class SettingsService(
     IFeatureEntitlementService featureEntitlementService,
     IPlatformWhatsAppGateway platformWhatsAppGateway,
     IOptions<BillplzOptions> billplzOptions,
+    IOptions<StripeOptions> stripeOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : ISettingsService
 {
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
     private const int DefaultMinimumDigits = 4;
     private readonly BillplzOptions _billplzOptions = billplzOptions.Value;
+    private readonly StripeOptions _stripeOptions = stripeOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
 
@@ -530,6 +535,10 @@ public sealed class SettingsService(
             settings.ProductionBillplzXSignatureKey = string.IsNullOrWhiteSpace(request.XSignatureKey) ? null : request.XSignatureKey.Trim();
             settings.ProductionBillplzBaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? null : request.BaseUrl.Trim();
             settings.ProductionBillplzRequireSignatureVerification = request.RequireSignatureVerification;
+            if (request.UseAsActiveProvider)
+            {
+                settings.ProductionPlatformPaymentGatewayProvider = "billplz";
+            }
         }
         else
         {
@@ -538,10 +547,52 @@ public sealed class SettingsService(
             settings.BillplzXSignatureKey = string.IsNullOrWhiteSpace(request.XSignatureKey) ? null : request.XSignatureKey.Trim();
             settings.BillplzBaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? null : request.BaseUrl.Trim();
             settings.BillplzRequireSignatureVerification = request.RequireSignatureVerification;
+            if (request.UseAsActiveProvider)
+            {
+                settings.PlatformPaymentGatewayProvider = "billplz";
+            }
         }
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("settings.platform-billplz.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), $"{environment}:{request.CollectionId}", cancellationToken);
         return MapPlatformBillplzSettings(settings, _billplzOptions, environment);
+    }
+
+    public async Task<PlatformStripeSettingsDto> GetPlatformStripeSettingsAsync(string environment, CancellationToken cancellationToken = default)
+    {
+        var settings = await EnsurePlatformInvoiceSettingsAsync(cancellationToken);
+        return MapPlatformStripeSettings(settings, _stripeOptions, NormalizePlatformEnvironment(environment));
+    }
+
+    public async Task<PlatformStripeSettingsDto> UpdatePlatformStripeSettingsAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default)
+    {
+        ValidatePlatformStripeSettings(request);
+        var settings = await EnsurePlatformInvoiceSettingsAsync(cancellationToken);
+        var environment = NormalizePlatformEnvironment(request.Environment);
+
+        if (environment == "production")
+        {
+            settings.ProductionStripePublishableKey = string.IsNullOrWhiteSpace(request.PublishableKey) ? null : request.PublishableKey.Trim();
+            settings.ProductionStripeSecretKey = string.IsNullOrWhiteSpace(request.SecretKey) ? null : request.SecretKey.Trim();
+            settings.ProductionStripeWebhookSecret = string.IsNullOrWhiteSpace(request.WebhookSecret) ? null : request.WebhookSecret.Trim();
+            if (request.UseAsActiveProvider)
+            {
+                settings.ProductionPlatformPaymentGatewayProvider = "stripe";
+            }
+        }
+        else
+        {
+            settings.StripePublishableKey = string.IsNullOrWhiteSpace(request.PublishableKey) ? null : request.PublishableKey.Trim();
+            settings.StripeSecretKey = string.IsNullOrWhiteSpace(request.SecretKey) ? null : request.SecretKey.Trim();
+            settings.StripeWebhookSecret = string.IsNullOrWhiteSpace(request.WebhookSecret) ? null : request.WebhookSecret.Trim();
+            if (request.UseAsActiveProvider)
+            {
+                settings.PlatformPaymentGatewayProvider = "stripe";
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("settings.platform-stripe.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), environment, cancellationToken);
+        return MapPlatformStripeSettings(settings, _stripeOptions, environment);
     }
 
     public async Task<PlatformBillplzTestResultDto> TestPlatformBillplzAsync(UpdatePlatformBillplzSettingsRequest request, CancellationToken cancellationToken = default)
@@ -587,6 +638,36 @@ public sealed class SettingsService(
         catch (HttpRequestException exception)
         {
             throw new InvalidOperationException($"Billplz is not reachable: {exception.Message}");
+        }
+    }
+
+    public async Task<PlatformStripeTestResultDto> TestPlatformStripeAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsurePlatformOwner();
+        ValidatePlatformStripeSettings(request);
+
+        var secretKey = string.IsNullOrWhiteSpace(request.SecretKey) ? null : request.SecretKey.Trim();
+        if (string.IsNullOrWhiteSpace(secretKey))
+        {
+            throw new InvalidOperationException("Stripe secret key is required.");
+        }
+
+        try
+        {
+            var client = new StripeClient(secretKey);
+            var service = new StripeBalanceService(client);
+            _ = await service.GetAsync(null, null, cancellationToken);
+            return new PlatformStripeTestResultDto(true, "Stripe connection succeeded.");
+        }
+        catch (StripeException exception)
+        {
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(exception.Message)
+                ? "Stripe rejected the provided keys."
+                : exception.Message);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new InvalidOperationException($"Stripe is not reachable: {exception.Message}");
         }
     }
 
@@ -648,6 +729,26 @@ public sealed class SettingsService(
         if (request.RequireSignatureVerification && string.IsNullOrWhiteSpace(request.XSignatureKey))
         {
             throw new InvalidOperationException("Billplz X signature key is required when signature verification is enabled.");
+        }
+
+        if (request.UseAsActiveProvider
+            && (string.IsNullOrWhiteSpace(request.ApiKey)
+                || string.IsNullOrWhiteSpace(request.CollectionId)
+                || string.IsNullOrWhiteSpace(request.BaseUrl)
+                || (request.RequireSignatureVerification && string.IsNullOrWhiteSpace(request.XSignatureKey))))
+        {
+            throw new InvalidOperationException("Complete the Billplz configuration before making it the active provider.");
+        }
+    }
+
+    private static void ValidatePlatformStripeSettings(UpdatePlatformStripeSettingsRequest request)
+    {
+        if (request.UseAsActiveProvider
+            && (string.IsNullOrWhiteSpace(request.PublishableKey)
+                || string.IsNullOrWhiteSpace(request.SecretKey)
+                || string.IsNullOrWhiteSpace(request.WebhookSecret)))
+        {
+            throw new InvalidOperationException("Complete the Stripe configuration before making it the active provider.");
         }
     }
 
@@ -1004,6 +1105,39 @@ public sealed class SettingsService(
             signatureKey,
             baseUrl,
             requireSignatureVerification,
+            string.Equals(
+                isProduction ? settings.ProductionPlatformPaymentGatewayProvider : settings.PlatformPaymentGatewayProvider,
+                "billplz",
+                StringComparison.OrdinalIgnoreCase),
+            settings.UseProductionPlatformSettings == isProduction,
+            ready);
+    }
+
+    private static PlatformStripeSettingsDto MapPlatformStripeSettings(CompanyInvoiceSettings settings, StripeOptions fallback, string environment)
+    {
+        var isProduction = environment == "production";
+        var publishableKey = isProduction
+            ? settings.ProductionStripePublishableKey
+            : (string.IsNullOrWhiteSpace(settings.StripePublishableKey) ? fallback.PublishableKey : settings.StripePublishableKey);
+        var secretKey = isProduction
+            ? settings.ProductionStripeSecretKey
+            : (string.IsNullOrWhiteSpace(settings.StripeSecretKey) ? fallback.SecretKey : settings.StripeSecretKey);
+        var webhookSecret = isProduction
+            ? settings.ProductionStripeWebhookSecret
+            : (string.IsNullOrWhiteSpace(settings.StripeWebhookSecret) ? fallback.WebhookSecret : settings.StripeWebhookSecret);
+        var ready = !string.IsNullOrWhiteSpace(publishableKey)
+            && !string.IsNullOrWhiteSpace(secretKey)
+            && !string.IsNullOrWhiteSpace(webhookSecret);
+
+        return new(
+            environment,
+            publishableKey,
+            secretKey,
+            webhookSecret,
+            string.Equals(
+                isProduction ? settings.ProductionPlatformPaymentGatewayProvider : settings.PlatformPaymentGatewayProvider,
+                "stripe",
+                StringComparison.OrdinalIgnoreCase),
             settings.UseProductionPlatformSettings == isProduction,
             ready);
     }
@@ -1017,6 +1151,7 @@ public sealed class SettingsService(
         return normalized switch
         {
             "billplz" => "billplz",
+            "stripe" => "stripe",
             _ => "none",
         };
     }

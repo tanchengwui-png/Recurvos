@@ -4,7 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatUploadSizeLabel } from "../lib/uploads";
-import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformUploadPolicy, PlatformWhatsAppSettings } from "../types";
+import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformStripeSettings, PlatformStripeTestResult, PlatformUploadPolicy, PlatformWhatsAppSettings } from "../types";
 
 const platformJobs = [
   {
@@ -60,7 +60,7 @@ function formatDocumentNumber(prefix: string, sequence: number, padding: number)
 
 export function PlatformSettingsPage() {
   const [editingEnvironment, setEditingEnvironment] = useState<"staging" | "production">("staging");
-  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "billplz" | "feedback" | "whatsapp" | "upload" | "jobs" | "reset">("issuer");
+  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "payments" | "feedback" | "whatsapp" | "upload" | "jobs" | "reset">("issuer");
   const [runtimeProfile, setRuntimeProfile] = useState<PlatformRuntimeProfile | null>(null);
   const [issuerSettings, setIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
   const [savedIssuerSettings, setSavedIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
@@ -74,6 +74,8 @@ export function PlatformSettingsPage() {
   const [savedSmtpSettings, setSavedSmtpSettings] = useState<PlatformSmtpSettings | null>(null);
   const [billplzSettings, setBillplzSettings] = useState<PlatformBillplzSettings | null>(null);
   const [savedBillplzSettings, setSavedBillplzSettings] = useState<PlatformBillplzSettings | null>(null);
+  const [stripeSettings, setStripeSettings] = useState<PlatformStripeSettings | null>(null);
+  const [savedStripeSettings, setSavedStripeSettings] = useState<PlatformStripeSettings | null>(null);
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
   const [savedUploadPolicy, setSavedUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
   const [jobStatuses, setJobStatuses] = useState<PlatformJobStatus[]>([]);
@@ -85,6 +87,9 @@ export function PlatformSettingsPage() {
   const [billplzTestMessage, setBillplzTestMessage] = useState("");
   const [billplzTestError, setBillplzTestError] = useState("");
   const [isTestingBillplz, setIsTestingBillplz] = useState(false);
+  const [stripeTestMessage, setStripeTestMessage] = useState("");
+  const [stripeTestError, setStripeTestError] = useState("");
+  const [isTestingStripe, setIsTestingStripe] = useState(false);
   const [runningJobKey, setRunningJobKey] = useState<string | null>(null);
   const [resetConfirmationText, setResetConfirmationText] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
@@ -107,6 +112,9 @@ export function PlatformSettingsPage() {
   const billplzDirty = billplzSettings !== null
     && savedBillplzSettings !== null
     && JSON.stringify(billplzSettings) !== JSON.stringify(savedBillplzSettings);
+  const stripeDirty = stripeSettings !== null
+    && savedStripeSettings !== null
+    && JSON.stringify(stripeSettings) !== JSON.stringify(savedStripeSettings);
   const uploadPolicyDirty = uploadPolicy !== null
     && savedUploadPolicy !== null
     && JSON.stringify(uploadPolicy) !== JSON.stringify(savedUploadPolicy);
@@ -116,6 +124,7 @@ export function PlatformSettingsPage() {
   const platformReceiptNumberPreview = documentNumbering
     ? formatDocumentNumber(documentNumbering.receiptPrefix, documentNumbering.receiptNextNumber, documentNumbering.receiptMinimumDigits)
     : "";
+  const activeGatewayProvider = stripeSettings?.useAsActiveProvider ? "stripe" : billplzSettings?.isActiveProvider ? "billplz" : "billplz";
 
   useEffect(() => {
     void load();
@@ -153,7 +162,7 @@ export function PlatformSettingsPage() {
   async function load() {
     setError("");
 
-    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, uploadPolicyResult, jobsResult] = await Promise.allSettled([
+    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, stripeResult, uploadPolicyResult, jobsResult] = await Promise.allSettled([
       api.get<PlatformRuntimeProfile>("/settings/platform-runtime-profile"),
       api.get<PlatformIssuerSettings>(`/settings/platform-issuer?environment=${editingEnvironment}`),
       api.get<PlatformDocumentNumberingSettings>("/settings/platform-document-numbering"),
@@ -161,6 +170,7 @@ export function PlatformSettingsPage() {
       api.get<PlatformFeedbackSettings>("/settings/platform-feedback"),
       api.get<PlatformSmtpSettings>(`/settings/platform-smtp?environment=${editingEnvironment}`),
       api.get<PlatformBillplzSettings>(`/settings/platform-billplz?environment=${editingEnvironment}`),
+      api.get<PlatformStripeSettings>(`/settings/platform-stripe?environment=${editingEnvironment}`),
       api.get<PlatformUploadPolicy>("/settings/platform-upload-policy"),
       api.get<PlatformJobStatus[]>("/platform/jobs"),
     ]);
@@ -198,6 +208,11 @@ export function PlatformSettingsPage() {
       setSavedBillplzSettings(billplzResult.value);
     }
 
+    if (stripeResult.status === "fulfilled") {
+      setStripeSettings(stripeResult.value);
+      setSavedStripeSettings(stripeResult.value);
+    }
+
     if (uploadPolicyResult.status === "fulfilled") {
       setUploadPolicy(uploadPolicyResult.value);
       setSavedUploadPolicy(uploadPolicyResult.value);
@@ -214,6 +229,7 @@ export function PlatformSettingsPage() {
     if (feedbackResult.status === "rejected") failedSections.push("owner email");
     if (smtpResult.status === "rejected") failedSections.push("SMTP settings");
     if (billplzResult.status === "rejected") failedSections.push("Billplz settings");
+    if (stripeResult.status === "rejected") failedSections.push("Stripe settings");
     if (uploadPolicyResult.status === "rejected") failedSections.push("upload policy");
     if (whatsAppResult.status === "rejected") failedSections.push("WhatsApp settings");
     if (jobsResult.status === "rejected") failedSections.push("Hangfire jobs");
@@ -262,6 +278,11 @@ export function PlatformSettingsPage() {
   const liveModeLabel = runtimeProfile?.activeEnvironment === "production" ? "Production" : "Staging";
   const editingModeLabel = editingEnvironment === "production" ? "Production settings" : "Staging settings";
 
+  function setActiveGateway(provider: "billplz" | "stripe") {
+    setBillplzSettings((current) => current ? { ...current, isActiveProvider: provider === "billplz" } : current);
+    setStripeSettings((current) => current ? { ...current, useAsActiveProvider: provider === "stripe" } : current);
+  }
+
   return (
     <div className="page">
       <header className="page-header">
@@ -285,7 +306,7 @@ export function PlatformSettingsPage() {
               {`Currently live: ${liveModeLabel}`}
             </span>
           </div>
-          <HelperText>Controls which billing identity, SMTP, and Billplz profile is used at runtime.</HelperText>
+          <HelperText>Controls which billing identity, SMTP, and payment gateway profile is used at runtime.</HelperText>
           <div className="platform-settings-toggle" role="tablist" aria-label="Live mode">
             <button
               type="button"
@@ -344,12 +365,12 @@ export function PlatformSettingsPage() {
               Production
             </button>
           </div>
-          <HelperText>{`${editingModeLabel}. Applies only to billing identity, SMTP, and Billplz.`}</HelperText>
+          <HelperText>{`${editingModeLabel}. Applies only to billing identity, SMTP, and payment gateway settings.`}</HelperText>
           <nav className="platform-settings-nav" aria-label="Environment-based platform settings sections">
             <p className="eyebrow">Environment</p>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "issuer" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("issuer")}>Billing identity</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "smtp" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("smtp")}>SMTP</button>
-            <button type="button" className={`platform-settings-nav-link ${activeSection === "billplz" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("billplz")}>Billplz</button>
+            <button type="button" className={`platform-settings-nav-link ${activeSection === "payments" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("payments")}>Payment gateway</button>
             <p className="eyebrow">Shared</p>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "documents" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("documents")}>Documents</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "feedback" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("feedback")}>Owner email</button>
@@ -763,16 +784,42 @@ export function PlatformSettingsPage() {
       ) : null}
       {activeSection === "smtp" && !smtpSettings ? renderSectionUnavailable("SMTP", "Platform SMTP settings are not available right now.") : null}
 
-      {activeSection === "billplz" && billplzSettings ? (
-        <section id="platform-billplz" className="card settings-form-card">
+      {activeSection === "payments" && billplzSettings && stripeSettings ? (
+        <section id="platform-payments" className="card settings-form-card">
           <div className="card-section-header">
             <div>
               <p className="eyebrow">Payment gateway</p>
-              <h3 className="section-title">{`Billplz settings: ${editingModeLabel}`}</h3>
+              <h3 className="section-title">{`Gateway settings: ${editingModeLabel}`}</h3>
+              <p className="muted form-intro">Choose the active platform gateway for this environment, then manage Billplz and Stripe credentials below.</p>
+            </div>
+            <span className="status-pill status-pill-active">
+              {`Active: ${activeGatewayProvider === "stripe" ? "Stripe" : "Billplz"}`}
+            </span>
+          </div>
+          <div className="platform-payment-control-row">
+            <label className="form-label">
+              Active gateway
+              <select
+                className="text-input"
+                value={activeGatewayProvider}
+                onChange={(event) => setActiveGateway(event.target.value as "billplz" | "stripe")}
+              >
+                <option value="billplz">Billplz</option>
+                <option value="stripe">Stripe</option>
+              </select>
+            </label>
+            <HelperText>The system uses only one platform gateway per environment. This selector controls what staging or production will use at runtime.</HelperText>
+          </div>
+          <div className="platform-payment-grid">
+            <section id="platform-billplz" className="card subtle-card settings-form-card platform-payment-provider-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Payment gateway</p>
+              <h3 className="section-title">Billplz</h3>
               <p className="muted form-intro">These settings are used when generating Billplz payment links and verifying Billplz webhooks.</p>
             </div>
-            <span className={`status-pill ${billplzSettings.isReady ? "status-pill-active" : "status-pill-inactive"}`}>
-              {billplzSettings.isReady ? "Ready" : "Incomplete"}
+            <span className={`status-pill ${activeGatewayProvider === "billplz" ? "status-pill-active" : billplzSettings.isReady ? "status-pill-active" : "status-pill-inactive"}`}>
+              {activeGatewayProvider === "billplz" ? "Active" : billplzSettings.isReady ? "Available" : "Incomplete"}
             </span>
           </div>
           <div className="form-stack">
@@ -820,6 +867,7 @@ export function PlatformSettingsPage() {
                       xSignatureKey: billplzSettings.xSignatureKey,
                       baseUrl: billplzSettings.baseUrl,
                       requireSignatureVerification: billplzSettings.requireSignatureVerification,
+                      useAsActiveProvider: activeGatewayProvider === "billplz",
                     });
                     setBillplzTestMessage(result.message);
                     setError("");
@@ -851,9 +899,13 @@ export function PlatformSettingsPage() {
                         xSignatureKey: billplzSettings.xSignatureKey,
                         baseUrl: billplzSettings.baseUrl,
                         requireSignatureVerification: billplzSettings.requireSignatureVerification,
+                        useAsActiveProvider: activeGatewayProvider === "billplz",
                       });
                       setBillplzSettings(updated);
                       setSavedBillplzSettings(updated);
+                      if (activeGatewayProvider === "billplz") {
+                        setStripeSettings((current) => current ? { ...current, useAsActiveProvider: false } : current);
+                      }
                       setMessage(`Platform Billplz settings saved for ${editingEnvironment}.`);
                       setError("");
                       setConfirmState(null);
@@ -872,8 +924,110 @@ export function PlatformSettingsPage() {
             {billplzTestError ? <HelperText tone="error">{billplzTestError}</HelperText> : null}
           </div>
         </section>
+
+        <section id="platform-stripe" className="card subtle-card settings-form-card platform-payment-provider-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Payment gateway</p>
+              <h3 className="section-title">Stripe</h3>
+              <p className="muted form-intro">These settings are used when generating Stripe Checkout sessions and verifying Stripe webhooks.</p>
+            </div>
+            <span className={`status-pill ${activeGatewayProvider === "stripe" ? "status-pill-active" : stripeSettings.isReady ? "status-pill-active" : "status-pill-inactive"}`}>
+              {activeGatewayProvider === "stripe" ? "Active" : stripeSettings.isReady ? "Available" : "Incomplete"}
+            </span>
+          </div>
+          <div className="form-stack">
+            <div className="inline-fields settings-inline-fields-wide">
+              <label className="form-label">
+                Publishable key
+                <input className="text-input" value={stripeSettings.publishableKey ?? ""} onChange={(event) => setStripeSettings((current) => current ? { ...current, publishableKey: event.target.value } : current)} placeholder="pk_test_..." />
+              </label>
+              <label className="form-label">
+                Secret key
+                <input className="text-input" type="password" value={stripeSettings.secretKey ?? ""} onChange={(event) => setStripeSettings((current) => current ? { ...current, secretKey: event.target.value } : current)} placeholder="sk_test_..." />
+              </label>
+            </div>
+            <label className="form-label">
+              Webhook secret
+              <input className="text-input" type="password" value={stripeSettings.webhookSecret ?? ""} onChange={(event) => setStripeSettings((current) => current ? { ...current, webhookSecret: event.target.value } : current)} placeholder="whsec_..." />
+            </label>
+            <HelperText>Stripe requires the matching webhook secret for the current environment. Point your Stripe webhook to <code>/api/webhooks/stripe</code>.</HelperText>
+            <div className="button-stack">
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={!stripeSettings.secretKey?.trim()}
+                onClick={async () => {
+                  if (!stripeSettings) return;
+
+                  try {
+                    setIsTestingStripe(true);
+                    setStripeTestError("");
+                    setStripeTestMessage("");
+                    const result = await api.post<PlatformStripeTestResult>("/settings/platform-stripe/test", {
+                      environment: editingEnvironment,
+                      publishableKey: stripeSettings.publishableKey,
+                      secretKey: stripeSettings.secretKey,
+                      webhookSecret: stripeSettings.webhookSecret,
+                      useAsActiveProvider: activeGatewayProvider === "stripe",
+                    });
+                    setStripeTestMessage(result.message);
+                    setError("");
+                  } catch (testError) {
+                    setStripeTestError(testError instanceof Error ? testError.message : "Unable to test Stripe connection.");
+                    setMessage("");
+                  } finally {
+                    setIsTestingStripe(false);
+                  }
+                }}
+              >
+                {isTestingStripe ? "Testing..." : "Test Stripe connection"}
+              </button>
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={!stripeDirty}
+                onClick={() => setConfirmState({
+                  title: "Save Stripe settings",
+                  description: "Save the platform Stripe configuration used for checkout and webhooks?",
+                  action: async () => {
+                    if (!stripeSettings) return;
+
+                    try {
+                      const updated = await api.put<PlatformStripeSettings>("/settings/platform-stripe", {
+                        environment: editingEnvironment,
+                        publishableKey: stripeSettings.publishableKey,
+                        secretKey: stripeSettings.secretKey,
+                        webhookSecret: stripeSettings.webhookSecret,
+                        useAsActiveProvider: activeGatewayProvider === "stripe",
+                      });
+                      setStripeSettings(updated);
+                      setSavedStripeSettings(updated);
+                      if (activeGatewayProvider === "stripe") {
+                        setBillplzSettings((current) => current ? { ...current, isActiveProvider: false } : current);
+                      }
+                      setMessage(`Platform Stripe settings saved for ${editingEnvironment}.`);
+                      setError("");
+                      setConfirmState(null);
+                    } catch (saveError) {
+                      setError(saveError instanceof Error ? saveError.message : "Unable to save Stripe settings.");
+                      setMessage("");
+                      setConfirmState(null);
+                    }
+                  },
+                })}
+              >
+                Save Stripe settings
+              </button>
+            </div>
+            {stripeTestMessage ? <HelperText>{stripeTestMessage}</HelperText> : null}
+            {stripeTestError ? <HelperText tone="error">{stripeTestError}</HelperText> : null}
+          </div>
+        </section>
+          </div>
+        </section>
       ) : null}
-      {activeSection === "billplz" && !billplzSettings ? renderSectionUnavailable("Billplz", "Platform Billplz settings are not available right now.") : null}
+      {activeSection === "payments" && (!billplzSettings || !stripeSettings) ? renderSectionUnavailable("Payment gateway", "Platform payment gateway settings are not available right now.") : null}
 
       {activeSection === "upload" && uploadPolicy ? (
         <section id="platform-upload-policy" className="card settings-form-card">

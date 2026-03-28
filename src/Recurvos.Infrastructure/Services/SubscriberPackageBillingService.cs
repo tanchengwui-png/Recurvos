@@ -23,7 +23,7 @@ public sealed class SubscriberPackageBillingService(
     IHostEnvironment environment) : ISubscriberPackageBillingService
 {
     private const string PlatformInvoicePrefix = "SUB";
-    private readonly IPaymentGateway _gateway = gateways.First(x => x.Name == "Billplz");
+    private readonly IReadOnlyDictionary<string, IPaymentGateway> _gateways = gateways.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
     private readonly AppUrlOptions _appUrlOptions = appUrlOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
@@ -515,7 +515,8 @@ public sealed class SubscriberPackageBillingService(
         invoice.Customer.BillingAddress = subscriberCompany.Address.Trim();
 
         var packageName = await ResolvePackageNameAsync(subscriberCompanyId, cancellationToken);
-        var result = await _gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
+        var gateway = await ResolvePlatformGatewayAsync(invoice.CompanyId, cancellationToken);
+        var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
         {
             CompanyId = invoice.CompanyId,
             GatewayConfigurationCompanyId = invoice.CompanyId,
@@ -527,7 +528,7 @@ public sealed class SubscriberPackageBillingService(
             CustomerEmail = invoice.Customer.Email,
             CustomerMobile = invoice.Customer.PhoneNumber,
             Description = $"{packageName} package invoice {invoice.InvoiceNumber}",
-            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/billplz",
+            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/{gateway.Name.ToLowerInvariant()}",
             RedirectUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/package-billing"
         }, cancellationToken);
 
@@ -537,7 +538,7 @@ public sealed class SubscriberPackageBillingService(
             InvoiceId = invoice.Id,
             Amount = invoice.AmountDue,
             Currency = invoice.Currency,
-            GatewayName = _gateway.Name,
+            GatewayName = gateway.Name,
             Status = PaymentStatus.Pending,
             ExternalPaymentId = result.ExternalPaymentId,
             PaymentLinkUrl = result.PaymentUrl
@@ -558,6 +559,30 @@ public sealed class SubscriberPackageBillingService(
 
         invoice.Payments.Add(payment);
         return MapInvoice(invoice);
+    }
+
+    private async Task<IPaymentGateway> ResolvePlatformGatewayAsync(Guid platformCompanyId, CancellationToken cancellationToken)
+    {
+        var settings = await dbContext.Companies
+            .Where(x => x.Id == platformCompanyId && x.IsPlatformAccount)
+            .Select(x => x.InvoiceSettings)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Platform payment gateway settings could not be resolved.");
+
+        var provider = settings.UseProductionPlatformSettings
+            ? settings.ProductionPlatformPaymentGatewayProvider
+            : settings.PlatformPaymentGatewayProvider;
+        if (string.IsNullOrWhiteSpace(provider) || string.Equals(provider, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("No active platform payment gateway is configured.");
+        }
+
+        if (_gateways.TryGetValue(provider, out var gateway))
+        {
+            return gateway;
+        }
+
+        throw new InvalidOperationException($"Platform payment gateway '{provider}' is not registered.");
     }
 
     public async Task<(byte[] Content, string FileName, string ContentType)?> DownloadInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default)

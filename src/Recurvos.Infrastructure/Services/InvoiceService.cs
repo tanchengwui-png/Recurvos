@@ -40,7 +40,7 @@ public sealed class InvoiceService(
 {
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
     private const int PublicPaymentConfirmationTokenLifetimeDays = 30;
-    private readonly IPaymentGateway _gateway = gateways.First(x => x.Name == "Billplz");
+    private readonly IReadOnlyDictionary<string, IPaymentGateway> _gateways = gateways.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> AllowedPaymentProofExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png",
@@ -1762,12 +1762,18 @@ public sealed class InvoiceService(
 
         var subscriberSettings = await dbContext.CompanyInvoiceSettings.FirstOrDefaultAsync(x => x.CompanyId == invoice.CompanyId, cancellationToken);
         if (subscriberSettings is null
-            || !string.Equals(subscriberSettings.PaymentGatewayProvider, "billplz", StringComparison.OrdinalIgnoreCase))
+            || string.IsNullOrWhiteSpace(subscriberSettings.PaymentGatewayProvider)
+            || string.Equals(subscriberSettings.PaymentGatewayProvider, "none", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        var result = await _gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
+        if (!_gateways.TryGetValue(subscriberSettings.PaymentGatewayProvider, out var gateway))
+        {
+            return null;
+        }
+
+        var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
         {
             CompanyId = invoice.CompanyId,
             GatewayConfigurationCompanyId = invoice.CompanyId,
@@ -1779,7 +1785,7 @@ public sealed class InvoiceService(
             CustomerEmail = customer.Email,
             CustomerMobile = customer.PhoneNumber,
             Description = $"Invoice {invoice.InvoiceNumber}",
-            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/billplz",
+            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/{gateway.Name.ToLowerInvariant()}",
             RedirectUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payment-success/{invoice.Id:D}"
         }, cancellationToken);
 
@@ -1789,7 +1795,7 @@ public sealed class InvoiceService(
             InvoiceId = invoice.Id,
             Amount = invoice.AmountDue,
             Currency = invoice.Currency,
-            GatewayName = _gateway.Name,
+            GatewayName = gateway.Name,
             Status = PaymentStatus.Pending,
             ExternalPaymentId = result.ExternalPaymentId,
             PaymentLinkUrl = result.PaymentUrl
