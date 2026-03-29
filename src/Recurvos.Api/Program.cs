@@ -168,16 +168,17 @@ var resetDemoData = args.Any(argument => string.Equals(argument, "--reset-demo-d
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var legacySchemaRepairService = scope.ServiceProvider.GetRequiredService<LegacySchemaRepairService>();
     if (resetDemoData)
     {
-        await ResetDemoDataAsync(scope.ServiceProvider, dbContext);
+        await ResetDemoDataAsync(scope.ServiceProvider, dbContext, legacySchemaRepairService);
         return;
     }
 
     if (dbContext.Database.IsRelational())
     {
         await dbContext.Database.MigrateAsync();
-        await EnsureLegacySchemaColumnsAsync(dbContext);
+        await legacySchemaRepairService.EnsureAsync();
     }
     else
     {
@@ -242,7 +243,7 @@ app.MapControllers();
 
 app.Run();
 
-static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext)
+static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext, LegacySchemaRepairService legacySchemaRepairService)
 {
     Console.WriteLine("Resetting Recurvos demo data...");
 
@@ -250,6 +251,7 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
     {
         await dbContext.Database.EnsureDeletedAsync();
         await dbContext.Database.MigrateAsync();
+        await legacySchemaRepairService.EnsureAsync();
     }
     else
     {
@@ -267,24 +269,6 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
     Console.WriteLine("  Subscriber Basic: Recurvos-Basic@hotmail.com / P@ssw0rd!@#$%");
     Console.WriteLine("  Subscriber Growth: Recurvos-growth@hotmail.com / P@ssw0rd!@#$%");
     Console.WriteLine("  Subscriber Premium: Recurvos-premium@hotmail.com / P@ssw0rd!@#$%");
-}
-
-static async Task EnsureLegacySchemaColumnsAsync(AppDbContext dbContext)
-{
-    await dbContext.Database.ExecuteSqlRawAsync("""
-        ALTER TABLE "Subscriptions"
-        ADD COLUMN IF NOT EXISTS "CancellationReason" character varying(1000) NULL;
-        """);
-
-    await dbContext.Database.ExecuteSqlRawAsync("""
-        ALTER TABLE company_invoice_settings
-        ADD COLUMN IF NOT EXISTS "PaymentQrResponsibilityAcceptedAtUtc" timestamp with time zone NULL;
-        """);
-
-    await dbContext.Database.ExecuteSqlRawAsync("""
-        ALTER TABLE company_invoice_settings
-        ADD COLUMN IF NOT EXISTS "PaymentQrResponsibilityStatement" character varying(1000) NULL;
-        """);
 }
 
 public partial class Program;

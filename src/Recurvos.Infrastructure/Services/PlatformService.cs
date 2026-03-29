@@ -18,6 +18,7 @@ public sealed class PlatformService(
     IPasswordHasher passwordHasher,
     IAuthService authService,
     DbSeeder dbSeeder,
+    LegacySchemaRepairService legacySchemaRepairService,
     StorageResetService storageResetService) : IPlatformService
 {
     public async Task<PlatformDashboardSummaryDto> GetDashboardSummaryAsync(CancellationToken cancellationToken = default)
@@ -507,6 +508,7 @@ public sealed class PlatformService(
         dbContext.ChangeTracker.Clear();
         await dbContext.Database.EnsureDeletedAsync(cancellationToken);
         await dbContext.Database.MigrateAsync(cancellationToken);
+        await legacySchemaRepairService.EnsureAsync(cancellationToken);
         storageResetService.ClearAll();
         await dbSeeder.SeedAsync(cancellationToken);
 
