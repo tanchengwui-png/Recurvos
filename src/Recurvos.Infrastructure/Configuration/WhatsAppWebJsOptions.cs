@@ -6,4 +6,5 @@ public sealed class WhatsAppWebJsOptions
 
     public string BaseUrl { get; set; } = "http://localhost:3011/api";
     public string? AccessToken { get; set; }
+    public string SessionDirectory { get; set; } = "storage/whatsapp-webjs";
 }

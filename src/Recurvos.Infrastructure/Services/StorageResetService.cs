@@ -6,10 +6,12 @@ namespace Recurvos.Infrastructure.Services;
 
 public sealed class StorageResetService(
     IHostEnvironment environment,
-    IOptions<StorageOptions> storageOptions)
+    IOptions<StorageOptions> storageOptions,
+    IOptions<WhatsAppWebJsOptions> whatsAppOptions)
 {
     private readonly IHostEnvironment _environment = environment;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
+    private readonly WhatsAppWebJsOptions _whatsAppOptions = whatsAppOptions.Value;
 
     public void ClearAll()
     {
@@ -20,6 +22,7 @@ public sealed class StorageResetService(
         ClearDirectory(StoragePathResolver.Resolve(_environment, _storageOptions.CompanyLogoDirectory));
         ClearDirectory(StoragePathResolver.Resolve(_environment, _storageOptions.PaymentQrDirectory));
         ClearDirectory(StoragePathResolver.Resolve(_environment, _storageOptions.FeedbackAttachmentDirectory));
+        ClearDirectory(StoragePathResolver.Resolve(_environment, _whatsAppOptions.SessionDirectory));
     }
 
     private static void ClearDirectory(string path)

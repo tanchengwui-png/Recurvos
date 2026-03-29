@@ -15,6 +15,7 @@ public sealed class PlatformService(
     AppDbContext dbContext,
     ICurrentUserService currentUserService,
     ISubscriberPackageBillingService subscriberPackageBillingService,
+    IPlatformWhatsAppGateway platformWhatsAppGateway,
     IPasswordHasher passwordHasher,
     IAuthService authService,
     DbSeeder dbSeeder,
@@ -505,6 +506,7 @@ public sealed class PlatformService(
             throw new InvalidOperationException("Type FACTORY RESET to continue.");
         }
 
+        await TryDisconnectPlatformWhatsAppSessionAsync(cancellationToken);
         dbContext.ChangeTracker.Clear();
         await dbContext.Database.EnsureDeletedAsync(cancellationToken);
         await dbContext.Database.MigrateAsync(cancellationToken);
@@ -515,6 +517,51 @@ public sealed class PlatformService(
         return new FactoryResetResult(
             DateTime.UtcNow,
             "Factory reset completed. The database is recreated, file storage is cleared, and demo seed data is loaded.");
+    }
+
+    private async Task TryDisconnectPlatformWhatsAppSessionAsync(CancellationToken cancellationToken)
+    {
+        var platformSettings = await dbContext.Companies
+            .Where(x => x.IsPlatformAccount)
+            .Select(x => new
+            {
+                x.Id,
+                InvoiceSettings = x.InvoiceSettings
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (platformSettings?.InvoiceSettings is null)
+        {
+            return;
+        }
+
+        var invoiceSettings = platformSettings.InvoiceSettings;
+        var provider = (invoiceSettings.WhatsAppProvider ?? "generic_api").Trim().ToLowerInvariant();
+        if (provider != "whatsapp_web_js")
+        {
+            return;
+        }
+
+        try
+        {
+            await platformWhatsAppGateway.DisconnectAsync(
+                platformSettings.Id,
+                new PlatformWhatsAppConfiguration(
+                    invoiceSettings.WhatsAppEnabled,
+                    invoiceSettings.WhatsAppProvider ?? "generic_api",
+                    invoiceSettings.WhatsAppApiUrl,
+                    invoiceSettings.WhatsAppAccessToken,
+                    invoiceSettings.WhatsAppSenderId,
+                    invoiceSettings.WhatsAppTemplate,
+                    invoiceSettings.WhatsAppSessionStatus,
+                    invoiceSettings.WhatsAppSessionPhone,
+                    invoiceSettings.WhatsAppSessionLastSyncedAtUtc),
+                cancellationToken);
+        }
+        catch
+        {
+            // Reset should continue even if the worker is unreachable; on-disk session cleanup still runs.
+        }
     }
 
     private void EnsurePlatformOwner()
