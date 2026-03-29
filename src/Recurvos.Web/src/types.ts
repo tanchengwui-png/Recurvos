@@ -212,6 +212,7 @@ export type Subscription = {
   isActiveInPeriod: boolean;
   cancelAtPeriodEnd: boolean;
   canceledAtUtc?: string | null;
+  cancellationReason?: string | null;
   endedAtUtc?: string | null;
   autoRenew: boolean;
   unitPrice: number;

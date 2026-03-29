@@ -366,6 +366,7 @@ public sealed class SubscriptionService(
 
             subscription.CancelAtPeriodEnd = true;
             subscription.CanceledAtUtc = DateTime.UtcNow;
+            subscription.CancellationReason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
             subscription.EndedAtUtc = null;
         }
         else
@@ -374,6 +375,7 @@ public sealed class SubscriptionService(
             subscription.Status = SubscriptionStatus.Cancelled;
             subscription.CancelAtPeriodEnd = false;
             subscription.CanceledAtUtc = nowUtc;
+            subscription.CancellationReason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
             subscription.EndedAtUtc = nowUtc;
 
             foreach (var item in subscription.Items.Where(x => !x.EndedAtUtc.HasValue))
@@ -388,7 +390,10 @@ public sealed class SubscriptionService(
         ThrowIfInvalid(SubscriptionValidators.ValidateSnapshot(subscription));
         subscription.UpdatedAtUtc = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
-        await auditService.WriteAsync("subscription.cancelled", nameof(Subscription), subscription.Id.ToString(), $"endOfPeriod={request.EndOfPeriod}", cancellationToken);
+        var auditSummary = string.IsNullOrWhiteSpace(request.Reason)
+            ? $"endOfPeriod={request.EndOfPeriod}"
+            : $"{request.Reason.Trim()} | endOfPeriod={request.EndOfPeriod}";
+        await auditService.WriteAsync("subscription.cancelled", nameof(Subscription), subscription.Id.ToString(), auditSummary, cancellationToken);
         return Map(subscription);
     }
 
@@ -443,6 +448,7 @@ public sealed class SubscriptionService(
                 && !x.EndedAtUtc.HasValue),
             subscription.CancelAtPeriodEnd,
             subscription.CanceledAtUtc,
+            subscription.CancellationReason,
             subscription.EndedAtUtc,
             subscription.AutoRenew,
             subscription.UnitPrice,
@@ -543,6 +549,7 @@ public sealed class SubscriptionService(
         if (!subscription.CancelAtPeriodEnd && !subscription.AutoRenew)
         {
             subscription.CanceledAtUtc = null;
+            subscription.CancellationReason = null;
         }
     }
 

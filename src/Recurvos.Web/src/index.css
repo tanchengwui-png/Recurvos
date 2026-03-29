@@ -1231,7 +1231,7 @@ th {
 }
 
 .subscription-table {
-  min-width: 1180px;
+  min-width: 940px;
 }
 
 .sticky-cell {
@@ -1269,7 +1269,91 @@ th {
 
 .invoice-detail-panel {
   display: grid;
-  gap: 0.9rem;
+  gap: 1rem;
+}
+
+.invoice-detail-backdrop {
+  justify-items: end;
+  padding: 12px 0;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(2, 6, 23, 0.18), rgba(2, 6, 23, 0.62) 38%, rgba(2, 6, 23, 0.82)),
+    rgba(2, 6, 23, 0.5);
+  backdrop-filter: blur(6px);
+}
+
+.invoice-detail-drawer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(980px, 96vw);
+  height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0;
+  box-shadow:
+    -28px 0 80px rgba(2, 8, 23, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(9, 17, 31, 0.98));
+}
+
+.invoice-detail-drawer-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1.2rem 1.2rem 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(13, 20, 33, 0.98));
+}
+
+.invoice-detail-drawer-header > div {
+  min-width: 0;
+}
+
+.invoice-detail-drawer-header h3 {
+  margin: 0;
+}
+
+.invoice-detail-drawer-body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.invoice-detail-drawer-body .invoice-detail-panel {
+  padding: 1.25rem 1.15rem 3rem;
+}
+
+.invoice-detail-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.85fr);
+  gap: 0.95rem;
+  align-items: stretch;
+}
+
+.invoice-detail-hero-copy {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 14px;
+  background: rgba(8, 17, 31, 0.34);
+  padding: 1rem 1.1rem;
+}
+
+.invoice-detail-hero-copy h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.invoice-detail-hero-copy .muted {
+  margin-top: 0.35rem;
 }
 
 .invoice-detail-summary {
@@ -1291,6 +1375,12 @@ th {
   margin: 0;
 }
 
+.invoice-detail-stat strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1rem;
+}
+
 .invoice-detail-block-header {
   margin-bottom: 0.7rem;
 }
@@ -1305,12 +1395,75 @@ th {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
-.invoice-detail-secondary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.invoice-detail-list-row-top {
+  align-items: flex-start;
+}
+
+.invoice-detail-list-spacious {
   gap: 0.85rem;
+}
+
+.invoice-detail-line-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.invoice-detail-list-row > span,
+.invoice-detail-list-row > strong,
+.invoice-detail-line-copy > strong,
+.invoice-detail-line-copy > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.invoice-detail-inline-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.invoice-detail-align-right {
+  text-align: right;
+}
+
+.invoice-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.95fr);
+  gap: 0.95rem;
+}
+
+.invoice-detail-main,
+.invoice-detail-aside {
+  display: grid;
+  gap: 0.95rem;
+  min-width: 0;
+}
+
+.invoice-detail-endcap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.45), rgba(8, 17, 31, 0.22));
+}
+
+.invoice-detail-endcap p {
+  margin: 0;
 }
 
 .invoice-inline-panel {
@@ -1338,6 +1491,149 @@ th {
 
 .subscription-detail-wide {
   grid-column: span 2;
+}
+
+.subscription-detail-backdrop {
+  justify-items: end;
+  padding: 12px 0;
+}
+
+.subscription-detail-drawer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(980px, 96vw);
+  height: calc(100dvh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 0;
+  box-shadow:
+    -28px 0 80px rgba(2, 8, 23, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(9, 17, 31, 0.98));
+}
+
+.subscription-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  min-width: 0;
+  padding: 1.2rem 1.2rem 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  background:
+    linear-gradient(180deg, rgba(17, 24, 39, 0.98), rgba(13, 20, 33, 0.98));
+}
+
+.subscription-detail-header > div {
+  min-width: 0;
+}
+
+.subscription-detail-header h3 {
+  margin: 0;
+}
+
+.subscription-detail-body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 1.2rem;
+}
+
+.subscription-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.subscription-detail-stat {
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 14px;
+  background: rgba(8, 17, 31, 0.34);
+  padding: 0.9rem 1rem;
+}
+
+.subscription-detail-stat p {
+  margin: 0;
+}
+
+.subscription-detail-stat strong {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 1rem;
+}
+
+.subscription-detail-section {
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.05rem;
+}
+
+.subscription-detail-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.subscription-detail-section-header h4 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+}
+
+.subscription-detail-panel,
+.subscription-detail-action-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    rgba(8, 17, 31, 0.32);
+  min-width: 0;
+}
+
+.subscription-detail-panel p,
+.subscription-detail-action-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.subscription-details-grid-drawer {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.subscription-detail-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.subscription-detail-action-card {
+  align-content: space-between;
+}
+
+.subscription-detail-action-card .button {
+  justify-self: start;
+}
+
+.subscription-detail-list-item {
+  align-items: flex-start;
+}
+
+.subscription-detail-list-item .muted {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.subscription-detail-migration-list {
+  margin-top: 0.85rem;
 }
 
 .section-title {
@@ -1372,9 +1668,9 @@ th {
 
 .dashboard-list-item {
   width: 100%;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--space-3);
   background: rgba(15, 23, 42, 0.22);
   border: 1px solid rgba(148, 163, 184, 0.1);
@@ -1405,9 +1701,10 @@ th {
 }
 
 .dashboard-list-metric {
-  min-width: 122px;
+  min-width: 0;
+  max-width: 100%;
   text-align: right;
-  flex-shrink: 0;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-list-item strong,
@@ -1416,9 +1713,7 @@ th {
 }
 
 .dashboard-list-item .muted {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-row-link {
@@ -1458,6 +1753,11 @@ th {
   .dashboard-filter-grid,
   .dashboard-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .subscription-detail-summary,
+  .subscription-detail-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -3654,7 +3954,7 @@ select:focus,
   position: absolute;
   top: calc(100% + 0.5rem);
   right: 0;
-  z-index: 8;
+  z-index: 80;
   width: 164px;
   max-width: calc(100vw - 24px);
   display: flex;
@@ -3665,6 +3965,41 @@ select:focus,
   border: 1px solid rgba(148, 163, 184, 0.14);
   background: rgba(8, 17, 31, 0.98);
   box-shadow: 0 14px 22px rgba(2, 8, 23, 0.28);
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+}
+
+.row-action-mobile-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 12px 8px;
+  background: rgba(2, 6, 23, 0.48);
+}
+
+.row-action-popover-mobile-sheet {
+  position: relative;
+  top: auto;
+  right: auto;
+  left: auto;
+  bottom: auto;
+  width: min(360px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  max-height: min(72dvh, 560px);
+  overflow-y: auto;
+  border-radius: 18px;
+  box-shadow: 0 24px 56px rgba(2, 8, 23, 0.46);
+}
+
+.row-action-mobile-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.35rem 0.35rem 0.5rem;
 }
 
 .row-action-item {
@@ -5200,9 +5535,69 @@ select:focus,
   }
 
   .invoice-detail-summary,
-  .invoice-detail-secondary-grid,
   .invoice-payment-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1180px) {
+  .invoice-detail-hero,
+  .invoice-detail-layout,
+  .invoice-detail-summary,
+  .invoice-payment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .invoice-detail-list-row {
+    align-items: flex-start;
+  }
+
+  .invoice-detail-inline-actions {
+    justify-content: flex-start;
+  }
+
+  .invoice-detail-align-right {
+    text-align: left;
+  }
+}
+
+@media (max-width: 720px) {
+  .row-action-popover {
+    width: min(360px, calc(100vw - 16px));
+    max-width: calc(100vw - 16px);
+    max-height: min(72dvh, 560px);
+    padding: 0.35rem;
+    border-radius: 18px;
+    box-shadow: 0 24px 56px rgba(2, 8, 23, 0.46);
+  }
+
+  .row-action-item {
+    padding: 0.72rem 0.78rem;
+    font-size: 0.92rem;
+  }
+
+  .row-action-item-meta {
+    font-size: 0.78rem;
+  }
+
+  .invoice-detail-backdrop {
+    justify-items: stretch;
+    padding: 0;
+  }
+
+  .invoice-detail-drawer {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .invoice-detail-drawer-body .invoice-detail-panel {
+    padding: 1rem 1rem 1.5rem;
+  }
+
+  .invoice-detail-endcap {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
@@ -5500,7 +5895,7 @@ select:focus,
   }
 
   .dashboard-list-item {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .platform-job-header,

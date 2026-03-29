@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TablePagination } from "../components/TablePagination";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
@@ -67,6 +67,8 @@ type SettingsTab = "documents" | "payment" | "whatsapp" | "reminders";
 type DocumentSettingsTab = "invoice" | "receipt" | "creditNote" | "delivery";
 type PaymentSettingsTab = "manual" | "qr" | "gateway" | "tax";
 
+const PAYMENT_QR_RESPONSIBILITY_STATEMENT = "I acknowledge that this payment QR code has been verified for this subscriber, and the subscriber accepts full responsibility for any loss, misdirection of funds, or dispute arising from an incorrect QR upload.";
+
 export function SettingsPage() {
   const [rules, setRules] = useState<DunningRule[]>([]);
   const [reminderHistory, setReminderHistory] = useState<ReminderHistoryItem[]>([]);
@@ -87,7 +89,10 @@ export function SettingsPage() {
   const [reminderHistoryPageSize, setReminderHistoryPageSize] = useState(10);
   const [reminderHistoryTotalCount, setReminderHistoryTotalCount] = useState(0);
   const [paymentQrFile, setPaymentQrFile] = useState<File | null>(null);
+  const [paymentQrResponsibilityAccepted, setPaymentQrResponsibilityAccepted] = useState(false);
+  const [paymentQrError, setPaymentQrError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
+  const paymentQrSectionRef = useRef<HTMLElement | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("documents");
   const [activeDocumentTab, setActiveDocumentTab] = useState<DocumentSettingsTab>("invoice");
   const [activePaymentTab, setActivePaymentTab] = useState<PaymentSettingsTab>("manual");
@@ -316,28 +321,33 @@ export function SettingsPage() {
       return;
     }
 
-    const nextFeatureAccess = featureAccess ?? await api.get<FeatureAccess>("/settings/feature-access");
-    if (!featureAccess) {
-      setFeatureAccess(nextFeatureAccess);
+    try {
+      const nextFeatureAccess = featureAccess ?? await api.get<FeatureAccess>("/settings/feature-access");
+      if (!featureAccess) {
+        setFeatureAccess(nextFeatureAccess);
+      }
+
+      const [invoiceConfig, readiness, ruleList, policy] = await Promise.all([
+        api.get<CompanyInvoiceSettings>(`/settings/invoice-settings?companyId=${companyId}`),
+        api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyId}`).catch(() => null),
+        nextFeatureAccess.featureKeys.includes("dunning_workflows")
+          ? api.get<DunningRule[]>(`/settings/dunning-rules?companyId=${companyId}`)
+          : Promise.resolve([]),
+        api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
+      ]);
+
+      setRules(ruleList);
+      setInvoiceSettings(invoiceConfig);
+      setSavedInvoiceSettings(invoiceConfig);
+      setBillingReadiness(readiness);
+      setUploadPolicy(policy);
+      setPaymentQrFile(null);
+      setPaymentQrError("");
+      setPaymentGatewayTestMessage("");
+      setPaymentGatewayTestTone("default");
+    } catch (loadError) {
+      setFormError(loadError instanceof Error ? loadError.message : "Unable to load subscriber settings.");
     }
-
-    const [invoiceConfig, readiness, ruleList, policy] = await Promise.all([
-      api.get<CompanyInvoiceSettings>(`/settings/invoice-settings?companyId=${companyId}`),
-      api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyId}`),
-      nextFeatureAccess.featureKeys.includes("dunning_workflows")
-        ? api.get<DunningRule[]>(`/settings/dunning-rules?companyId=${companyId}`)
-        : Promise.resolve([]),
-      api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
-    ]);
-
-    setRules(ruleList);
-    setInvoiceSettings(invoiceConfig);
-    setSavedInvoiceSettings(invoiceConfig);
-    setBillingReadiness(readiness);
-    setUploadPolicy(policy);
-    setPaymentQrFile(null);
-    setPaymentGatewayTestMessage("");
-    setPaymentGatewayTestTone("default");
   }
 
   async function loadReminderHistory(
@@ -533,7 +543,7 @@ export function SettingsPage() {
                     </span>
                   </div>
                   <div className="settings-numbering-workspace">
-                    <section className="settings-subpanel settings-numbering-card">
+                    <section className="settings-subpanel settings-numbering-card" ref={paymentQrSectionRef}>
                       <div className="settings-subpanel-header">
                         <div>
                           <p className="eyebrow">Invoice</p>
@@ -923,6 +933,8 @@ export function SettingsPage() {
                             const file = event.target.files?.[0] ?? null;
                             if (!file) {
                               setPaymentQrFile(null);
+                              setPaymentQrResponsibilityAccepted(false);
+                              setPaymentQrError("");
                               return;
                             }
 
@@ -930,11 +942,14 @@ export function SettingsPage() {
                               try {
                                 const prepared = await prepareImageUpload(file, uploadPolicy);
                                 setFormError("");
+                                setPaymentQrError("");
                                 setPaymentQrFile(prepared);
+                                setPaymentQrResponsibilityAccepted(false);
                               } catch (uploadError) {
-                                setFormError(uploadError instanceof Error ? uploadError.message : `Payment QR must be ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} or smaller.`);
+                                setPaymentQrError(uploadError instanceof Error ? uploadError.message : `Payment QR must be ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} or smaller.`);
                                 event.target.value = "";
                                 setPaymentQrFile(null);
+                                setPaymentQrResponsibilityAccepted(false);
                               }
                             })();
                           }}
@@ -943,6 +958,22 @@ export function SettingsPage() {
                       <HelperText>{invoiceSettings.hasPaymentQr ? "QR uploaded and ready to print on invoices." : "Optional. Upload a QR image to print it on invoices."}</HelperText>
                       <HelperText>{`PNG, JPG, JPEG, and WEBP images up to ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} are allowed.${uploadPolicy.autoCompressUploads ? " Large images are compressed automatically before upload." : ""}`}</HelperText>
                       {paymentQrFile ? <HelperText>{`Selected file: ${paymentQrFile.name}`}</HelperText> : null}
+                      {paymentQrFile ? (
+                        <label className="checkbox-row settings-checkbox-row settings-risk-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={paymentQrResponsibilityAccepted}
+                            onChange={(event) => {
+                              setPaymentQrResponsibilityAccepted(event.target.checked);
+                              if (event.target.checked) {
+                                setPaymentQrError("");
+                              }
+                            }}
+                          />
+                          <span>{PAYMENT_QR_RESPONSIBILITY_STATEMENT}</span>
+                        </label>
+                      ) : null}
+                      {paymentQrError ? <HelperText tone="error">{paymentQrError}</HelperText> : null}
                     </section>
                     ) : null}
                   </div>
@@ -1139,6 +1170,12 @@ export function SettingsPage() {
                         return;
                       }
 
+                      if (paymentQrFile && !paymentQrResponsibilityAccepted) {
+                        setPaymentQrError("Acknowledge QR upload responsibility before saving a new payment QR.");
+                        paymentQrSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        return;
+                      }
+
                       setConfirmState({
                         title: "Save subscriber payment details",
                         description: paymentQrFile ? "Save the payment details, payment gateway setup, and upload the selected QR image for this company?" : "Save the payment details and payment gateway setup for this subscriber company?",
@@ -1151,6 +1188,8 @@ export function SettingsPage() {
                               const auth = getAuth();
                               const formData = new FormData();
                               formData.append("file", paymentQrFile);
+                              formData.append("responsibilityAccepted", paymentQrResponsibilityAccepted ? "true" : "false");
+                              formData.append("responsibilityStatement", PAYMENT_QR_RESPONSIBILITY_STATEMENT);
 
                               const response = await fetch(`${API_BASE_URL}/settings/invoice-settings/payment-qr?companyId=${selectedCompanyId}`, {
                                 method: "POST",
@@ -1161,7 +1200,8 @@ export function SettingsPage() {
                               if (!response.ok) {
                                 const message = await response.text();
                                 setConfirmState(null);
-                                setFormError(message && !message.startsWith("<") ? message : "Unable to upload payment QR.");
+                                setPaymentQrError(message && !message.startsWith("<") ? message : "Unable to upload payment QR.");
+                                paymentQrSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
                                 return;
                               }
                             }
@@ -1170,6 +1210,8 @@ export function SettingsPage() {
                               input.value = "";
                             }
                             setPaymentQrFile(null);
+                            setPaymentQrResponsibilityAccepted(false);
+                            setPaymentQrError("");
                             setConfirmState(null);
                             setFormError("");
                             await load();

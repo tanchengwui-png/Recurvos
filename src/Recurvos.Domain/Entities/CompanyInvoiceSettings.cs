@@ -38,6 +38,8 @@ public sealed class CompanyInvoiceSettings
     public bool ShowCompanyAddressOnInvoice { get; set; } = true;
     public bool ShowCompanyAddressOnReceipt { get; set; } = true;
     public string? PaymentQrPath { get; set; }
+    public DateTime? PaymentQrResponsibilityAcceptedAtUtc { get; set; }
+    public string? PaymentQrResponsibilityStatement { get; set; }
     public bool AutoSendInvoices { get; set; } = true;
     public bool CcSubscriberOnCustomerEmails { get; set; } = true;
     public bool WhatsAppEnabled { get; set; }

@@ -99,6 +99,7 @@ export function InvoicesPage() {
   const sortedItems = [...items].sort((left, right) => compareInvoices(left, right, sortState));
   const pagination = useClientPagination(sortedItems, [sortedItems.length, sortState?.column, sortState?.direction], 20);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
+  const selectedInvoice = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
 
   async function load() {
     const [invoiceList, paymentList, readiness, settings, policy, access] = await Promise.all([
@@ -152,6 +153,37 @@ export function InvoicesPage() {
       adjustPaymentFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [adjustPaymentForm]);
+
+  useEffect(() => {
+    if (!selectedInvoice) {
+      return undefined;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setExpandedId(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedInvoice]);
+
+  useEffect(() => {
+    if (!selectedInvoice) {
+      return undefined;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [selectedInvoice]);
 
   async function downloadPdf(id: string, invoiceNumber: string) {
     const file = await api.download(`/invoices/${id}/download`);
@@ -669,126 +701,6 @@ export function InvoicesPage() {
                     <td>{formatCurrency(item.balanceAmount, item.currency)}</td>
                     <td>{new Date(item.dueDateUtc).toLocaleDateString()}</td>
                   </tr>
-                  {expandedId === item.id ? (
-                    <tr>
-                      <td colSpan={9} className="subscription-details-cell">
-                        <div className="invoice-detail-panel">
-                          <div className="invoice-detail-summary">
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Invoice</p>
-                              <p>{item.invoiceNumber}</p>
-                            </div>
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Issue Date</p>
-                              <p>{new Date(item.issueDateUtc).toLocaleString()}</p>
-                            </div>
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Due Date</p>
-                              <p>{new Date(item.dueDateUtc).toLocaleString()}</p>
-                            </div>
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Source</p>
-                              <p>{item.sourceType}</p>
-                            </div>
-                          </div>
-
-                          <div className="invoice-detail-block">
-                            <div className="invoice-detail-block-header">
-                              <p className="eyebrow">Line Items</p>
-                            </div>
-                            <div className="invoice-detail-list">
-                              {item.lineItems.map((line) => (
-                                <div key={`${line.description}-${line.totalAmount}`} className="invoice-detail-list-row">
-                                  <span>{`${line.description} x${line.quantity}`}</span>
-                                  <strong>{formatCurrency(line.totalAmount, item.currency)}</strong>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="invoice-detail-secondary-grid">
-                            <div className="invoice-detail-block">
-                              <div className="invoice-detail-block-header">
-                                <p className="eyebrow">History</p>
-                              </div>
-                              <div className="invoice-detail-list">
-                                {item.history.length > 0 ? item.history.map((entry) => (
-                                  <div key={`${entry.createdAtUtc}-${entry.action}`} className="invoice-detail-list-row">
-                                    <span>{entry.action}</span>
-                                    <span className="muted">{new Date(entry.createdAtUtc).toLocaleString()}</span>
-                                  </div>
-                                )) : <p className="muted">No invoice history yet.</p>}
-                              </div>
-                            </div>
-
-                            <div className="invoice-detail-block">
-                              <div className="invoice-detail-block-header">
-                                <p className="eyebrow">Credit Notes</p>
-                              </div>
-                              <div className="invoice-detail-list">
-                                {item.creditNotes.length > 0 ? item.creditNotes.map((note) => (
-                                  <div key={note.id} className="invoice-detail-list-row">
-                                    <span>{`${note.creditNoteNumber} | ${formatCurrency(note.totalReduction, note.currency)} | ${note.reason}`}</span>
-                                    <span style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}>
-                                      <span className="muted">{note.status}</span>
-                                      <button
-                                        type="button"
-                                        className="button button-secondary button-small"
-                                        onClick={() => {
-                                          void (async () => {
-                                            try {
-                                              setFormError("");
-                                              await downloadCreditNote(note.id, note.creditNoteNumber);
-                                            } catch (error) {
-                                              setFormError(error instanceof Error ? error.message : "Unable to download the credit note.");
-                                            }
-                                          })();
-                                        }}
-                                      >
-                                        Download
-                                      </button>
-                                    </span>
-                                  </div>
-                                )) : <p className="muted">No credit notes issued.</p>}
-                              </div>
-                            </div>
-
-                            <div className="invoice-detail-block">
-                              <div className="invoice-detail-block-header">
-                                <p className="eyebrow">Linked Refunds</p>
-                              </div>
-                              <div className="invoice-detail-list">
-                                {item.refunds.length > 0 ? item.refunds.map((refund) => (
-                                  <div key={refund.id} className="invoice-detail-list-row">
-                                    <span>{`${formatCurrency(refund.amount, refund.currency)} | ${refund.reason}`}</span>
-                                    <span className="muted">{new Date(refund.createdAtUtc).toLocaleDateString()}</span>
-                                  </div>
-                                )) : <p className="muted">No refunds linked to this invoice.</p>}
-                              </div>
-                            </div>
-                            <div className="invoice-detail-block">
-                              <div className="invoice-detail-block-header">
-                                <p className="eyebrow">Online payment</p>
-                              </div>
-                              <div className="invoice-detail-list">
-                                {item.history.some((entry) => entry.action === "payment.link.created") ? (
-                                  <div className="invoice-detail-list-row">
-                                    <span>Payment link generated</span>
-                                    <strong>Ready</strong>
-                                  </div>
-                                ) : (
-                                  <div className="invoice-detail-list-row">
-                                    <span>No payment link generated yet</span>
-                                    <strong>-</strong>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                    ) : null}
                 </Fragment>
               ))}
             </tbody>
@@ -1134,6 +1046,221 @@ export function InvoicesPage() {
         onConfirm={async () => { if (confirmState) await confirmState.action(); }}
         onCancel={() => setConfirmState(null)}
       />
+
+      {selectedInvoice ? (
+        <div className="modal-backdrop invoice-detail-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
+          <div
+            className="card invoice-detail-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invoice-detail-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="invoice-detail-drawer-header">
+              <div>
+                <p className="eyebrow">Invoice detail</p>
+                <h3 id="invoice-detail-title">{selectedInvoice.invoiceNumber}</h3>
+                <p className="muted">{selectedInvoice.customerName}</p>
+              </div>
+              <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
+            </div>
+
+            <div className="invoice-detail-drawer-body">
+              <div className="invoice-detail-panel">
+              <div className="invoice-detail-hero">
+                <div className="invoice-detail-hero-copy">
+                  <p className="eyebrow">Summary</p>
+                  <h3>{selectedInvoice.invoiceNumber}</h3>
+                  <p className="muted">{selectedInvoice.customerName}</p>
+                </div>
+                <div className="invoice-detail-summary">
+                  <div className="invoice-detail-stat">
+                    <p className="eyebrow">Issue Date</p>
+                    <strong>{new Date(selectedInvoice.issueDateUtc).toLocaleDateString()}</strong>
+                  </div>
+                  <div className="invoice-detail-stat">
+                    <p className="eyebrow">Due Date</p>
+                    <strong>{new Date(selectedInvoice.dueDateUtc).toLocaleDateString()}</strong>
+                  </div>
+                  <div className="invoice-detail-stat">
+                    <p className="eyebrow">Total</p>
+                    <strong>{formatCurrency(selectedInvoice.total, selectedInvoice.currency)}</strong>
+                  </div>
+                  <div className="invoice-detail-stat">
+                    <p className="eyebrow">Balance</p>
+                    <strong>{formatCurrency(selectedInvoice.balanceAmount, selectedInvoice.currency)}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="invoice-detail-layout">
+                <div className="invoice-detail-main">
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">Line Items</p>
+                    </div>
+                    <div className="invoice-detail-list invoice-detail-list-spacious">
+                      {selectedInvoice.lineItems.map((line) => (
+                        <div key={`${line.description}-${line.totalAmount}`} className="invoice-detail-list-row invoice-detail-list-row-top">
+                          <div className="invoice-detail-line-copy">
+                            <strong>{line.description}</strong>
+                            <span className="muted">{`${line.quantity} x ${formatCurrency(line.unitAmount, selectedInvoice.currency)}`}</span>
+                          </div>
+                          <strong>{formatCurrency(line.totalAmount, selectedInvoice.currency)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">History</p>
+                    </div>
+                    <div className="invoice-detail-list">
+                      {selectedInvoice.history.length > 0 ? selectedInvoice.history.map((entry) => (
+                        <div key={`${entry.createdAtUtc}-${entry.action}`} className="invoice-detail-list-row invoice-detail-list-row-top">
+                          <div className="invoice-detail-line-copy">
+                            <strong>{entry.description}</strong>
+                            <span className="muted">{entry.action}</span>
+                          </div>
+                          <span className="muted">{new Date(entry.createdAtUtc).toLocaleString()}</span>
+                        </div>
+                      )) : <p className="muted">No invoice history yet.</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="invoice-detail-aside">
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">Overview</p>
+                    </div>
+                    <div className="invoice-detail-list">
+                      <div className="invoice-detail-list-row">
+                        <span>Status</span>
+                        <strong>{selectedInvoice.statusLabel}</strong>
+                      </div>
+                      <div className="invoice-detail-list-row">
+                        <span>Source</span>
+                        <strong>{selectedInvoice.sourceType}</strong>
+                      </div>
+                      <div className="invoice-detail-list-row invoice-detail-list-row-top">
+                        <span>Period</span>
+                        <strong className="invoice-detail-align-right">
+                          {selectedInvoice.periodStartUtc && selectedInvoice.periodEndUtc
+                            ? `${new Date(selectedInvoice.periodStartUtc).toLocaleDateString()} - ${new Date(selectedInvoice.periodEndUtc).toLocaleDateString()}`
+                            : "-"}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">Amounts</p>
+                    </div>
+                    <div className="invoice-detail-list">
+                      <div className="invoice-detail-list-row">
+                        <span>Subtotal</span>
+                        <strong>{formatCurrency(selectedInvoice.subtotal, selectedInvoice.currency)}</strong>
+                      </div>
+                      <div className="invoice-detail-list-row">
+                        <span>{selectedInvoice.isTaxEnabled ? selectedInvoice.taxName ?? "Tax" : "Tax"}</span>
+                        <strong>{formatCurrency(selectedInvoice.taxAmount, selectedInvoice.currency)}</strong>
+                      </div>
+                      <div className="invoice-detail-list-row">
+                        <span>Paid</span>
+                        <strong>{formatCurrency(selectedInvoice.paidAmount, selectedInvoice.currency)}</strong>
+                      </div>
+                      <div className="invoice-detail-list-row">
+                        <span>Balance</span>
+                        <strong>{formatCurrency(selectedInvoice.balanceAmount, selectedInvoice.currency)}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">Online payment</p>
+                    </div>
+                    <div className="invoice-detail-list">
+                      {selectedInvoice.history.some((entry) => entry.action === "payment.link.created") ? (
+                        <div className="invoice-detail-list-row">
+                          <span>Payment link generated</span>
+                          <strong>Ready</strong>
+                        </div>
+                      ) : (
+                        <div className="invoice-detail-list-row">
+                          <span>No payment link generated yet</span>
+                          <strong>-</strong>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">Credit Notes</p>
+                    </div>
+                    <div className="invoice-detail-list">
+                      {selectedInvoice.creditNotes.length > 0 ? selectedInvoice.creditNotes.map((note) => (
+                        <div key={note.id} className="invoice-detail-list-row invoice-detail-list-row-top">
+                          <div className="invoice-detail-line-copy">
+                            <strong>{note.creditNoteNumber}</strong>
+                            <span className="muted">{`${formatCurrency(note.totalReduction, note.currency)} | ${note.reason}`}</span>
+                          </div>
+                          <span className="invoice-detail-inline-actions">
+                            <span className="muted">{note.status}</span>
+                            <button
+                              type="button"
+                              className="button button-secondary button-small"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    setFormError("");
+                                    await downloadCreditNote(note.id, note.creditNoteNumber);
+                                  } catch (error) {
+                                    setFormError(error instanceof Error ? error.message : "Unable to download the credit note.");
+                                  }
+                                })();
+                              }}
+                            >
+                              Download
+                            </button>
+                          </span>
+                        </div>
+                      )) : <p className="muted">No credit notes issued.</p>}
+                    </div>
+                  </div>
+
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">Linked Refunds</p>
+                    </div>
+                    <div className="invoice-detail-list">
+                      {selectedInvoice.refunds.length > 0 ? selectedInvoice.refunds.map((refund) => (
+                        <div key={refund.id} className="invoice-detail-list-row">
+                          <span>{`${formatCurrency(refund.amount, refund.currency)} | ${refund.reason}`}</span>
+                          <span className="muted">{new Date(refund.createdAtUtc).toLocaleDateString()}</span>
+                        </div>
+                      )) : <p className="muted">No refunds linked to this invoice.</p>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="invoice-detail-endcap">
+                <div>
+                  <p className="eyebrow">End of details</p>
+                  <p className="muted">You have reached the end of this invoice.</p>
+                </div>
+                <button type="button" className="button button-secondary" onClick={() => setExpandedId(null)}>Close details</button>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

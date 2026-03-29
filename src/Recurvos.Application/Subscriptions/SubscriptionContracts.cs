@@ -72,6 +72,9 @@ public sealed class CancelSubscriptionRequest
 {
     public bool EndOfPeriod { get; set; } = true;
     public DateTime? EffectiveDateUtc { get; set; }
+
+    [MaxLength(1000)]
+    public string? Reason { get; set; }
 }
 
 public sealed record SubscriptionItemDto(
@@ -110,6 +113,7 @@ public sealed record SubscriptionDto(
     bool IsActiveInPeriod,
     bool CancelAtPeriodEnd,
     DateTime? CanceledAtUtc,
+    string? CancellationReason,
     DateTime? EndedAtUtc,
     bool AutoRenew,
     decimal UnitPrice,

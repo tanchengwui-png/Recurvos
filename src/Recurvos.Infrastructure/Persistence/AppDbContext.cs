@@ -259,6 +259,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(500);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.PaymentQrResponsibilityStatement)
+            .HasMaxLength(1000);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.AutoSendInvoices)
             .HasDefaultValue(false);
 
@@ -698,6 +702,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<LedgerPosting>().Property(x => x.DebitAmount).HasPrecision(18, 2);
         modelBuilder.Entity<LedgerPosting>().Property(x => x.CreditAmount).HasPrecision(18, 2);
         modelBuilder.Entity<PlatformPackage>().Property(x => x.Amount).HasPrecision(18, 2);
+        modelBuilder.Entity<Subscription>().Property(x => x.CancellationReason).HasMaxLength(1000);
         modelBuilder.Entity<SubscriptionItem>().Property(x => x.UnitAmount).HasPrecision(18, 2);
         modelBuilder.Entity<SubscriptionItem>().Property(x => x.Currency).HasMaxLength(3).IsRequired();
         modelBuilder.Entity<SubscriptionItem>().Property(x => x.BillingType).HasConversion<string>().HasMaxLength(20).IsRequired();

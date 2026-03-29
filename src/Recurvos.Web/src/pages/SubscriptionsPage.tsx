@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { RowActionMenu } from "../components/RowActionMenu";
+import { SubscriptionDetailDrawer } from "../components/subscriptions/SubscriptionDetailDrawer";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { useDragToScroll } from "../hooks/useDragToScroll";
@@ -56,18 +57,21 @@ export function SubscriptionsPage() {
   const earliestSubscriptionStartDate = getEarliestSubscriptionStartDate();
   const navigate = useNavigate();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
-  const pricingFormRef = useRef<HTMLDivElement | null>(null);
+  const actionFormRef = useRef<HTMLDivElement | null>(null);
+  const loadRequestIdRef = useRef(0);
+  const companySyncRequestIdRef = useRef(0);
   const [items, setItems] = useState<Subscription[]>([]);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [plans, setPlans] = useState<ProductPlan[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [cancelSchedule, setCancelSchedule] = useState<{ id: string; date: string } | null>(null);
+  const [cancelSchedule, setCancelSchedule] = useState<{ id: string; date: string; reason: string } | null>(null);
   const [pricingEdit, setPricingEdit] = useState<{ id: string; unitPrice: string; currency: string; intervalUnit: "None" | "Month" | "Quarter" | "Year"; intervalCount: string; quantity: string; reason: string } | null>(null);
   const [migrationEdit, setMigrationEdit] = useState<{ subscriptionId: string; subscriptionItemId: string; currentPlanName: string; targetProductPlanId: string; reason: string } | null>(null);
   const [migrationPlans, setMigrationPlans] = useState<ProductPlan[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const selectedSubscription = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
   const pagination = useClientPagination(items, [items.length], 20);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
@@ -115,12 +119,17 @@ export function SubscriptionsPage() {
       : "";
 
   async function load() {
+    const requestId = ++loadRequestIdRef.current;
     const [subscriptions, customerList, companyList, dueInvoices] = await Promise.all([
       api.get<Subscription[]>("/subscriptions"),
       api.get<Customer[]>("/customers"),
       api.get<CompanyLookup[]>("/companies"),
       api.get<{ count: number }>("/subscriptions/due-invoices/count"),
     ]);
+
+    if (requestId !== loadRequestIdRef.current) {
+      return;
+    }
 
     setItems(subscriptions);
     setCustomers(customerList);
@@ -135,6 +144,9 @@ export function SubscriptionsPage() {
 
     const companyPlans = await api.get<ProductPlan[]>(`/companies/${activeCompanyId}/product-plans`);
     const readiness = await api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${activeCompanyId}`);
+    if (requestId !== loadRequestIdRef.current) {
+      return;
+    }
     setPlans(companyPlans);
     setBillingReadiness(readiness);
     setForm((current) => ({
@@ -155,8 +167,12 @@ export function SubscriptionsPage() {
         return;
       }
 
+      const requestId = ++companySyncRequestIdRef.current;
       const companyPlans = await api.get<ProductPlan[]>(`/companies/${form.companyId}/product-plans`);
       const readiness = await api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${form.companyId}`);
+      if (requestId !== companySyncRequestIdRef.current) {
+        return;
+      }
       setPlans(companyPlans);
       setBillingReadiness(readiness);
       setForm((current) => ({
@@ -170,12 +186,43 @@ export function SubscriptionsPage() {
   }, [form.companyId, customers]);
 
   useEffect(() => {
-    if (!pricingEdit && !migrationEdit) {
+    if (!cancelSchedule && !pricingEdit && !migrationEdit) {
       return;
     }
 
-    pricingFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [pricingEdit, migrationEdit]);
+    actionFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [cancelSchedule, pricingEdit, migrationEdit]);
+
+  useEffect(() => {
+    if (!selectedSubscription) {
+      return undefined;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setExpandedId(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedSubscription]);
+
+  useEffect(() => {
+    if (!selectedSubscription) {
+      return undefined;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, [selectedSubscription]);
 
   async function createSubscription(event: FormEvent) {
     event.preventDefault();
@@ -236,10 +283,11 @@ export function SubscriptionsPage() {
     const isImmediateCancel = cancelSchedule.date === toDateInputValue(new Date());
 
     await api.post(`/subscriptions/${cancelSchedule.id}/cancel`, isImmediateCancel
-      ? { endOfPeriod: false }
+      ? { endOfPeriod: false, reason: cancelSchedule.reason || null }
       : {
           endOfPeriod: true,
           effectiveDateUtc: new Date(cancelSchedule.date).toISOString(),
+          reason: cancelSchedule.reason || null,
         });
     setCancelSchedule(null);
     await load();
@@ -264,6 +312,7 @@ export function SubscriptionsPage() {
   }
 
   async function startMigrationEdit(subscription: Subscription, subscriptionItemId: string, currentPlanId: string, currentPlanName: string) {
+    setExpandedId(null);
     const companyPlans = await api.get<ProductPlan[]>(`/companies/${subscription.companyId}/product-plans`);
     const targetPlans = companyPlans.filter((plan) => plan.id !== currentPlanId && plan.isActive);
     setMigrationPlans(targetPlans);
@@ -316,6 +365,21 @@ export function SubscriptionsPage() {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(objectUrl);
+  }
+
+  function beginPricingEdit(subscription: Subscription) {
+    setMigrationEdit(null);
+    setMigrationPlans([]);
+    setExpandedId(null);
+    setPricingEdit({
+      id: subscription.id,
+      unitPrice: String(subscription.unitPrice),
+      currency: subscription.currency,
+      intervalUnit: subscription.intervalUnit,
+      intervalCount: String(subscription.intervalCount),
+      quantity: String(subscription.quantity),
+      reason: "",
+    });
   }
 
   function addDraftItem() {
@@ -404,9 +468,7 @@ export function SubscriptionsPage() {
                   <th className="sticky-cell sticky-cell-left">Customer</th>
                   <th>Status</th>
                   <th>Billing</th>
-                  <th>Current period</th>
                   <th>Next invoice</th>
-                  <th>Lifecycle</th>
                   <th>Items</th>
                 </tr>
               </thead>
@@ -503,6 +565,7 @@ export function SubscriptionsPage() {
                                 onClick: () => setCancelSchedule({
                                   id: item.id,
                                   date: toDateInputValue(new Date()),
+                                  reason: "",
                                 }),
                               }] : []),
                             ]}
@@ -517,145 +580,23 @@ export function SubscriptionsPage() {
                       </td>
                       <td>
                         <div>{item.hasMixedBillingIntervals ? "Mixed billing" : item.intervalUnit === "None" ? "One-time" : `${item.intervalCount} ${item.intervalUnit}`}</div>
-                        <div className="eyebrow">{item.hasMixedBillingIntervals ? `${item.items.length} item schedules` : `${formatCurrency(item.unitPrice, item.currency)} x ${item.quantity}`}</div>
+                        <div className="eyebrow">{`${formatCurrency(item.effectiveBillingAmount, item.currency)}${item.hasMixedBillingIntervals ? ` | ${item.items.length} schedules` : ` | ${formatCurrency(item.unitPrice, item.currency)} x ${item.quantity}`}`}</div>
                       </td>
                       <td>
-                        {item.currentPeriodStartUtc && item.currentPeriodEndUtc
-                          ? `${new Date(item.currentPeriodStartUtc).toLocaleDateString()} to ${new Date(item.currentPeriodEndUtc).toLocaleDateString()}`
-                          : "-"}
+                        <div>{item.nextBillingUtc ? new Date(item.nextBillingUtc).toLocaleDateString() : "-"}</div>
+                        <div className="eyebrow">
+                          {item.currentPeriodStartUtc && item.currentPeriodEndUtc
+                            ? `${new Date(item.currentPeriodStartUtc).toLocaleDateString()} to ${new Date(item.currentPeriodEndUtc).toLocaleDateString()}`
+                            : item.endedAtUtc
+                              ? `Ended ${new Date(item.endedAtUtc).toLocaleDateString()}`
+                              : "No active period"}
+                        </div>
                       </td>
-                      <td>{item.nextBillingUtc ? new Date(item.nextBillingUtc).toLocaleDateString() : "-"}</td>
                       <td>
-                        {item.endedAtUtc ? `Ended ${new Date(item.endedAtUtc).toLocaleDateString()}` : item.cancelAtPeriodEnd && item.currentPeriodEndUtc
-                          ? `Cancels ${new Date(item.currentPeriodEndUtc).toLocaleDateString()}`
-                          : item.autoRenew ? "Auto renew on" : "No auto renew"}
+                        <div>{item.items.length} item{item.items.length === 1 ? "" : "s"}</div>
+                        <div className="eyebrow">{item.items.map((child) => child.productPlanName).join(", ")}</div>
                       </td>
-                      <td>{item.items.map((child) => `${child.productPlanName} x${child.quantity}${child.intervalUnit !== "None" ? ` (${child.intervalCount} ${child.intervalUnit})` : ""}`).join(", ")}</td>
                     </tr>
-                    {expandedId === item.id ? (
-                      <tr>
-                        <td colSpan={7} className="subscription-details-cell">
-                          <div className="subscription-details-grid">
-                            <div>
-                              <p className="eyebrow">Trial</p>
-                              <p>{item.isTrialing && item.trialEndUtc ? `Ends ${new Date(item.trialEndUtc).toLocaleDateString()}` : "No active trial"}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Billing Snapshot</p>
-                              <p>{item.hasMixedBillingIntervals ? "This subscription contains multiple billing cadences. See item schedules below." : `${formatCurrency(item.unitPrice, item.currency)} | ${item.intervalUnit === "None" ? "One-time" : `${item.intervalCount} ${item.intervalUnit}`} | Quantity ${item.quantity}`}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Effective Billing</p>
-                              <p>{formatCurrency(item.effectiveBillingAmount, item.currency)}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Auto Renew</p>
-                              <p>{item.autoRenew ? "Yes" : "No"}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Cancel At Period End</p>
-                              <p>{item.cancelAtPeriodEnd ? "Yes" : "No"}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Effective Cancel Date</p>
-                              <p>{item.cancelAtPeriodEnd && item.currentPeriodEndUtc ? new Date(item.currentPeriodEndUtc).toLocaleDateString() : "-"}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Canceled At</p>
-                              <p>{item.canceledAtUtc ? new Date(item.canceledAtUtc).toLocaleString() : "-"}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Ended At</p>
-                              <p>{item.endedAtUtc ? new Date(item.endedAtUtc).toLocaleString() : "-"}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Created</p>
-                              <p>{new Date(item.createdAtUtc).toLocaleString()}</p>
-                            </div>
-                            <div>
-                              <p className="eyebrow">Updated</p>
-                              <p>{item.updatedAtUtc ? new Date(item.updatedAtUtc).toLocaleString() : "-"}</p>
-                            </div>
-                            <div className="subscription-detail-wide">
-                              <p className="eyebrow">Notes</p>
-                              <p>{item.notes || "-"}</p>
-                            </div>
-                            <div className="subscription-detail-wide">
-                              <p className="eyebrow">Item Schedules</p>
-                              <div className="stack dashboard-list">
-                                {item.items.map((child) => (
-                                  <div key={child.id} className="dashboard-list-item">
-                                    <div>
-                                      <strong>{child.productPlanName}</strong>
-                                      <p className="muted">{`${formatCurrency(child.unitAmount, child.currency)} x ${child.quantity} | ${child.intervalUnit === "None" ? "One-time" : `${child.intervalCount} ${child.intervalUnit}`} | Auto renew: ${child.autoRenew ? "Yes" : "No"}`}</p>
-                                    </div>
-                                    <div className="dashboard-list-metric">
-                                      <strong>{child.nextBillingUtc ? new Date(child.nextBillingUtc).toLocaleDateString() : "-"}</strong>
-                                      <p className="muted">{child.currentPeriodStartUtc && child.currentPeriodEndUtc ? `${new Date(child.currentPeriodStartUtc).toLocaleDateString()} to ${new Date(child.currentPeriodEndUtc).toLocaleDateString()}` : "No active period"}</p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="subscription-detail-wide">
-                              <div className="row">
-                                <div>
-                                  <p className="eyebrow">Future Billing Price</p>
-                                  <p>{item.items.length === 1 ? "Affects next renewal only. Historical invoices stay unchanged." : "Single-item subscriptions only for now."}</p>
-                                </div>
-                                <button
-                                  type="button"
-                                  className="button button-secondary"
-                                  disabled={item.items.length !== 1}
-                                  onClick={() => {
-                                    setMigrationEdit(null);
-                                    setMigrationPlans([]);
-                                    setPricingEdit({
-                                      id: item.id,
-                                      unitPrice: String(item.unitPrice),
-                                      currency: item.currency,
-                                      intervalUnit: item.intervalUnit,
-                                      intervalCount: String(item.intervalCount),
-                                      quantity: String(item.quantity),
-                                      reason: "",
-                                    });
-                                  }}
-                                >
-                                  Edit pricing
-                                </button>
-                              </div>
-                            </div>
-                            <div className="subscription-detail-wide">
-                              <div className="row">
-                                <div>
-                                  <p className="eyebrow">Plan Migration</p>
-                                  <p>Move one item to a different active plan. Historical invoices stay unchanged.</p>
-                                </div>
-                              </div>
-                              <div className="stack dashboard-list" style={{ marginTop: "0.75rem" }}>
-                                {item.items.map((child) => (
-                                  <div key={`${child.id}-migration`} className="dashboard-list-item">
-                                    <div>
-                                      <strong>{child.productPlanName}</strong>
-                                      <p className="muted">{`${formatCurrency(child.unitAmount, child.currency)} x ${child.quantity} | ${child.intervalUnit === "None" ? "One-time" : `${child.intervalCount} ${child.intervalUnit}`} | Next invoice: ${child.nextBillingUtc ? new Date(child.nextBillingUtc).toLocaleDateString() : "-"}`}</p>
-                                    </div>
-                                    <button
-                                      type="button"
-                                      className="button button-secondary"
-                                      onClick={() => {
-                                        void startMigrationEdit(item, child.id, child.productPlanId, child.productPlanName);
-                                      }}
-                                    >
-                                      Migrate item
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
                   </Fragment>
                 ))}
               </tbody>
@@ -676,7 +617,7 @@ export function SubscriptionsPage() {
           </div>
           <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
           {cancelSchedule ? (
-            <div className="form-stack" style={{ marginTop: "1rem" }}>
+            <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
               <p className="eyebrow">Cancel subscription</p>
               <label className="form-label">
                 Effective date
@@ -687,13 +628,22 @@ export function SubscriptionsPage() {
                   onChange={(event) => setCancelSchedule((current) => current ? { ...current, date: event.target.value } : current)}
                 />
               </label>
-              <HelperText>Today cancels immediately. A future date schedules cancellation within the current billing period.</HelperText>
+              <label className="form-label">
+                Reason
+                <input
+                  className="text-input"
+                  value={cancelSchedule.reason}
+                  onChange={(event) => setCancelSchedule((current) => current ? { ...current, reason: event.target.value } : current)}
+                  placeholder="Why is this subscription being cancelled?"
+                />
+              </label>
+              <HelperText>Today cancels immediately. A future date stops renewal within the current billing period and does not prorate charges automatically.</HelperText>
               <div className="button-stack">
                 <button type="button" className="button button-primary" onClick={() => setConfirmState({
                   title: "Cancel subscription",
                   description: cancelSchedule.date === toDateInputValue(new Date())
                     ? "Cancel this subscription immediately?"
-                    : `Schedule this subscription to cancel on ${cancelSchedule.date}?`,
+                    : `Schedule this subscription to cancel on ${cancelSchedule.date}? This stops renewal on that date and does not prorate charges automatically.`,
                   action: async () => {
                     await submitScheduledCancel();
                     setConfirmState(null);
@@ -704,7 +654,7 @@ export function SubscriptionsPage() {
             </div>
           ) : null}
           {pricingEdit ? (
-            <div ref={pricingFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
+            <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
               <p className="eyebrow">Update future billing</p>
               <HelperText>Changes here affect the next invoice onward. The current period and historical invoices stay unchanged.</HelperText>
               <div className="inline-fields">
@@ -756,7 +706,7 @@ export function SubscriptionsPage() {
             </div>
           ) : null}
           {migrationEdit ? (
-            <div ref={pricingFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
+            <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
               <p className="eyebrow">Migrate subscription item</p>
               <HelperText>Use this when the wrong plan was attached. This changes future billing for the selected item only and keeps historical invoices intact.</HelperText>
               <div className="inline-fields">
@@ -906,6 +856,16 @@ export function SubscriptionsPage() {
         onConfirm={async () => { if (confirmState) await confirmState.action(); }}
         onCancel={() => setConfirmState(null)}
       />
+      {selectedSubscription ? (
+        <SubscriptionDetailDrawer
+          selectedSubscription={selectedSubscription}
+          onClose={() => setExpandedId(null)}
+          onEditPricing={() => beginPricingEdit(selectedSubscription)}
+          onMigrateItem={(subscriptionItemId, currentPlanId, currentPlanName) => {
+            void startMigrationEdit(selectedSubscription, subscriptionItemId, currentPlanId, currentPlanName);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

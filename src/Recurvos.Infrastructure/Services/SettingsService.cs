@@ -792,10 +792,20 @@ public sealed class SettingsService(
         return MapPlatformUploadPolicy(settings);
     }
 
-    public async Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, CancellationToken cancellationToken = default)
+    public async Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, PaymentQrUploadAcknowledgement acknowledgement, CancellationToken cancellationToken = default)
     {
         var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
         var settings = await EnsureInvoiceSettingsAsync(resolvedCompanyId, cancellationToken);
+        if (!acknowledgement.ResponsibilityAccepted)
+        {
+            throw new InvalidOperationException("QR upload responsibility acknowledgement is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(acknowledgement.ResponsibilityStatement))
+        {
+            throw new InvalidOperationException("QR upload responsibility statement is required.");
+        }
+
         var extension = Path.GetExtension(fileName);
         if (string.IsNullOrWhiteSpace(extension) || !new[] { ".png", ".jpg", ".jpeg", ".webp" }.Contains(extension, StringComparer.OrdinalIgnoreCase))
         {
@@ -823,8 +833,10 @@ public sealed class SettingsService(
         await content.CopyToAsync(fileStream, cancellationToken);
 
         settings.PaymentQrPath = filePath.Replace("\\", "/");
+        settings.PaymentQrResponsibilityAcceptedAtUtc = DateTime.UtcNow;
+        settings.PaymentQrResponsibilityStatement = acknowledgement.ResponsibilityStatement.Trim();
         await dbContext.SaveChangesAsync(cancellationToken);
-        await auditService.WriteAsync("settings.payment-qr.updated", nameof(CompanyInvoiceSettings), resolvedCompanyId.ToString(), Path.GetFileName(filePath), cancellationToken);
+        await auditService.WriteAsync("settings.payment-qr.updated", nameof(CompanyInvoiceSettings), resolvedCompanyId.ToString(), $"{Path.GetFileName(filePath)} | responsibility-acknowledged", cancellationToken);
         return MapInvoiceSettings(settings);
     }
 

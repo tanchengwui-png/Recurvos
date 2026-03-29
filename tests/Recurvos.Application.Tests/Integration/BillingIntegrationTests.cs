@@ -11,6 +11,7 @@ using Recurvos.Application.CreditNotes;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
 using Recurvos.Application.Settings;
+using Recurvos.Application.Subscriptions;
 using Recurvos.Domain.Entities;
 using Recurvos.Domain.Enums;
 using Recurvos.Infrastructure.Persistence;
@@ -699,6 +700,132 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadAsStringAsync();
         problem.Should().Contain("No subscription items are due for invoicing yet.");
+    }
+
+    [Fact]
+    public async Task PaymentQrUpload_RequiresResponsibilityAcknowledgement()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        using var form = new MultipartFormDataContent();
+        using var qrContent = new ByteArrayContent(new byte[] { 137, 80, 78, 71 });
+        qrContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(qrContent, "file", "payment-qr.png");
+
+        var response = await client.PostAsync("/api/settings/invoice-settings/payment-qr", form);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadAsStringAsync();
+        problem.Should().Contain("responsibility acknowledgement", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task FutureDatedCancellation_StoresReason_And_KeepsBillingAmountUnchanged()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await using var arrangeScope = _factory.Services.CreateAsyncScope();
+        var arrangeDb = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customer = await arrangeDb.Customers.FirstAsync();
+        var monthlyPlan = await arrangeDb.ProductPlans.FirstAsync(x => x.PlanCode == "STARTER-MONTHLY");
+
+        var createResponse = await client.PostAsJsonAsync("/api/subscriptions", new
+        {
+            customerId = customer.Id,
+            startDateUtc = DateTime.UtcNow.Date.AddDays(-5),
+            trialDays = 0,
+            notes = "future cancellation reason test",
+            items = new[]
+            {
+                new { productPlanId = monthlyPlan.Id, quantity = 1 }
+            }
+        });
+
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var created = await createResponse.Content.ReadFromJsonAsync<SubscriptionDto>(TestWebApplicationFactory.JsonOptions);
+        created.Should().NotBeNull();
+
+        var futureDate = DateTime.UtcNow.Date.AddDays(5);
+        var cancelResponse = await client.PostAsJsonAsync($"/api/subscriptions/{created!.Id}/cancel", new
+        {
+            endOfPeriod = true,
+            effectiveDateUtc = futureDate,
+            reason = "Customer requested closure"
+        });
+
+        cancelResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var cancelled = await cancelResponse.Content.ReadFromJsonAsync<SubscriptionDto>(TestWebApplicationFactory.JsonOptions);
+        cancelled.Should().NotBeNull();
+        cancelled!.CancelAtPeriodEnd.Should().BeTrue();
+        cancelled.CancellationReason.Should().Be("Customer requested closure");
+        cancelled.UnitPrice.Should().Be(monthlyPlan.UnitAmount);
+
+        await using var assertScope = _factory.Services.CreateAsyncScope();
+        var dbContext = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await dbContext.Subscriptions
+            .Include(x => x.Items)
+            .FirstAsync(x => x.Id == created.Id);
+
+        stored.CancellationReason.Should().Be("Customer requested closure");
+        stored.UnitPrice.Should().Be(monthlyPlan.UnitAmount);
+        stored.Items.Should().OnlyContain(x => x.NextBillingUtc == null && !x.AutoRenew);
+        stored.Items.Should().OnlyContain(x => x.CurrentPeriodEndUtc == futureDate);
+    }
+
+    [Fact]
+    public async Task GenerateDueInvoices_IgnoresPausedAndCancelledSubscriptions()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await using var arrangeScope = _factory.Services.CreateAsyncScope();
+        var arrangeDb = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var customer = await arrangeDb.Customers.FirstAsync();
+        var monthlyPlan = await arrangeDb.ProductPlans.FirstAsync(x => x.PlanCode == "STARTER-MONTHLY");
+
+        async Task<SubscriptionDto> CreateDueSubscriptionAsync(string notes)
+        {
+            var response = await client.PostAsJsonAsync("/api/subscriptions", new
+            {
+                customerId = customer.Id,
+                startDateUtc = DateTime.UtcNow.Date.AddDays(-3),
+                trialDays = 0,
+                notes,
+                items = new[]
+                {
+                    new { productPlanId = monthlyPlan.Id, quantity = 1 }
+                }
+            });
+
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            return (await response.Content.ReadFromJsonAsync<SubscriptionDto>(TestWebApplicationFactory.JsonOptions))!;
+        }
+
+        var active = await CreateDueSubscriptionAsync("active due subscription");
+        var paused = await CreateDueSubscriptionAsync("paused due subscription");
+        var cancelled = await CreateDueSubscriptionAsync("cancelled due subscription");
+
+        (await client.PostAsync($"/api/subscriptions/{paused.Id}/pause", JsonContent.Create(new { }))).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PostAsJsonAsync($"/api/subscriptions/{cancelled.Id}/cancel", new { endOfPeriod = false, reason = "Stop billing" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var invoiceService = scope.ServiceProvider.GetRequiredService<IInvoiceService>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        await invoiceService.GenerateDueInvoicesAsync();
+
+        var generatedInvoices = await dbContext.Invoices
+            .Where(x => x.SubscriptionId == active.Id || x.SubscriptionId == paused.Id || x.SubscriptionId == cancelled.Id)
+            .ToListAsync();
+
+        generatedInvoices.Should().ContainSingle(x => x.SubscriptionId == active.Id);
+        generatedInvoices.Should().NotContain(x => x.SubscriptionId == paused.Id);
+        generatedInvoices.Should().NotContain(x => x.SubscriptionId == cancelled.Id);
     }
 
     [Fact]

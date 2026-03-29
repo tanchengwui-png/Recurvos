@@ -480,6 +480,10 @@ public sealed record CompanyInvoiceSettingsDto(
 
 public sealed record CompanyPaymentQrFile(string FileName, byte[] Content, string ContentType);
 
+public sealed record PaymentQrUploadAcknowledgement(
+    bool ResponsibilityAccepted,
+    string ResponsibilityStatement);
+
 public interface ISettingsService
 {
     Task<IReadOnlyCollection<DunningRuleDto>> GetDunningRulesAsync(Guid? companyId, CancellationToken cancellationToken = default);
@@ -514,6 +518,6 @@ public interface ISettingsService
     Task<PlatformUploadPolicyDto> GetPlatformUploadPolicyAsync(CancellationToken cancellationToken = default);
     Task<PlatformUploadPolicyDto> UpdatePlatformUploadPolicyAsync(UpdatePlatformUploadPolicyRequest request, CancellationToken cancellationToken = default);
     Task<PlatformUploadPolicyDto> GetCurrentUploadPolicyAsync(CancellationToken cancellationToken = default);
-    Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, CancellationToken cancellationToken = default);
+    Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, PaymentQrUploadAcknowledgement acknowledgement, CancellationToken cancellationToken = default);
     Task<CompanyPaymentQrFile?> GetPaymentQrAsync(Guid? companyId, CancellationToken cancellationToken = default);
 }
