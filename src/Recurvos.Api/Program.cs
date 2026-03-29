@@ -257,9 +257,9 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
     services.GetRequiredService<StorageResetService>().ClearAll();
 
     await services.GetRequiredService<DbSeeder>().SeedAsync();
-    hangfireBootstrapService.EnsureConfigured();
 
     Console.WriteLine("Recurvos demo data reset complete.");
+    Console.WriteLine("Restart the API process now so Hangfire can recreate its tables and recurring jobs.");
     Console.WriteLine("Seeded accounts:");
     Console.WriteLine("  Platform owner: owner@recurvo.com / P@ssw0rd!@#$%");
     Console.WriteLine("  Subscriber Basic: Recurvos-Basic@hotmail.com / P@ssw0rd!@#$%");
