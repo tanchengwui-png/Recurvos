@@ -169,9 +169,10 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var legacySchemaRepairService = scope.ServiceProvider.GetRequiredService<LegacySchemaRepairService>();
+    var hangfireBootstrapService = scope.ServiceProvider.GetRequiredService<HangfireBootstrapService>();
     if (resetDemoData)
     {
-        await ResetDemoDataAsync(scope.ServiceProvider, dbContext, legacySchemaRepairService);
+        await ResetDemoDataAsync(scope.ServiceProvider, dbContext, legacySchemaRepairService, hangfireBootstrapService);
         return;
     }
 
@@ -185,6 +186,7 @@ using (var scope = app.Services.CreateScope())
         await dbContext.Database.EnsureCreatedAsync();
     }
     await scope.ServiceProvider.GetRequiredService<DbSeeder>().SeedAsync();
+    hangfireBootstrapService.EnsureConfigured();
 }
 
 if (app.Environment.IsDevelopment())
@@ -232,18 +234,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseHangfireDashboard("/hangfire");
 
-RecurringJob.AddOrUpdate<GenerateInvoicesJob>("generate-invoices", x => x.ExecuteAsync(), Cron.Hourly);
-RecurringJob.AddOrUpdate<GenerateSubscriberPackageInvoicesJob>("generate-subscriber-package-invoices", x => x.ExecuteAsync(), Cron.Hourly);
-RecurringJob.AddOrUpdate<ReconcileSubscriberPackageStatusesJob>("reconcile-subscriber-package-statuses", x => x.ExecuteAsync(), Cron.Hourly);
-RecurringJob.AddOrUpdate<SendInvoiceRemindersJob>("send-invoice-reminders", x => x.ExecuteAsync(), Cron.Daily);
-RecurringJob.AddOrUpdate<RetryFailedPaymentsJob>("retry-failed-payments", x => x.ExecuteAsync(), Cron.Hourly);
-RecurringJob.AddOrUpdate<CleanupStaleSignupsJob>("cleanup-stale-signups", x => x.ExecuteAsync(), Cron.Daily);
-
 app.MapControllers();
 
 app.Run();
 
-static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext, LegacySchemaRepairService legacySchemaRepairService)
+static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext, LegacySchemaRepairService legacySchemaRepairService, HangfireBootstrapService hangfireBootstrapService)
 {
     Console.WriteLine("Resetting Recurvos demo data...");
 
@@ -262,6 +257,7 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
     services.GetRequiredService<StorageResetService>().ClearAll();
 
     await services.GetRequiredService<DbSeeder>().SeedAsync();
+    hangfireBootstrapService.EnsureConfigured();
 
     Console.WriteLine("Recurvos demo data reset complete.");
     Console.WriteLine("Seeded accounts:");

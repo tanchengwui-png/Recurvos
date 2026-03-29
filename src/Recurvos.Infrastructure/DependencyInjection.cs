@@ -98,6 +98,7 @@ public static class DependencyInjection
         services.AddScoped<DbSeeder>();
         services.AddScoped<LegacySchemaRepairService>();
         services.AddScoped<StorageResetService>();
+        services.AddScoped<HangfireBootstrapService>();
         services.AddScoped<GenerateInvoicesJob>();
         services.AddScoped<GenerateSubscriberPackageInvoicesJob>();
         services.AddScoped<ReconcileSubscriberPackageStatusesJob>();

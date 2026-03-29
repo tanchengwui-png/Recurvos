@@ -20,7 +20,8 @@ public sealed class PlatformService(
     IAuthService authService,
     DbSeeder dbSeeder,
     LegacySchemaRepairService legacySchemaRepairService,
-    StorageResetService storageResetService) : IPlatformService
+    StorageResetService storageResetService,
+    HangfireBootstrapService hangfireBootstrapService) : IPlatformService
 {
     public async Task<PlatformDashboardSummaryDto> GetDashboardSummaryAsync(CancellationToken cancellationToken = default)
     {
@@ -513,10 +514,11 @@ public sealed class PlatformService(
         await legacySchemaRepairService.EnsureAsync(cancellationToken);
         storageResetService.ClearAll();
         await dbSeeder.SeedAsync(cancellationToken);
+        hangfireBootstrapService.EnsureConfigured();
 
         return new FactoryResetResult(
             DateTime.UtcNow,
-            "Factory reset completed. The database is recreated, file storage is cleared, and demo seed data is loaded.");
+            "Factory reset completed. The database is recreated, file storage is cleared, demo seed data is loaded, and Hangfire jobs are reconfigured.");
     }
 
     private async Task TryDisconnectPlatformWhatsAppSessionAsync(CancellationToken cancellationToken)
