@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Recurvos.Application.Abstractions;
 using Recurvos.Application.Auth;
 using Recurvos.Application.Platform;
 using Recurvos.Domain.Entities;
 using Recurvos.Domain.Enums;
+using Recurvos.Infrastructure.Configuration;
 using Recurvos.Infrastructure.Persistence;
 
 namespace Recurvos.Infrastructure.Services;
@@ -14,7 +17,8 @@ public sealed class PlatformService(
     ISubscriberPackageBillingService subscriberPackageBillingService,
     IPasswordHasher passwordHasher,
     IAuthService authService,
-    DbSeeder dbSeeder) : IPlatformService
+    DbSeeder dbSeeder,
+    StorageResetService storageResetService) : IPlatformService
 {
     public async Task<PlatformDashboardSummaryDto> GetDashboardSummaryAsync(CancellationToken cancellationToken = default)
     {
@@ -503,11 +507,12 @@ public sealed class PlatformService(
         dbContext.ChangeTracker.Clear();
         await dbContext.Database.EnsureDeletedAsync(cancellationToken);
         await dbContext.Database.MigrateAsync(cancellationToken);
+        storageResetService.ClearAll();
         await dbSeeder.SeedAsync(cancellationToken);
 
         return new FactoryResetResult(
             DateTime.UtcNow,
-            "Factory reset completed. The database is recreated and demo seed data is loaded.");
+            "Factory reset completed. The database is recreated, file storage is cleared, and demo seed data is loaded.");
     }
 
     private void EnsurePlatformOwner()

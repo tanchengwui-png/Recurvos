@@ -257,14 +257,7 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
         await dbContext.Database.EnsureCreatedAsync();
     }
 
-    var environment = services.GetRequiredService<IHostEnvironment>();
-    var storageOptions = services.GetRequiredService<IOptions<StorageOptions>>().Value;
-    var invoiceRoot = StoragePathResolver.Resolve(environment, storageOptions.InvoiceDirectory);
-    var storageRoot = Directory.GetParent(invoiceRoot)?.FullName ?? Path.Combine(environment.ContentRootPath, "storage");
-    ClearDirectory(invoiceRoot);
-    ClearDirectory(Path.Combine(storageRoot, "emails"));
-    ClearDirectory(Path.Combine(storageRoot, "receipts"));
-    ClearDirectory(StoragePathResolver.Resolve(environment, storageOptions.PaymentProofDirectory));
+    services.GetRequiredService<StorageResetService>().ClearAll();
 
     await services.GetRequiredService<DbSeeder>().SeedAsync();
 
@@ -292,27 +285,6 @@ static async Task EnsureLegacySchemaColumnsAsync(AppDbContext dbContext)
         ALTER TABLE company_invoice_settings
         ADD COLUMN IF NOT EXISTS "PaymentQrResponsibilityStatement" character varying(1000) NULL;
         """);
-}
-
-static void ClearDirectory(string path)
-{
-    if (!Directory.Exists(path))
-    {
-        return;
-    }
-
-    foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
-    {
-        File.Delete(file);
-    }
-
-    foreach (var directory in Directory.GetDirectories(path, "*", SearchOption.AllDirectories).OrderByDescending(x => x.Length))
-    {
-        if (Directory.Exists(directory))
-        {
-            Directory.Delete(directory, recursive: false);
-        }
-    }
 }
 
 public partial class Program;

@@ -96,6 +96,7 @@ public static class DependencyInjection
         services.AddScoped<IWebhookService, WebhookService>();
         services.AddScoped<StaleSignupCleanupService>();
         services.AddScoped<DbSeeder>();
+        services.AddScoped<StorageResetService>();
         services.AddScoped<GenerateInvoicesJob>();
         services.AddScoped<GenerateSubscriberPackageInvoicesJob>();
         services.AddScoped<ReconcileSubscriberPackageStatusesJob>();
