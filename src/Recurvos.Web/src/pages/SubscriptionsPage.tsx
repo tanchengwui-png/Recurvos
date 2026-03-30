@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { SubscriptionDetailDrawer } from "../components/subscriptions/SubscriptionDetailDrawer";
@@ -56,6 +56,7 @@ function getEarliestSubscriptionStartDate() {
 export function SubscriptionsPage() {
   const earliestSubscriptionStartDate = getEarliestSubscriptionStartDate();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const actionFormRef = useRef<HTMLDivElement | null>(null);
   const loadRequestIdRef = useRef(0);
@@ -72,11 +73,18 @@ export function SubscriptionsPage() {
   const [migrationPlans, setMigrationPlans] = useState<ProductPlan[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const selectedSubscription = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
-  const pagination = useClientPagination(items, [items.length], 20);
-  const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [billingReadiness, setBillingReadiness] = useState<BillingReadiness | null>(null);
   const [dueInvoiceCount, setDueInvoiceCount] = useState<number | null>(null);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused" | "scheduled" | "cancelled">(() => {
+    const value = searchParams.get("status");
+    return value === "active" || value === "paused" || value === "scheduled" || value === "cancelled" ? value : "all";
+  });
+  const [billingFilter, setBillingFilter] = useState<"all" | "due" | "recurring" | "one-time" | "mixed">(() => {
+    const value = searchParams.get("billing");
+    return value === "due" || value === "recurring" || value === "one-time" || value === "mixed" ? value : "all";
+  });
   const [form, setForm] = useState({
     companyId: "",
     customerId: "",
@@ -117,6 +125,57 @@ export function SubscriptionsPage() {
     : hasDuplicateSubscriptionWarning
       ? `This customer already has ${customerExistingSubscriptions.length} active or paused subscription${customerExistingSubscriptions.length === 1 ? "" : "s"}. Double-check before creating another one.`
       : "";
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredItems = items.filter((item) => {
+    const matchesSearch = !normalizedSearchQuery
+      || [
+        item.customerName,
+        item.companyName,
+        item.status,
+        item.notes ?? "",
+        ...item.items.map((subscriptionItem) => subscriptionItem.productPlanName),
+      ].some((value) => value.toLowerCase().includes(normalizedSearchQuery));
+
+    if (!matchesSearch) {
+      return false;
+    }
+
+    if (statusFilter === "active" && item.status !== "Active") {
+      return false;
+    }
+
+    if (statusFilter === "paused" && item.status !== "Paused") {
+      return false;
+    }
+
+    if (statusFilter === "scheduled" && !item.cancelAtPeriodEnd) {
+      return false;
+    }
+
+    if (statusFilter === "cancelled" && item.status !== "Cancelled") {
+      return false;
+    }
+
+    if (billingFilter === "due" && !item.isDue) {
+      return false;
+    }
+
+    if (billingFilter === "recurring" && (item.hasMixedBillingIntervals || item.intervalUnit === "None")) {
+      return false;
+    }
+
+    if (billingFilter === "one-time" && (item.hasMixedBillingIntervals || item.intervalUnit !== "None")) {
+      return false;
+    }
+
+    if (billingFilter === "mixed" && !item.hasMixedBillingIntervals) {
+      return false;
+    }
+
+    return true;
+  });
+  const pagination = useClientPagination(filteredItems, [filteredItems.length, searchQuery, statusFilter, billingFilter], 20);
+  const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
 
   async function load() {
     const requestId = ++loadRequestIdRef.current;
@@ -160,6 +219,35 @@ export function SubscriptionsPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    const trimmedSearch = searchQuery.trim();
+
+    if (trimmedSearch) {
+      nextParams.set("search", trimmedSearch);
+    } else {
+      nextParams.delete("search");
+    }
+
+    if (statusFilter !== "all") {
+      nextParams.set("status", statusFilter);
+    } else {
+      nextParams.delete("status");
+    }
+
+    if (billingFilter !== "all") {
+      nextParams.set("billing", billingFilter);
+    } else {
+      nextParams.delete("billing");
+    }
+
+    const nextQuery = nextParams.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery !== currentQuery) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [billingFilter, searchQuery, searchParams, setSearchParams, statusFilter]);
 
   useEffect(() => {
     async function syncSelectedCompany() {
@@ -452,6 +540,40 @@ export function SubscriptionsPage() {
       ) : null}
       <div className="grid-two">
         <section className="card">
+          <div className="inline-fields" style={{ marginBottom: "1rem", alignItems: "end" }}>
+            <label className="form-label" style={{ flex: "1 1 18rem" }}>
+              Search
+              <input
+                className="text-input"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search customer, company, plan, status, or notes"
+              />
+            </label>
+            <label className="form-label" style={{ minWidth: "12rem" }}>
+              Status
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "paused" | "scheduled" | "cancelled")}>
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="scheduled">Scheduled to end</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label className="form-label" style={{ minWidth: "12rem" }}>
+              Billing
+              <select value={billingFilter} onChange={(event) => setBillingFilter(event.target.value as "all" | "due" | "recurring" | "one-time" | "mixed")}>
+                <option value="all">All billing</option>
+                <option value="due">Due now</option>
+                <option value="recurring">Recurring</option>
+                <option value="one-time">One-time</option>
+                <option value="mixed">Mixed</option>
+              </select>
+            </label>
+          </div>
+          {searchQuery || statusFilter !== "all" || billingFilter !== "all" ? (
+            <HelperText>{`${filteredItems.length} matching subscription${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
+          ) : null}
           <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
             <div ref={topInnerRef} />
           </div>
@@ -609,6 +731,11 @@ export function SubscriptionsPage() {
                   <button type="submit" className="button button-primary" form="subscription-create-form">Create first subscription</button>
                   <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
                 </div>
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="empty-state">
+                <h3>No matching subscriptions</h3>
+                <p className="muted">Try a different search term or filter to find the subscription you want.</p>
               </div>
             ) : null}
           </div>

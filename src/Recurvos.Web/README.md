@@ -58,8 +58,17 @@ Useful commands:
 
 ```powershell
 npm run e2e
+npm run e2e:signup
 npm run e2e:headed
 npm run e2e:report
+```
+
+Signup flow example:
+
+```powershell
+$env:PLAYWRIGHT_BASE_URL='https://staging.recurvos.com'
+$env:PLAYWRIGHT_SIGNUP_EMAIL='tanchengwui@hotmail.com'
+npm run e2e:signup
 ```
 
 Notes:

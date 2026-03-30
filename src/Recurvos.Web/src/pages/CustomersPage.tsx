@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
@@ -13,15 +13,19 @@ import type { Customer, FeatureAccess, PlatformPackage } from "../types";
 
 export function CustomersPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const [items, setItems] = useState<Customer[]>([]);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [packageLimit, setPackageLimit] = useState<number | null>(null);
-  const pagination = useClientPagination(items, [items.length]);
-  const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, pagination.currentPage, pagination.pageSize]);
   const [error, setError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
+  const [contactFilter, setContactFilter] = useState<"all" | "email" | "phone" | "address">(() => {
+    const value = searchParams.get("contact");
+    return value === "email" || value === "phone" || value === "address" ? value : "all";
+  });
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -29,6 +33,34 @@ export function CustomersPage() {
     externalReference: "",
     billingAddress: "",
   });
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredItems = items.filter((item) => {
+    const matchesSearch = !normalizedSearchQuery
+      || [
+        item.name,
+        item.email,
+        item.phoneNumber,
+        item.externalReference,
+        item.billingAddress,
+      ].some((value) => value.toLowerCase().includes(normalizedSearchQuery));
+
+    if (!matchesSearch) {
+      return false;
+    }
+
+    switch (contactFilter) {
+      case "email":
+        return !!item.email.trim();
+      case "phone":
+        return !!item.phoneNumber.trim();
+      case "address":
+        return !!item.billingAddress.trim();
+      default:
+        return true;
+    }
+  });
+  const pagination = useClientPagination(filteredItems, [filteredItems.length, searchQuery, contactFilter]);
+  const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, pagination.currentPage, pagination.pageSize]);
 
   async function load() {
     const [customerList, access, packages] = await Promise.all([
@@ -45,6 +77,29 @@ export function CustomersPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    const trimmedSearch = searchQuery.trim();
+
+    if (trimmedSearch) {
+      nextParams.set("search", trimmedSearch);
+    } else {
+      nextParams.delete("search");
+    }
+
+    if (contactFilter !== "all") {
+      nextParams.set("contact", contactFilter);
+    } else {
+      nextParams.delete("contact");
+    }
+
+    const nextQuery = nextParams.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery !== currentQuery) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [contactFilter, searchQuery, searchParams, setSearchParams]);
 
   const customersWithEmail = items.filter((item) => item.email).length;
   const customersWithAddress = items.filter((item) => item.billingAddress).length;
@@ -116,27 +171,27 @@ export function CustomersPage() {
         <div>
           <p className="eyebrow">Customer records</p>
           <h2>Customers</h2>
-          <p className="muted">Manage the people and businesses you invoice, subscribe, and follow up for payment.</p>
+          <p className="muted">Manage the people and businesses you bill.</p>
           <p className="muted">
             Customers used: {items.length}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}
           </p>
         </div>
       </header>
       <section className="management-summary-grid">
-        <article className="management-summary-card">
+        <article className="management-summary-card customer-summary-card">
           <p className="eyebrow">Usage</p>
           <h3>{items.length}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}</h3>
-          <p className="muted">Customer records currently used under this subscriber account.</p>
+          <p className="muted">Records used in this subscriber account.</p>
         </article>
-        <article className="management-summary-card">
+        <article className="management-summary-card customer-summary-card">
           <p className="eyebrow">With email</p>
           <h3>{customersWithEmail}</h3>
-          <p className="muted">Useful for invoice delivery, payment links, and reminder emails.</p>
+          <p className="muted">Ready for delivery and reminders.</p>
         </article>
-        <article className="management-summary-card">
+        <article className="management-summary-card customer-summary-card">
           <p className="eyebrow">Bill to ready</p>
           <h3>{customersWithAddress}</h3>
-          <p className="muted">Records with billing address already available for the invoice Bill To section.</p>
+          <p className="muted">Billing address already saved.</p>
         </article>
       </section>
       <div className="grid-two">
@@ -145,9 +200,32 @@ export function CustomersPage() {
             <div>
               <p className="eyebrow">Customer list</p>
               <h3 className="section-title">Saved customers</h3>
-              <p className="muted">Keep customer details clean so invoices, subscriptions, and reminders reach the right person.</p>
+              <p className="muted">Search and update customer records.</p>
+            </div>
+            <div className="inline-fields customer-list-toolbar">
+              <label className="form-label">
+                Search
+                <input
+                  className="text-input"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search name, email, phone, reference, or address"
+                />
+              </label>
+              <label className="form-label">
+                Filter
+                <select value={contactFilter} onChange={(event) => setContactFilter(event.target.value as "all" | "email" | "phone" | "address")}>
+                  <option value="all">All customers</option>
+                  <option value="email">Has email</option>
+                  <option value="phone">Has phone</option>
+                  <option value="address">Has billing address</option>
+                </select>
+              </label>
             </div>
           </div>
+          {searchQuery || contactFilter !== "all" ? (
+            <HelperText>{`${filteredItems.length} matching customer${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
+          ) : null}
           <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
             <div ref={topInnerRef} />
           </div>
@@ -195,6 +273,11 @@ export function CustomersPage() {
                   <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
                 </div>
               </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="empty-state">
+                <h3>No matching customers</h3>
+                <p className="muted">Try a different keyword or relax the filter to see more customer records.</p>
+              </div>
             ) : null}
           </div>
           <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
@@ -207,7 +290,7 @@ export function CustomersPage() {
             <div>
               <p className="eyebrow">{editingCustomerId ? "Edit customer" : "Add new"}</p>
               <h3 className="section-title">{editingCustomerId ? "Update customer profile" : "Create customer profile"}</h3>
-              <p className="muted form-intro">Use the details your customer should see on invoices and reminders.</p>
+              <p className="muted form-intro">Use the details shown on invoices and reminders.</p>
             </div>
           </div>
           <form id="customer-create-form" className="form-stack" onSubmit={submit}>

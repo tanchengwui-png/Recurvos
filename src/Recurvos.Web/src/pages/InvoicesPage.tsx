@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
@@ -78,6 +78,7 @@ function compareInvoices(left: Invoice, right: Invoice, sortState: InvoiceSortSt
 
 export function InvoicesPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const paymentFormRef = useRef<HTMLDivElement | null>(null);
   const creditNoteFormRef = useRef<HTMLDivElement | null>(null);
@@ -96,8 +97,63 @@ export function InvoicesPage() {
   const [invoiceSettings, setInvoiceSettings] = useState<CompanyInvoiceSettings | null>(null);
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy>(DEFAULT_UPLOAD_POLICY);
   const [sortState, setSortState] = useState<InvoiceSortState>(null);
-  const sortedItems = [...items].sort((left, right) => compareInvoices(left, right, sortState));
-  const pagination = useClientPagination(sortedItems, [sortedItems.length, sortState?.column, sortState?.direction], 20);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "paid" | "overdue" | "voided">(() => {
+    const value = searchParams.get("status");
+    return value === "open" || value === "paid" || value === "overdue" || value === "voided" ? value : "all";
+  });
+  const [sourceFilter, setSourceFilter] = useState<"all" | "manual" | "subscription" | "platform">(() => {
+    const value = searchParams.get("source");
+    return value === "manual" || value === "subscription" || value === "platform" ? value : "all";
+  });
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredItems = items.filter((item) => {
+    const matchesSearch = !normalizedSearchQuery
+      || [
+        item.invoiceNumber,
+        item.customerName,
+        item.statusLabel,
+        item.sourceType,
+      ].some((value) => value.toLowerCase().includes(normalizedSearchQuery));
+
+    if (!matchesSearch) {
+      return false;
+    }
+
+    const isOverdue = item.balanceAmount > 0 && new Date(item.dueDateUtc).getTime() < Date.now();
+
+    if (statusFilter === "open" && item.balanceAmount <= 0) {
+      return false;
+    }
+
+    if (statusFilter === "paid" && item.balanceAmount > 0) {
+      return false;
+    }
+
+    if (statusFilter === "overdue" && !isOverdue) {
+      return false;
+    }
+
+    if (statusFilter === "voided" && item.status !== "Voided") {
+      return false;
+    }
+
+    if (sourceFilter === "manual" && item.sourceType !== "Manual") {
+      return false;
+    }
+
+    if (sourceFilter === "subscription" && item.sourceType !== "Subscription") {
+      return false;
+    }
+
+    if (sourceFilter === "platform" && item.sourceType !== "PlatformSubscription") {
+      return false;
+    }
+
+    return true;
+  });
+  const sortedItems = [...filteredItems].sort((left, right) => compareInvoices(left, right, sortState));
+  const pagination = useClientPagination(sortedItems, [sortedItems.length, sortState?.column, sortState?.direction, searchQuery, statusFilter, sourceFilter], 20);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
   const selectedInvoice = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
 
@@ -135,6 +191,35 @@ export function InvoicesPage() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    const trimmedSearch = searchQuery.trim();
+
+    if (trimmedSearch) {
+      nextParams.set("search", trimmedSearch);
+    } else {
+      nextParams.delete("search");
+    }
+
+    if (statusFilter !== "all") {
+      nextParams.set("status", statusFilter);
+    } else {
+      nextParams.delete("status");
+    }
+
+    if (sourceFilter !== "all") {
+      nextParams.set("source", sourceFilter);
+    } else {
+      nextParams.delete("source");
+    }
+
+    const nextQuery = nextParams.toString();
+    const currentQuery = searchParams.toString();
+    if (nextQuery !== currentQuery) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams, searchQuery, setSearchParams, sourceFilter, statusFilter]);
 
   useEffect(() => {
     if (paymentForm) {
@@ -408,6 +493,39 @@ export function InvoicesPage() {
       ) : null}
 
       <section className="card">
+        <div className="inline-fields" style={{ marginBottom: "1rem", alignItems: "end" }}>
+          <label className="form-label" style={{ flex: "1 1 18rem" }}>
+            Search
+            <input
+              className="text-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search invoice number, customer, status, or source"
+            />
+          </label>
+          <label className="form-label" style={{ minWidth: "12rem" }}>
+            Status
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "open" | "paid" | "overdue" | "voided")}>
+              <option value="all">All statuses</option>
+              <option value="open">Outstanding</option>
+              <option value="paid">Paid</option>
+              <option value="overdue">Overdue</option>
+              <option value="voided">Voided</option>
+            </select>
+          </label>
+          <label className="form-label" style={{ minWidth: "12rem" }}>
+            Source
+            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | "manual" | "subscription" | "platform")}>
+              <option value="all">All sources</option>
+              <option value="manual">Manual</option>
+              <option value="subscription">Subscription</option>
+              <option value="platform">Platform subscription</option>
+            </select>
+          </label>
+        </div>
+        {searchQuery || statusFilter !== "all" || sourceFilter !== "all" ? (
+          <HelperText>{`${filteredItems.length} matching invoice${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
+        ) : null}
         <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
           <div ref={topInnerRef} />
         </div>
@@ -712,6 +830,11 @@ export function InvoicesPage() {
               <div className="empty-state-actions">
                 <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
               </div>
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="empty-state">
+              <h3>No matching invoices</h3>
+              <p className="muted">Try a different keyword or filter to narrow the invoice list.</p>
             </div>
           ) : null}
         </div>

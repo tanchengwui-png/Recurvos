@@ -517,6 +517,33 @@ th {
   margin: 0;
 }
 
+.customer-summary-card {
+  gap: 0.3rem;
+  padding: 0.85rem 1rem;
+}
+
+.customer-summary-card h3 {
+  font-size: 1.65rem;
+}
+
+.customer-summary-card .eyebrow {
+  margin-bottom: 0.18rem;
+}
+
+.customer-list-toolbar {
+  flex: 0 1 34rem;
+  width: min(100%, 34rem);
+}
+
+.customer-list-toolbar .form-label {
+  font-size: 0.88rem;
+}
+
+.customer-list-toolbar .text-input,
+.customer-list-toolbar select {
+  padding-block: 0.78rem;
+}
+
 .form-intro {
   margin: 0.3rem 0 0;
   max-width: 34ch;
@@ -1833,6 +1860,7 @@ th {
 .form-label {
   display: grid;
   gap: 0.45rem;
+  min-width: 0;
   color: var(--text-secondary);
   font-size: 0.95rem;
   font-weight: 500;
@@ -1841,6 +1869,7 @@ th {
 .text-input,
 select {
   width: 100%;
+  max-width: 100%;
   padding: 0.95rem 1rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-strong);
@@ -3341,6 +3370,16 @@ select:focus,
   gap: var(--space-3);
 }
 
+.public-payment-fields > .form-label,
+.public-payment-fields .text-input,
+.public-payment-fields input[type="date"] {
+  min-width: 0;
+}
+
+.public-payment-fields input[type="date"] {
+  max-width: 100%;
+}
+
 .public-payment-field-wide {
   grid-column: 1 / -1;
 }
@@ -4053,8 +4092,9 @@ select:focus,
 
 .inline-fields {
   display: grid;
-  grid-template-columns: 1fr 120px;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .checkbox-row {
