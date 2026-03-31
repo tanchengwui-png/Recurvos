@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Recurvos.Application.Abstractions;
 using Recurvos.Application.Features;
+using Recurvos.Application.Invoices;
 using Recurvos.Infrastructure.Persistence;
+using System.Text.RegularExpressions;
 
 namespace Recurvos.Infrastructure.Services;
 
@@ -9,6 +11,7 @@ public sealed class WhatsAppQueueProcessorService(
     AppDbContext dbContext,
     IPlatformWhatsAppGateway platformWhatsAppGateway,
     IFeatureEntitlementService featureEntitlementService,
+    IInvoiceService invoiceService,
     IAuditService auditService)
 {
     private const int MaxMessagesPerRun = 12;
@@ -130,6 +133,23 @@ public sealed class WhatsAppQueueProcessorService(
                 continue;
             }
 
+            var linkOptions = await invoiceService.GetWhatsAppLinkOptionsAsync(queueItem.InvoiceId, cancellationToken);
+            var companyName = await dbContext.Companies
+                .Where(x => x.Id == queueItem.CompanyId)
+                .Select(x => x.Name)
+                .FirstAsync(cancellationToken);
+            queueItem.Message = BuildWhatsAppReminderMessage(
+                companyName,
+                queueItem.Invoice.Customer.Name,
+                queueItem.Invoice.InvoiceNumber,
+                queueItem.Invoice.AmountDue,
+                queueItem.Invoice.Currency,
+                queueItem.Invoice.DueDateUtc,
+                linkOptions?.ActionLink,
+                linkOptions?.PaymentGatewayLink,
+                linkOptions?.PaymentConfirmationLink,
+                subscriberSettings.WhatsAppTemplate);
+
             var result = await platformWhatsAppGateway.SendAsync(
                 platformWhatsAppSettings.CompanyId,
                 new PlatformWhatsAppConfiguration(
@@ -209,6 +229,58 @@ public sealed class WhatsAppQueueProcessorService(
                 && !string.IsNullOrWhiteSpace(settings.WhatsAppAccessToken)
                 && !string.IsNullOrWhiteSpace(settings.WhatsAppSenderId),
         };
+    }
+
+    private static string BuildWhatsAppReminderMessage(
+        string issuerName,
+        string customerName,
+        string invoiceNumber,
+        decimal amountDue,
+        string currency,
+        DateTime dueDateUtc,
+        string? actionLink,
+        string? paymentGatewayLink,
+        string? paymentConfirmationLink,
+        string? customTemplate)
+    {
+        var amountText = $"{currency} {amountDue:0.00}";
+        var template = string.IsNullOrWhiteSpace(customTemplate)
+            ? "Hi {CustomerName}, this is a payment reminder for invoice {InvoiceNumber} from {CompanyName}. Amount due: {AmountDue}. Due date: {DueDate}."
+            : customTemplate;
+
+        var message = template
+            .Replace("{CustomerName}", customerName, StringComparison.Ordinal)
+            .Replace("{CompanyName}", issuerName, StringComparison.Ordinal)
+            .Replace("{InvoiceNumber}", invoiceNumber, StringComparison.Ordinal)
+            .Replace("{AmountDue}", amountText, StringComparison.Ordinal)
+            .Replace("{Currency}", currency, StringComparison.Ordinal)
+            .Replace("{DueDate}", dueDateUtc.ToString("dd MMM yyyy"), StringComparison.Ordinal)
+            .Replace("{ActionLink}", actionLink ?? string.Empty, StringComparison.Ordinal)
+            .Replace("{PaymentGatewayLink}", paymentGatewayLink ?? string.Empty, StringComparison.Ordinal)
+            .Replace("{PaymentConfirmationLink}", paymentConfirmationLink ?? string.Empty, StringComparison.Ordinal)
+            .Replace("{PaymentLink}", actionLink ?? string.Empty, StringComparison.Ordinal);
+
+        if (string.IsNullOrWhiteSpace(actionLink))
+        {
+            message = Regex.Replace(message, @"(?im)^.*payment\s*\/\s*confirmation link:.*(\r?\n)?", string.Empty);
+            message = Regex.Replace(message, @"(?im)^.*payment link:.*(\r?\n)?", string.Empty);
+            message = Regex.Replace(message, @"(?im)^.*action link:.*(\r?\n)?", string.Empty);
+        }
+
+        if (string.IsNullOrWhiteSpace(paymentGatewayLink))
+        {
+            message = Regex.Replace(message, @"(?im)^.*payment gateway link:.*(\r?\n)?", string.Empty);
+        }
+
+        if (string.IsNullOrWhiteSpace(paymentConfirmationLink))
+        {
+            message = Regex.Replace(message, @"(?im)^.*payment confirmation link:.*(\r?\n)?", string.Empty);
+        }
+
+        return message
+            .Replace("\r\n\r\n\r\n", "\r\n\r\n", StringComparison.Ordinal)
+            .Replace("\n\n\n", "\n\n", StringComparison.Ordinal)
+            .Trim();
     }
 
     private static bool IsWithinSendWindow(DateTime nowUtc, int startHourUtc, int endHourUtc)
