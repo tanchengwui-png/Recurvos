@@ -512,6 +512,19 @@ public sealed class SubscriberPackageBillingService(
             throw new InvalidOperationException("A payment confirmation is already pending for this invoice.");
         }
 
+        if (invoice.Payments.Any(x => x.Status == PaymentStatus.Succeeded))
+        {
+            throw new InvalidOperationException("This package invoice has already been paid.");
+        }
+
+        var existingPendingPaymentLink = invoice.Payments
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefault(x => x.Status == PaymentStatus.Pending && !string.IsNullOrWhiteSpace(x.PaymentLinkUrl));
+        if (existingPendingPaymentLink is not null)
+        {
+            return MapInvoice(invoice);
+        }
+
         invoice.Customer.BillingAddress = subscriberCompany.Address.Trim();
 
         var packageName = await ResolvePackageNameAsync(subscriberCompanyId, cancellationToken);

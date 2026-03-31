@@ -293,7 +293,41 @@ public sealed class PaymentService(
             .FirstOrDefaultAsync(x => x.ExternalPaymentId == externalPaymentId, cancellationToken)
             ?? throw new InvalidOperationException("Payment not found.");
 
-            payment.Status = succeeded ? PaymentStatus.Succeeded : PaymentStatus.Failed;
+        var isDuplicatePackagePayment = succeeded
+            && payment.Invoice?.SourceType == InvoiceSourceType.PlatformSubscription
+            && await dbContext.Payments.AnyAsync(
+                x => x.InvoiceId == payment.InvoiceId
+                    && x.Id != payment.Id
+                    && x.Status == PaymentStatus.Succeeded,
+                cancellationToken);
+
+        if (isDuplicatePackagePayment)
+        {
+            payment.Status = PaymentStatus.Reversed;
+            payment.PaidAtUtc = null;
+            payment.ReceiptPdfPath = null;
+
+            dbContext.PaymentAttempts.Add(new PaymentAttempt
+            {
+                CompanyId = payment.CompanyId,
+                PaymentId = payment.Id,
+                AttemptNumber = payment.Attempts.Count + 1,
+                Status = PaymentStatus.Reversed,
+                FailureMessage = "Ignored because this package invoice already has a successful payment.",
+                RawResponse = rawPayload
+            });
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await auditService.WriteAsync(
+                "payment.duplicate-package-success-ignored",
+                nameof(Payment),
+                payment.Id.ToString(),
+                payment.ExternalPaymentId ?? payment.InvoiceId.ToString(),
+                cancellationToken);
+            return;
+        }
+
+        payment.Status = succeeded ? PaymentStatus.Succeeded : PaymentStatus.Failed;
         payment.PaidAtUtc = succeeded ? DateTime.UtcNow : null;
         if (!succeeded)
         {
