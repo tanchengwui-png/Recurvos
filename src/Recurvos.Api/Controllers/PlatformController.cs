@@ -28,6 +28,7 @@ public sealed class PlatformController(
         ("generate-subscriber-package-invoices", "Generate subscriber package invoices"),
         ("reconcile-subscriber-package-statuses", "Reconcile subscriber package statuses"),
         ("send-invoice-reminders", "Send invoice reminders"),
+        ("process-whatsapp-queue", "Process WhatsApp queue"),
         ("retry-failed-payments", "Retry failed payments"),
         ("cleanup-stale-signups", "Cleanup stale signups")
     ];
@@ -113,6 +114,36 @@ public sealed class PlatformController(
     [HttpGet("whatsapp-failures")]
     public async Task<ActionResult<IReadOnlyCollection<FailedWhatsAppNotificationDto>>> GetFailedWhatsAppNotifications(CancellationToken cancellationToken) =>
         Ok(await platformService.GetFailedWhatsAppNotificationsAsync(cancellationToken));
+
+    [HttpGet("whatsapp-queue")]
+    public async Task<ActionResult<IReadOnlyCollection<PlatformWhatsAppQueueItemDto>>> GetWhatsAppQueueItems(CancellationToken cancellationToken) =>
+        Ok(await platformService.GetWhatsAppQueueItemsAsync(cancellationToken));
+
+    [HttpPost("whatsapp-queue/{id:guid}/retry")]
+    public async Task<ActionResult<PlatformWhatsAppQueueItemDto>> RetryWhatsAppQueueItem(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await platformService.RetryWhatsAppQueueItemAsync(id, cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
+    [HttpPost("whatsapp-queue/{id:guid}/cancel")]
+    public async Task<ActionResult<PlatformWhatsAppQueueItemDto>> CancelWhatsAppQueueItem(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await platformService.CancelWhatsAppQueueItemAsync(id, cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
 
     [HttpPost("whatsapp-failures/{id:guid}/retry")]
     public async Task<ActionResult<WhatsAppRetryResultDto>> RetryFailedWhatsAppNotification(Guid id, CancellationToken cancellationToken)
@@ -208,6 +239,10 @@ public sealed class PlatformController(
                     "send-invoice-reminders",
                     "Send invoice reminders",
                     backgroundJobClient.Enqueue<SendInvoiceRemindersJob>(job => job.ExecuteAsync())),
+                "process-whatsapp-queue" => (
+                    "process-whatsapp-queue",
+                    "Process WhatsApp queue",
+                    backgroundJobClient.Enqueue<ProcessWhatsAppQueueJob>(job => job.ExecuteAsync())),
                 "retry-failed-payments" => (
                     "retry-failed-payments",
                     "Retry failed payments",

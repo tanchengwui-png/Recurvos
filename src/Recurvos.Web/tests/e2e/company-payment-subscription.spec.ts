@@ -240,7 +240,7 @@ async function createCustomer(page: Page, customerName: string) {
   await page.getByLabel(/^name$/i).fill(customerName);
   await page.getByLabel(/^email$/i).fill(contactEmail);
   await page.getByLabel(/^phone$/i).fill(contactPhone);
-  await page.getByLabel(/billing address/i).fill(customerAddress);
+  await page.locator('input[name="billingAddress"]').fill(customerAddress);
   await page.getByRole("button", { name: /^save$/i }).click();
   await confirmModal(page);
   await expect(page.locator(".customer-table tbody tr").filter({ hasText: customerName }).first()).toBeVisible({ timeout: 15000 });

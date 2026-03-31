@@ -503,6 +503,16 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<int>("WhatsAppSendWindowEndHourUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(18);
+
+                    b.Property<int>("WhatsAppSendWindowStartHourUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(9);
+
                     b.Property<DateTime?>("WhatsAppSessionLastSyncedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -2372,6 +2382,83 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.ToTable("WhatsAppNotifications");
                 });
 
+            modelBuilder.Entity("Recurvos.Domain.Entities.WhatsAppOutboundQueue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ExternalMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("LastAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("NotBeforeUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecipientPhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ReminderScheduleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Template")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("ReminderScheduleId");
+
+                    b.HasIndex("CompanyId", "Status", "NextAttemptAtUtc");
+
+                    b.HasIndex("CompanyId", "Status", "NotBeforeUtc");
+
+                    b.ToTable("WhatsAppOutboundQueues");
+                });
+
             modelBuilder.Entity("Recurvos.Domain.Entities.Company", b =>
                 {
                     b.HasOne("Recurvos.Domain.Entities.User", "Subscriber")
@@ -2785,6 +2872,24 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Recurvos.Domain.Entities.WhatsAppNotification", b =>
+                {
+                    b.HasOne("Recurvos.Domain.Entities.Invoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Recurvos.Domain.Entities.ReminderSchedule", "ReminderSchedule")
+                        .WithMany()
+                        .HasForeignKey("ReminderScheduleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Invoice");
+
+                    b.Navigation("ReminderSchedule");
+                });
+
+            modelBuilder.Entity("Recurvos.Domain.Entities.WhatsAppOutboundQueue", b =>
                 {
                     b.HasOne("Recurvos.Domain.Entities.Invoice", "Invoice")
                         .WithMany()

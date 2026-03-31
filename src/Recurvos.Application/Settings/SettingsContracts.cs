@@ -148,6 +148,12 @@ public sealed class UpdatePlatformWhatsAppSettingsRequest
 
     [MaxLength(100)]
     public string? Template { get; set; }
+
+    [Range(0, 23)]
+    public int SendWindowStartHourUtc { get; set; } = 9;
+
+    [Range(0, 23)]
+    public int SendWindowEndHourUtc { get; set; } = 18;
 }
 
 public sealed class PlatformWhatsAppTestMessageRequest
@@ -251,12 +257,18 @@ public sealed record PlatformWhatsAppSettingsDto(
     string? AccessToken,
     string? SenderId,
     string? Template,
+    int SendWindowStartHourUtc,
+    int SendWindowEndHourUtc,
     bool IsReady,
     string SessionStatus,
     string? SessionPhone,
     DateTime? SessionLastSyncedAtUtc,
     string? SessionQrCodeDataUrl,
-    string? SessionLastError);
+    string? SessionLastError,
+    int PendingQueueCount,
+    int DeferredQueueCount,
+    int FailedQueueCount,
+    DateTime? NextQueueAttemptAtUtc);
 
 public sealed record PlatformWhatsAppTestMessageResultDto(
     bool Success,

@@ -49,6 +49,21 @@ public sealed record FailedWhatsAppNotificationDto(
     bool IsReminder,
     string? ErrorMessage,
     DateTime CreatedAtUtc);
+public sealed record PlatformWhatsAppQueueItemDto(
+    Guid Id,
+    Guid CompanyId,
+    string CompanyName,
+    Guid InvoiceId,
+    string InvoiceNumber,
+    string CustomerName,
+    string RecipientPhoneNumber,
+    bool IsReminder,
+    string Status,
+    int AttemptCount,
+    DateTime CreatedAtUtc,
+    DateTime? LastAttemptAtUtc,
+    DateTime? NextAttemptAtUtc,
+    string? ErrorMessage);
 public sealed record AuditLogEntryDto(
     Guid Id,
     Guid CompanyId,
@@ -221,6 +236,9 @@ public interface IPlatformService
     Task<PlatformPackageDto> UpdatePackageAsync(Guid id, UpdatePlatformPackageRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<EmailDispatchLogDto>> GetEmailLogsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<FailedWhatsAppNotificationDto>> GetFailedWhatsAppNotificationsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<PlatformWhatsAppQueueItemDto>> GetWhatsAppQueueItemsAsync(CancellationToken cancellationToken = default);
+    Task<PlatformWhatsAppQueueItemDto> RetryWhatsAppQueueItemAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<PlatformWhatsAppQueueItemDto> CancelWhatsAppQueueItemAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<AuditLogEntryDto>> GetAuditLogsAsync(int take = 100, CancellationToken cancellationToken = default);
     Task<FactoryResetResult> FactoryResetAsync(FactoryResetRequest request, CancellationToken cancellationToken = default);
 }

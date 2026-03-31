@@ -30,6 +30,10 @@ public sealed class HangfireBootstrapService(
             "send-invoice-reminders",
             job => job.ExecuteAsync(),
             Cron.Daily);
+        recurringJobManager.AddOrUpdate<ProcessWhatsAppQueueJob>(
+            "process-whatsapp-queue",
+            job => job.ExecuteAsync(),
+            Cron.Minutely);
         recurringJobManager.AddOrUpdate<RetryFailedPaymentsJob>(
             "retry-failed-payments",
             job => job.ExecuteAsync(),

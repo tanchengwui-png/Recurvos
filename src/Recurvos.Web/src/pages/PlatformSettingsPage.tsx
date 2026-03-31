@@ -4,7 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatUploadSizeLabel } from "../lib/uploads";
-import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformStripeSettings, PlatformStripeTestResult, PlatformUploadPolicy, PlatformWhatsAppSettings } from "../types";
+import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformStripeSettings, PlatformStripeTestResult, PlatformUploadPolicy, PlatformWhatsAppQueueItem, PlatformWhatsAppSettings } from "../types";
 
 const platformJobs = [
   {
@@ -26,6 +26,11 @@ const platformJobs = [
     key: "send-invoice-reminders",
     name: "Send invoice reminders",
     description: "Run the reminder flow immediately using the current email and WhatsApp settings.",
+  },
+  {
+    key: "process-whatsapp-queue",
+    name: "Process WhatsApp queue",
+    description: "Drain queued WhatsApp reminder work immediately instead of waiting for the next minutely run.",
   },
   {
     key: "retry-failed-payments",
@@ -78,6 +83,8 @@ export function PlatformSettingsPage() {
   const [savedStripeSettings, setSavedStripeSettings] = useState<PlatformStripeSettings | null>(null);
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
   const [savedUploadPolicy, setSavedUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
+  const [whatsAppQueueItems, setWhatsAppQueueItems] = useState<PlatformWhatsAppQueueItem[]>([]);
+  const [whatsAppQueueFilter, setWhatsAppQueueFilter] = useState<"all" | "pending" | "deferred" | "failed" | "cancelled">("all");
   const [jobStatuses, setJobStatuses] = useState<PlatformJobStatus[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -125,13 +132,20 @@ export function PlatformSettingsPage() {
     ? formatDocumentNumber(documentNumbering.receiptPrefix, documentNumbering.receiptNextNumber, documentNumbering.receiptMinimumDigits)
     : "";
   const activeGatewayProvider = stripeSettings?.useAsActiveProvider ? "stripe" : billplzSettings?.isActiveProvider ? "billplz" : "billplz";
+  const filteredWhatsAppQueueItems = whatsAppQueueItems.filter((item) => {
+    if (whatsAppQueueFilter === "all") {
+      return true;
+    }
+
+    return item.status.toLowerCase() === whatsAppQueueFilter;
+  });
 
   useEffect(() => {
     void load();
   }, [editingEnvironment]);
 
   useEffect(() => {
-    if (activeSection !== "jobs") {
+    if (activeSection !== "jobs" && activeSection !== "whatsapp") {
       return;
     }
 
@@ -139,9 +153,13 @@ export function PlatformSettingsPage() {
 
     async function refreshJobs() {
       try {
-        const jobs = await api.get<PlatformJobStatus[]>("/platform/jobs");
+        const [jobs, queueItems] = await Promise.all([
+          api.get<PlatformJobStatus[]>("/platform/jobs"),
+          api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
+        ]);
         if (!isDisposed) {
           setJobStatuses(jobs);
+          setWhatsAppQueueItems(queueItems);
         }
       } catch {
         // Keep the current screen state if a polling request fails.
@@ -162,7 +180,7 @@ export function PlatformSettingsPage() {
   async function load() {
     setError("");
 
-    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, stripeResult, uploadPolicyResult, jobsResult] = await Promise.allSettled([
+    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, stripeResult, uploadPolicyResult, jobsResult, whatsAppQueueResult] = await Promise.allSettled([
       api.get<PlatformRuntimeProfile>("/settings/platform-runtime-profile"),
       api.get<PlatformIssuerSettings>(`/settings/platform-issuer?environment=${editingEnvironment}`),
       api.get<PlatformDocumentNumberingSettings>("/settings/platform-document-numbering"),
@@ -173,6 +191,7 @@ export function PlatformSettingsPage() {
       api.get<PlatformStripeSettings>(`/settings/platform-stripe?environment=${editingEnvironment}`),
       api.get<PlatformUploadPolicy>("/settings/platform-upload-policy"),
       api.get<PlatformJobStatus[]>("/platform/jobs"),
+      api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
     ]);
 
     if (runtimeProfileResult.status === "fulfilled") {
@@ -220,6 +239,10 @@ export function PlatformSettingsPage() {
 
     if (jobsResult.status === "fulfilled") {
       setJobStatuses(jobsResult.value);
+    }
+
+    if (whatsAppQueueResult.status === "fulfilled") {
+      setWhatsAppQueueItems(whatsAppQueueResult.value);
     }
 
     const failedSections: string[] = [];
@@ -1137,6 +1160,32 @@ export function PlatformSettingsPage() {
                 </div>
               </div>
             </div>
+            <div className="inline-fields settings-inline-fields-wide">
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Queued</strong>
+                  <p className="muted">{whatsAppSettings.pendingQueueCount}</p>
+                </div>
+              </div>
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Deferred</strong>
+                  <p className="muted">{whatsAppSettings.deferredQueueCount}</p>
+                </div>
+              </div>
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Failed</strong>
+                  <p className="muted">{whatsAppSettings.failedQueueCount}</p>
+                </div>
+              </div>
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Next queued send</strong>
+                  <p className="muted">{formatUtcDateTime(whatsAppSettings.nextQueueAttemptAtUtc)}</p>
+                </div>
+              </div>
+            </div>
             {whatsAppSettings.provider === "generic_api" ? (
               <>
                 <div className="inline-fields settings-inline-fields-wide">
@@ -1167,6 +1216,31 @@ export function PlatformSettingsPage() {
                 </div>
               </div>
             )}
+            <div className="inline-fields settings-inline-fields-wide">
+              <label className="form-label">
+                Send window start hour (UTC)
+                <input
+                  className="text-input"
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={whatsAppSettings.sendWindowStartHourUtc}
+                  onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, sendWindowStartHourUtc: Number(event.target.value) } : current)}
+                />
+              </label>
+              <label className="form-label">
+                Send window end hour (UTC)
+                <input
+                  className="text-input"
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={whatsAppSettings.sendWindowEndHourUtc}
+                  onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, sendWindowEndHourUtc: Number(event.target.value) } : current)}
+                />
+              </label>
+            </div>
+            <HelperText>Queued WhatsApp sends are only dispatched inside this UTC hour window. Use matching UTC hours for your operating timezone.</HelperText>
             <label className="form-label">
               Template name
               <input className="text-input" value={whatsAppSettings.template ?? ""} onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, template: event.target.value } : current)} placeholder="payment-reminder" />
@@ -1174,6 +1248,112 @@ export function PlatformSettingsPage() {
             {whatsAppSettings.provider === "whatsapp_web_js" ? (
               <HelperText>{`Current session status: ${formatSessionStatus(whatsAppSettings.sessionStatus)}${whatsAppSettings.sessionPhone ? ` | ${whatsAppSettings.sessionPhone}` : ""}`}</HelperText>
             ) : null}
+            <div className="platform-queue-table-shell">
+              <div className="platform-queue-table-header">
+                <strong>Recent queued WhatsApp work</strong>
+                <span className="muted">Newest 100 queue items</span>
+              </div>
+              <div className="platform-queue-filters">
+                {(["all", "pending", "deferred", "failed", "cancelled"] as const).map((filterKey) => (
+                  <button
+                    key={filterKey}
+                    type="button"
+                    className={`platform-queue-filter ${whatsAppQueueFilter === filterKey ? "platform-queue-filter-active" : ""}`}
+                    onClick={() => setWhatsAppQueueFilter(filterKey)}
+                  >
+                    {filterKey === "all" ? "All" : filterKey.charAt(0).toUpperCase() + filterKey.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {filteredWhatsAppQueueItems.length === 0 ? (
+                <p className="muted">No WhatsApp queue items yet.</p>
+              ) : (
+                <div className="platform-queue-table">
+                  <div className="platform-queue-row platform-queue-row-head">
+                    <span>Status</span>
+                    <span>Company</span>
+                    <span>Invoice</span>
+                    <span>Customer</span>
+                    <span>Attempts</span>
+                    <span>Next attempt</span>
+                    <span>Actions</span>
+                  </div>
+                  {filteredWhatsAppQueueItems.map((item) => (
+                    <div key={item.id} className="platform-queue-row">
+                      <span>{item.status}</span>
+                      <span>{item.companyName}</span>
+                      <span>{item.invoiceNumber}</span>
+                      <span>{item.customerName}</span>
+                      <span>{item.attemptCount}</span>
+                      <span>{formatUtcDateTime(item.nextAttemptAtUtc)}</span>
+                      <span className="platform-queue-actions">
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          disabled={item.status.toLowerCase() === "sent"}
+                          onClick={() => setConfirmState({
+                            title: "Retry WhatsApp queue item",
+                            description: `Requeue WhatsApp delivery for invoice ${item.invoiceNumber}?`,
+                            action: async () => {
+                              try {
+                                await api.post<PlatformWhatsAppQueueItem>(`/platform/whatsapp-queue/${item.id}/retry`, {});
+                                const [queueItems, updatedWhatsAppSettings] = await Promise.all([
+                                  api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
+                                  api.get<PlatformWhatsAppSettings>("/settings/platform-whatsapp"),
+                                ]);
+                                setWhatsAppQueueItems(queueItems);
+                                setWhatsAppSettings(updatedWhatsAppSettings);
+                                setSavedWhatsAppSettings(updatedWhatsAppSettings);
+                                setMessage(`WhatsApp queue item for ${item.invoiceNumber} requeued.`);
+                                setError("");
+                                setConfirmState(null);
+                              } catch (actionError) {
+                                setError(actionError instanceof Error ? actionError.message : "Unable to retry WhatsApp queue item.");
+                                setMessage("");
+                                setConfirmState(null);
+                              }
+                            },
+                          })}
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-ghost"
+                          disabled={item.status.toLowerCase() === "sent" || item.status.toLowerCase() === "cancelled"}
+                          onClick={() => setConfirmState({
+                            title: "Cancel WhatsApp queue item",
+                            description: `Cancel queued WhatsApp delivery for invoice ${item.invoiceNumber}?`,
+                            action: async () => {
+                              try {
+                                await api.post<PlatformWhatsAppQueueItem>(`/platform/whatsapp-queue/${item.id}/cancel`, {});
+                                const [queueItems, updatedWhatsAppSettings] = await Promise.all([
+                                  api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
+                                  api.get<PlatformWhatsAppSettings>("/settings/platform-whatsapp"),
+                                ]);
+                                setWhatsAppQueueItems(queueItems);
+                                setWhatsAppSettings(updatedWhatsAppSettings);
+                                setSavedWhatsAppSettings(updatedWhatsAppSettings);
+                                setMessage(`WhatsApp queue item for ${item.invoiceNumber} cancelled.`);
+                                setError("");
+                                setConfirmState(null);
+                              } catch (actionError) {
+                                setError(actionError instanceof Error ? actionError.message : "Unable to cancel WhatsApp queue item.");
+                                setMessage("");
+                                setConfirmState(null);
+                              }
+                            },
+                          })}
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                      {item.errorMessage ? <span className="platform-queue-error">{item.errorMessage}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="button button-primary"
@@ -1192,6 +1372,8 @@ export function PlatformSettingsPage() {
                       accessToken: whatsAppSettings.accessToken,
                       senderId: whatsAppSettings.senderId,
                       template: whatsAppSettings.template,
+                      sendWindowStartHourUtc: whatsAppSettings.sendWindowStartHourUtc,
+                      sendWindowEndHourUtc: whatsAppSettings.sendWindowEndHourUtc,
                     });
                     setSavedWhatsAppSettings(updated);
                     setWhatsAppSettings(updated);

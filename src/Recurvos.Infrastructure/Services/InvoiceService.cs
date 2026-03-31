@@ -1077,7 +1077,6 @@ public sealed class InvoiceService(
             .ToListAsync(cancellationToken);
 
         var emailReminderCache = new Dictionary<Guid, bool>();
-        CompanyInvoiceSettings? platformWhatsAppSettings = null;
         var subscriberWhatsAppEnabledCache = new Dictionary<Guid, bool>();
         var subscriberWhatsAppTemplateCache = new Dictionary<Guid, string?>();
         var whatsAppLimitCache = new Dictionary<Guid, int>();
@@ -1139,14 +1138,6 @@ public sealed class InvoiceService(
                     }
                 }
 
-                if (platformWhatsAppSettings is null)
-                {
-                    platformWhatsAppSettings = await dbContext.Companies
-                        .Where(x => x.IsPlatformAccount)
-                        .Select(x => x.InvoiceSettings)
-                        .FirstOrDefaultAsync(cancellationToken);
-                }
-
                 if (!subscriberWhatsAppEnabledCache.TryGetValue(schedule.CompanyId, out var subscriberWhatsAppEnabled))
                 {
                     var subscriberSettings = await dbContext.CompanyInvoiceSettings
@@ -1161,10 +1152,7 @@ public sealed class InvoiceService(
                 var whatsappNotificationsEnabled = await featureEntitlementService.CompanyHasFeatureAsync(schedule.CompanyId, PlatformFeatureKeys.WhatsAppNotifications, cancellationToken);
 
                 if (whatsappNotificationsEnabled
-                    && platformWhatsAppSettings is not null
-                    && platformWhatsAppSettings.WhatsAppEnabled
                     && subscriberWhatsAppEnabled
-                    && PlatformWhatsAppIsReady(platformWhatsAppSettings)
                     && schedule.Invoice is not null
                     && !string.IsNullOrWhiteSpace(schedule.Invoice.Customer!.PhoneNumber))
                 {
@@ -1187,59 +1175,20 @@ public sealed class InvoiceService(
                     {
                         if (!whatsAppUsageCache.TryGetValue(schedule.CompanyId, out var monthlyUsage))
                         {
-                            var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                            monthlyUsage = await dbContext.WhatsAppNotifications
-                                .CountAsync(x => x.CompanyId == schedule.CompanyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc, cancellationToken);
+                            monthlyUsage = await GetReservedWhatsAppUsageAsync(schedule.CompanyId, cancellationToken);
                             whatsAppUsageCache[schedule.CompanyId] = monthlyUsage;
                         }
 
                         if (monthlyUsage < monthlyLimit)
                         {
-                            var company = await dbContext.Companies.FirstAsync(x => x.Id == schedule.CompanyId, cancellationToken);
-                            var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(schedule.Invoice, cancellationToken);
-                            var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(schedule.Invoice, cancellationToken);
-                            var actionLink = paymentGatewayLink ?? paymentConfirmationLink ?? (await EnsureCompanyInvoiceSettingsAsync(schedule.CompanyId, cancellationToken))?.PaymentLink;
-
-                            var result = await platformWhatsAppGateway.SendAsync(
-                                platformWhatsAppSettings.CompanyId,
-                                new PlatformWhatsAppConfiguration(
-                                    platformWhatsAppSettings.WhatsAppEnabled,
-                                    string.IsNullOrWhiteSpace(platformWhatsAppSettings.WhatsAppProvider) ? "generic_api" : platformWhatsAppSettings.WhatsAppProvider,
-                                    platformWhatsAppSettings.WhatsAppApiUrl,
-                                    platformWhatsAppSettings.WhatsAppAccessToken,
-                                    platformWhatsAppSettings.WhatsAppSenderId,
-                                    platformWhatsAppSettings.WhatsAppTemplate,
-                                    platformWhatsAppSettings.WhatsAppSessionStatus,
-                                    platformWhatsAppSettings.WhatsAppSessionPhone,
-                                    platformWhatsAppSettings.WhatsAppSessionLastSyncedAtUtc),
-                                NormalizePhoneNumber(schedule.Invoice.Customer.PhoneNumber),
-                                BuildWhatsAppReminderMessage(
-                                    company.Name,
-                                    schedule.Invoice.Customer.Name,
-                                    schedule.Invoice.InvoiceNumber,
-                                    schedule.Invoice.AmountDue,
-                                    schedule.Invoice.Currency,
-                                    schedule.Invoice.DueDateUtc,
-                                    actionLink,
-                                    paymentGatewayLink,
-                                    paymentConfirmationLink,
-                                    subscriberWhatsAppTemplateCache.GetValueOrDefault(schedule.CompanyId)),
-                                platformWhatsAppSettings.WhatsAppTemplate,
-                                schedule.Invoice.InvoiceNumber,
+                            var queued = await TryQueueInvoiceWhatsAppAsync(
+                                schedule.Invoice,
+                                schedule.Invoice.Customer,
+                                schedule.Id,
+                                subscriberWhatsAppTemplateCache.GetValueOrDefault(schedule.CompanyId),
                                 cancellationToken);
 
-                            dbContext.WhatsAppNotifications.Add(new WhatsAppNotification
-                            {
-                                CompanyId = schedule.CompanyId,
-                                InvoiceId = schedule.Invoice.Id,
-                                ReminderScheduleId = schedule.Id,
-                                RecipientPhoneNumber = NormalizePhoneNumber(schedule.Invoice.Customer.PhoneNumber),
-                                Status = result.Success ? "Sent" : "Failed",
-                                ExternalMessageId = result.ExternalMessageId,
-                                ErrorMessage = result.ErrorMessage,
-                            });
-
-                            if (result.Success)
+                            if (queued)
                             {
                                 whatsAppUsageCache[schedule.CompanyId] = monthlyUsage + 1;
                                 whatsAppInvoiceIds.Add(schedule.Invoice.Id);
@@ -1489,49 +1438,65 @@ public sealed class InvoiceService(
             return;
         }
 
-        var platformWhatsAppSettings = await dbContext.Companies
-            .Where(x => x.IsPlatformAccount)
-            .Select(x => x.InvoiceSettings)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (platformWhatsAppSettings is null || !PlatformWhatsAppIsReady(platformWhatsAppSettings))
-        {
-            return;
-        }
-
         var monthlyLimit = await packageLimitService.GetWhatsAppReminderMonthlyLimitAsync(invoice.CompanyId, cancellationToken);
         if (monthlyLimit <= 0)
         {
             return;
         }
 
-        var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var monthlyUsage = await dbContext.WhatsAppNotifications
-            .CountAsync(x => x.CompanyId == invoice.CompanyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc, cancellationToken);
+        var monthlyUsage = await GetReservedWhatsAppUsageAsync(invoice.CompanyId, cancellationToken);
         if (monthlyUsage >= monthlyLimit)
         {
             return;
         }
 
-        var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
-        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
-        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
-        var actionLink = paymentGatewayLink ?? paymentConfirmationLink ?? subscriberSettings?.PaymentLink;
+        await TryQueueInvoiceWhatsAppAsync(invoice, customer, null, subscriberSettings?.WhatsAppTemplate, cancellationToken);
+    }
+
+    private async Task<bool> TryQueueInvoiceWhatsAppAsync(
+        Invoice invoice,
+        Customer customer,
+        Guid? reminderScheduleId,
+        string? customTemplate,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(customer.PhoneNumber))
+        {
+            return false;
+        }
 
         var normalizedPhone = NormalizePhoneNumber(customer.PhoneNumber);
-        var result = await platformWhatsAppGateway.SendAsync(
-            platformWhatsAppSettings.CompanyId,
-            new PlatformWhatsAppConfiguration(
-                platformWhatsAppSettings.WhatsAppEnabled,
-                string.IsNullOrWhiteSpace(platformWhatsAppSettings.WhatsAppProvider) ? "generic_api" : platformWhatsAppSettings.WhatsAppProvider,
-                platformWhatsAppSettings.WhatsAppApiUrl,
-                platformWhatsAppSettings.WhatsAppAccessToken,
-                platformWhatsAppSettings.WhatsAppSenderId,
-                platformWhatsAppSettings.WhatsAppTemplate,
-                platformWhatsAppSettings.WhatsAppSessionStatus,
-                platformWhatsAppSettings.WhatsAppSessionPhone,
-                platformWhatsAppSettings.WhatsAppSessionLastSyncedAtUtc),
-            normalizedPhone,
-            BuildWhatsAppReminderMessage(
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            return false;
+        }
+
+        var existingQueued = await dbContext.WhatsAppOutboundQueues.AnyAsync(
+            x => x.CompanyId == invoice.CompanyId
+                && x.InvoiceId == invoice.Id
+                && x.ReminderScheduleId == reminderScheduleId
+                && (x.Status == "Pending" || x.Status == "Deferred" || x.Status == "Sending"),
+            cancellationToken);
+
+        if (existingQueued)
+        {
+            return true;
+        }
+
+        var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
+        var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
+        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
+        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        var actionLink = paymentGatewayLink ?? paymentConfirmationLink ?? invoiceSettings?.PaymentLink;
+        var delaySeconds = Random.Shared.Next(20, 91);
+
+        dbContext.WhatsAppOutboundQueues.Add(new WhatsAppOutboundQueue
+        {
+            CompanyId = invoice.CompanyId,
+            InvoiceId = invoice.Id,
+            ReminderScheduleId = reminderScheduleId,
+            RecipientPhoneNumber = normalizedPhone,
+            Message = BuildWhatsAppReminderMessage(
                 company.Name,
                 customer.Name,
                 invoice.InvoiceNumber,
@@ -1541,26 +1506,31 @@ public sealed class InvoiceService(
                 actionLink,
                 paymentGatewayLink,
                 paymentConfirmationLink,
-                subscriberSettings?.WhatsAppTemplate),
-            platformWhatsAppSettings.WhatsAppTemplate,
-            invoice.InvoiceNumber,
-            cancellationToken);
-
-        dbContext.WhatsAppNotifications.Add(new WhatsAppNotification
-        {
-            CompanyId = invoice.CompanyId,
-            InvoiceId = invoice.Id,
-            RecipientPhoneNumber = normalizedPhone,
-            Status = result.Success ? "Sent" : "Failed",
-            ExternalMessageId = result.ExternalMessageId,
-            ErrorMessage = result.ErrorMessage,
+                customTemplate),
+            Template = customTemplate,
+            Reference = invoice.InvoiceNumber,
+            Status = "Pending",
+            NotBeforeUtc = DateTime.UtcNow.AddSeconds(delaySeconds),
+            NextAttemptAtUtc = DateTime.UtcNow.AddSeconds(delaySeconds)
         });
-        await dbContext.SaveChangesAsync(cancellationToken);
 
-        if (result.Success)
-        {
-            await auditService.WriteAsync("invoice.whatsapp-auto-sent", nameof(Invoice), invoice.Id.ToString(), invoice.CompanyId, invoice.InvoiceNumber, cancellationToken);
-        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    private async Task<int> GetReservedWhatsAppUsageAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var sentCount = await dbContext.WhatsAppNotifications
+            .CountAsync(x => x.CompanyId == companyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc, cancellationToken);
+        var queuedCount = await dbContext.WhatsAppOutboundQueues
+            .CountAsync(
+                x => x.CompanyId == companyId
+                    && (x.Status == "Pending" || x.Status == "Deferred" || x.Status == "Sending")
+                    && x.CreatedAtUtc >= monthStartUtc,
+                cancellationToken);
+
+        return sentCount + queuedCount;
     }
 
     private async Task SendInvoiceEmailAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)

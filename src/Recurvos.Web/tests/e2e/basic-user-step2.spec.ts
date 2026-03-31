@@ -310,7 +310,7 @@ async function createCustomer(page: Page, details: { name: string }) {
   await page.getByLabel(/^name$/i).fill(details.name);
   await page.getByLabel(/^email$/i).fill(sharedContactEmail);
   await page.getByLabel(/^phone$/i).fill(sharedPhoneNumber);
-  await page.getByLabel(/billing address/i).fill(customerAddress);
+  await page.locator('input[name="billingAddress"]').fill(customerAddress);
   await page.getByRole("button", { name: /^save$/i }).click();
   await confirmModal(page);
   await expect(page.locator(".customer-table")).toContainText(details.name);

@@ -51,5 +51,5 @@ test("signup flow submits successfully", async ({ page }) => {
 
   await expect(successHeading).toBeVisible();
   await expect(page.getByText(signupEmail, { exact: false })).toBeVisible();
-  await expect(page.getByText(/verification link/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /resend verification email/i })).toBeVisible();
 });

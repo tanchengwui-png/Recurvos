@@ -483,12 +483,18 @@ export type PlatformWhatsAppSettings = {
   accessToken?: string | null;
   senderId?: string | null;
   template?: string | null;
+  sendWindowStartHourUtc: number;
+  sendWindowEndHourUtc: number;
   isReady: boolean;
   sessionStatus: string;
   sessionPhone?: string | null;
   sessionLastSyncedAtUtc?: string | null;
   sessionQrCodeDataUrl?: string | null;
   sessionLastError?: string | null;
+  pendingQueueCount: number;
+  deferredQueueCount: number;
+  failedQueueCount: number;
+  nextQueueAttemptAtUtc?: string | null;
 };
 
 export type PlatformWhatsAppTestMessageResult = {
@@ -508,6 +514,23 @@ export type FailedWhatsAppNotification = {
   isReminder: boolean;
   errorMessage?: string | null;
   createdAtUtc: string;
+};
+
+export type PlatformWhatsAppQueueItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  recipientPhoneNumber: string;
+  isReminder: boolean;
+  status: string;
+  attemptCount: number;
+  createdAtUtc: string;
+  lastAttemptAtUtc?: string | null;
+  nextAttemptAtUtc?: string | null;
+  errorMessage?: string | null;
 };
 
 export type WhatsAppRetryResult = {

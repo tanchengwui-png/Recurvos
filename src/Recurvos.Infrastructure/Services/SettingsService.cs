@@ -262,6 +262,8 @@ public sealed class SettingsService(
         settings.WhatsAppAccessToken = string.IsNullOrWhiteSpace(request.AccessToken) ? null : request.AccessToken.Trim();
         settings.WhatsAppSenderId = string.IsNullOrWhiteSpace(request.SenderId) ? null : request.SenderId.Trim();
         settings.WhatsAppTemplate = string.IsNullOrWhiteSpace(request.Template) ? null : request.Template.Trim();
+        settings.WhatsAppSendWindowStartHourUtc = NormalizeHour(request.SendWindowStartHourUtc);
+        settings.WhatsAppSendWindowEndHourUtc = NormalizeHour(request.SendWindowEndHourUtc);
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("settings.platform-whatsapp.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), settings.WhatsAppSenderId, cancellationToken);
         return await BuildPlatformWhatsAppSettingsDtoAsync(settings, refreshSession: true, cancellationToken);
@@ -278,7 +280,7 @@ public sealed class SettingsService(
 
         var snapshot = await platformWhatsAppGateway.ConnectAsync(settings.CompanyId, BuildPlatformWhatsAppConfiguration(settings), cancellationToken);
         await ApplyPlatformWhatsAppSnapshotAsync(settings, snapshot, cancellationToken);
-        return MapPlatformWhatsAppSettings(settings, snapshot);
+        return await MapPlatformWhatsAppSettingsAsync(settings, snapshot, cancellationToken);
     }
 
     public async Task<PlatformWhatsAppSettingsDto> DisconnectPlatformWhatsAppSessionAsync(CancellationToken cancellationToken = default)
@@ -287,7 +289,7 @@ public sealed class SettingsService(
         var settings = await EnsurePlatformInvoiceSettingsAsync(cancellationToken);
         var snapshot = await platformWhatsAppGateway.DisconnectAsync(settings.CompanyId, BuildPlatformWhatsAppConfiguration(settings), cancellationToken);
         await ApplyPlatformWhatsAppSnapshotAsync(settings, snapshot, cancellationToken);
-        return MapPlatformWhatsAppSettings(settings, snapshot);
+        return await MapPlatformWhatsAppSettingsAsync(settings, snapshot, cancellationToken);
     }
 
     public async Task<PlatformWhatsAppSettingsDto> RefreshPlatformWhatsAppSessionAsync(CancellationToken cancellationToken = default)
@@ -1190,7 +1192,7 @@ public sealed class SettingsService(
             }
         }
 
-        return MapPlatformWhatsAppSettings(settings, snapshot);
+        return await MapPlatformWhatsAppSettingsAsync(settings, snapshot, cancellationToken);
     }
 
     private async Task ApplyPlatformWhatsAppSnapshotAsync(CompanyInvoiceSettings settings, PlatformWhatsAppSessionSnapshot snapshot, CancellationToken cancellationToken)
@@ -1209,11 +1211,11 @@ public sealed class SettingsService(
             settings.WhatsAppAccessToken,
             settings.WhatsAppSenderId,
             settings.WhatsAppTemplate,
-            settings.WhatsAppSessionStatus,
-            settings.WhatsAppSessionPhone,
-            settings.WhatsAppSessionLastSyncedAtUtc);
+                settings.WhatsAppSessionStatus,
+                settings.WhatsAppSessionPhone,
+                settings.WhatsAppSessionLastSyncedAtUtc);
 
-    private static PlatformWhatsAppSettingsDto MapPlatformWhatsAppSettings(CompanyInvoiceSettings settings, PlatformWhatsAppSessionSnapshot? snapshot = null)
+    private async Task<PlatformWhatsAppSettingsDto> MapPlatformWhatsAppSettingsAsync(CompanyInvoiceSettings settings, PlatformWhatsAppSessionSnapshot? snapshot = null, CancellationToken cancellationToken = default)
     {
         var provider = NormalizeWhatsAppProvider(settings.WhatsAppProvider);
         var sessionStatus = snapshot?.Status ?? (string.IsNullOrWhiteSpace(settings.WhatsAppSessionStatus) ? "not_connected" : settings.WhatsAppSessionStatus.Trim().ToLowerInvariant());
@@ -1227,6 +1229,21 @@ public sealed class SettingsService(
                 && !string.IsNullOrWhiteSpace(settings.WhatsAppSenderId),
             _ => false,
         });
+        var queueSummary = await dbContext.WhatsAppOutboundQueues
+            .Where(x => x.CompanyId == settings.CompanyId)
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                PendingCount = group.Count(x => x.Status == "Pending"),
+                DeferredCount = group.Count(x => x.Status == "Deferred"),
+                FailedCount = group.Count(x => x.Status == "Failed"),
+                NextAttemptAtUtc = group
+                    .Where(x => x.Status == "Pending" || x.Status == "Deferred")
+                    .Select(x => (DateTime?)(x.NextAttemptAtUtc ?? x.NotBeforeUtc))
+                    .OrderBy(x => x)
+                    .FirstOrDefault()
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
         return new(
             settings.WhatsAppEnabled,
@@ -1235,13 +1252,21 @@ public sealed class SettingsService(
             settings.WhatsAppAccessToken,
             settings.WhatsAppSenderId,
             settings.WhatsAppTemplate,
+            NormalizeHour(settings.WhatsAppSendWindowStartHourUtc),
+            NormalizeHour(settings.WhatsAppSendWindowEndHourUtc),
             ready,
             sessionStatus,
             sessionPhone,
             sessionLastSyncedAtUtc,
             snapshot?.QrCodeDataUrl,
-            snapshot?.LastError);
+            snapshot?.LastError,
+            queueSummary?.PendingCount ?? 0,
+            queueSummary?.DeferredCount ?? 0,
+            queueSummary?.FailedCount ?? 0,
+            queueSummary?.NextAttemptAtUtc);
     }
+
+    private static int NormalizeHour(int value) => Math.Clamp(value, 0, 23);
 
     private static string NormalizeWhatsAppProvider(string? value)
     {

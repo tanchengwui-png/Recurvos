@@ -48,6 +48,8 @@ public sealed class CompanyInvoiceSettings
     public string? WhatsAppAccessToken { get; set; }
     public string? WhatsAppSenderId { get; set; }
     public string? WhatsAppTemplate { get; set; }
+    public int WhatsAppSendWindowStartHourUtc { get; set; } = 9;
+    public int WhatsAppSendWindowEndHourUtc { get; set; } = 18;
     public string? WhatsAppSessionStatus { get; set; }
     public string? WhatsAppSessionPhone { get; set; }
     public DateTime? WhatsAppSessionLastSyncedAtUtc { get; set; }

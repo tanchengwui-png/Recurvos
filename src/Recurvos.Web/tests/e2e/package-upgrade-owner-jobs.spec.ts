@@ -268,6 +268,10 @@ async function createPlan(
     intervalCount?: string;
   },
 ) {
+  if (await page.locator(".plans-table").getByText(details.planName, { exact: false }).first().isVisible().catch(() => false)) {
+    return;
+  }
+
   await page.locator("#plan-product").selectOption({ label: details.productName });
   await page.locator("#plan-name").fill(details.planName);
   await page.locator("#plan-code").fill(details.planCode);
@@ -279,14 +283,33 @@ async function createPlan(
   await page.locator("#plan-amount").fill(details.amount);
   await page.getByRole("button", { name: /^create plan$/i }).click();
   await confirmModal(page);
-  await expect(page.locator(".plans-table tbody tr").filter({ hasText: details.planName }).first()).toBeVisible({ timeout: 15000 });
+  const immediateError = await firstVisibleText(page.locator(".helper-text-error, .helper-text.helper-text-error, [role='alert']"));
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+  await page.reload();
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+
+  if (await page.locator(".plans-table").getByText(details.planName, { exact: false }).first().isVisible().catch(() => false)) {
+    return;
+  }
+
+  const plansResult = await getJson<{ items: Array<{ planName: string; planCode: string }> }>(page, "/api/product-plans?page=1&pageSize=100");
+  const plans = Array.isArray(plansResult) ? plansResult : plansResult.items ?? [];
+  if (plans.some((plan) => plan.planName === details.planName || plan.planCode === details.planCode)) {
+    return;
+  }
+
+  const reloadedError = await firstVisibleText(page.locator(".helper-text-error, .helper-text.helper-text-error, [role='alert']"));
+  const limitText = await firstVisibleText(page.getByText(/package limit|limit reached|max plans|upgrade/i));
+  throw new Error(
+    `Plan creation did not succeed for ${details.planName}. Visible error: ${immediateError || reloadedError || "none"}. Limit hint: ${limitText || "none"}. Current plans: ${plans.length}`,
+  );
 }
 
 async function createCustomer(page: Page, customerName: string) {
   await page.getByLabel(/^name$/i).fill(customerName);
   await page.getByLabel(/^email$/i).fill(contactEmail);
   await page.getByLabel(/^phone$/i).fill(contactPhone);
-  await page.getByLabel(/billing address/i).fill(customerAddress);
+  await page.locator('input[name="billingAddress"]').fill(customerAddress);
   await page.getByRole("button", { name: /^save$/i }).click();
   await confirmModal(page);
   await expect(page.locator(".customer-table tbody tr").filter({ hasText: customerName }).first()).toBeVisible({ timeout: 15000 });
@@ -335,6 +358,21 @@ async function confirmModal(page: Page, confirmName: RegExp = /^confirm$/i) {
   const confirmButton = dialog.getByRole("button", { name: confirmName });
   await expect(confirmButton).toBeVisible();
   await confirmButton.click();
+}
+
+async function firstVisibleText(locator: Locator) {
+  const count = await locator.count();
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (await candidate.isVisible().catch(() => false)) {
+      const text = await candidate.innerText().catch(() => "");
+      if (text.trim()) {
+        return text.trim();
+      }
+    }
+  }
+
+  return "";
 }
 
 async function fetchSubscriberPackageSummary(page: Page) {
