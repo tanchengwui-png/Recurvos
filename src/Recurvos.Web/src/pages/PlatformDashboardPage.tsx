@@ -123,7 +123,7 @@ export function PlatformDashboardPage() {
               <div className="card-section-header">
                 <div>
                   <p className="eyebrow">Usage footprint</p>
-                  <h3 className="section-title">How subscriber accounts are using Recurvo</h3>
+                  <h3 className="section-title">How subscriber accounts are using Recurvos</h3>
                 </div>
               </div>
               <div className="platform-dashboard-stat-list">

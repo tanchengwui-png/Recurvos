@@ -290,8 +290,8 @@ export function AppShell() {
             <span />
           </div>
           <div>
-            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvo Platform" : "Recurvo Billing"}</p>
-            <h1 className="sidebar-title">{auth?.isPlatformOwner ? "Platform" : "Recurvo"}</h1>
+            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Billing"}</p>
+            <h1 className="sidebar-title">{auth?.isPlatformOwner ? "Platform" : "Recurvos"}</h1>
           </div>
         </div>
         <button
@@ -328,7 +328,7 @@ export function AppShell() {
           )}
           <p className="sidebar-helper">
             {auth?.isPlatformOwner
-              ? "Manage subscriber businesses across the Recurvo platform"
+              ? "Manage subscriber businesses across the Recurvos platform"
               : "Manage subscriptions, invoices, and payments in one place"}
           </p>
         </div>
@@ -415,7 +415,7 @@ export function AppShell() {
             <span />
           </button>
           <div className="mobile-appbar-copy">
-            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvo Platform" : "Recurvo Billing"}</p>
+            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Billing"}</p>
             <strong>{currentPageLabel}</strong>
             <span className="mobile-appbar-subtitle">{auth?.isPlatformOwner ? auth?.companyName : auth?.companyName ?? "Account"}</span>
           </div>
@@ -481,7 +481,7 @@ export function AppShell() {
       <ConfirmModal
         open={showSignOutConfirm}
         title="Sign out"
-        description="Sign out of your current Recurvo session?"
+        description="Sign out of your current Recurvos session?"
         confirmLabel="Sign out"
         onConfirm={() => {
           setAuth(null);

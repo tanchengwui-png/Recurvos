@@ -90,7 +90,7 @@ export function LoginPage() {
               <span />
             </div>
             <div>
-              <p className="eyebrow">Recurvo Billing</p>
+              <p className="eyebrow">Recurvos Billing</p>
               <h1 className="brand-title">Automate invoices, subscriptions, and recurring billing for Malaysian businesses.</h1>
             </div>
           </a>

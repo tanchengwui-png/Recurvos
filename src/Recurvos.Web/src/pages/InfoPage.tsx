@@ -9,7 +9,7 @@ type InfoSection = {
 };
 
 export function InfoPage({
-  eyebrow = "Recurvo",
+  eyebrow = "Recurvos",
   title,
   subtitle,
   sections,

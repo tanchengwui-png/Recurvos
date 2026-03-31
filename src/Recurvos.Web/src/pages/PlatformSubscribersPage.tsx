@@ -57,7 +57,7 @@ export function PlatformSubscribersPage() {
       <header className="page-header">
         <div>
           <p className="eyebrow">Subscriber businesses</p>
-          <h2>Companies on Recurvo</h2>
+          <h2>Companies on Recurvos</h2>
         </div>
       </header>
       {error ? <HelperText tone="error">{error}</HelperText> : null}

@@ -211,7 +211,7 @@ export function DashboardPage() {
                 <div>
                   <p className="eyebrow">Get set up</p>
                   <h3 className="section-title">{`${completedSetupSteps} of ${enabledSetupSteps.length} operational steps completed`}</h3>
-                  <p className="muted">Follow the normal Recurvo billing flow from company profile to first payment collection.</p>
+                  <p className="muted">Follow the normal Recurvos billing flow from company profile to first payment collection.</p>
                 </div>
                 <div className="dashboard-quick-filters">
                   <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>

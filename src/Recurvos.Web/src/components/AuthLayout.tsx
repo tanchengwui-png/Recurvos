@@ -25,8 +25,8 @@ export function AuthLayout({
             <span />
           </div>
           <div>
-            <p className="eyebrow">Recurvo Billing</p>
-            <h1 className="brand-title">Recurvo</h1>
+            <p className="eyebrow">Recurvos Billing</p>
+            <h1 className="brand-title">Recurvos</h1>
           </div>
         </div>
 
