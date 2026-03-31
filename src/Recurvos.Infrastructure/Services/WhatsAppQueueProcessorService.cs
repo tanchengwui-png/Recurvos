@@ -245,7 +245,7 @@ public sealed class WhatsAppQueueProcessorService(
     {
         var amountText = $"{currency} {amountDue:0.00}";
         var template = string.IsNullOrWhiteSpace(customTemplate)
-            ? "Hi {CustomerName}, this is a payment reminder for invoice {InvoiceNumber} from {CompanyName}. Amount due: {AmountDue}. Due date: {DueDate}."
+            ? "Hi {CustomerName},\n\nThis is a friendly reminder from {CompanyName}.\nInvoice {InvoiceNumber} for {AmountDue} is due on {DueDate}.\nPayment confirmation link: {ActionLink}\n\nIf payment has already been made, please ignore this message. Thank you."
             : customTemplate;
 
         var message = template
