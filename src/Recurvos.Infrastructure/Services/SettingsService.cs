@@ -143,8 +143,14 @@ public sealed class SettingsService(
             .Include(x => x.Invoice)
                 .ThenInclude(x => x!.Customer)
             .Where(x => x.CompanyId == resolvedCompanyId)
-            .OrderByDescending(x => x.CreatedAtUtc)
-            .Take(10)
+            .OrderBy(x => x.Status == "Pending" ? 0
+                : x.Status == "Deferred" ? 1
+                : x.Status == "Failed" ? 2
+                : x.Status == "Sending" ? 3
+                : x.Status == "Cancelled" ? 4
+                : 5)
+            .ThenByDescending(x => x.NextAttemptAtUtc ?? x.CreatedAtUtc)
+            .Take(5)
             .Select(x => new SubscriberWhatsAppQueueItemDto(
                 x.Id,
                 x.InvoiceId,
