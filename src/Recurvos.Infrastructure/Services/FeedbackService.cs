@@ -271,8 +271,8 @@ public sealed class FeedbackService(
 
         var actionUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/feedback";
         var intro = string.IsNullOrWhiteSpace(item.AdminNote)
-            ? $"There is an update on your feedback \"{item.Subject}\". Open Recurvo to view the latest status."
-            : $"There is a new platform reply on your feedback \"{item.Subject}\". Open Recurvo to read the reply and current status.";
+            ? $"There is an update on your feedback \"{item.Subject}\". Open Recurvos to view the latest status."
+            : $"There is a new platform reply on your feedback \"{item.Subject}\". Open Recurvos to read the reply and current status.";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "Feedback update",
             $"Update on {item.Subject}",

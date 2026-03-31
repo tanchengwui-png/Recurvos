@@ -355,13 +355,13 @@ public sealed class AuthService(
         }
 
         var verificationUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/verify-email?token={Uri.EscapeDataString(_pendingRawToken)}";
-        var subject = "Verify your Recurvo account";
+        var subject = "Verify your Recurvos account";
         var accountReference = string.Equals(user.FullName.Trim(), company.Name.Trim(), StringComparison.OrdinalIgnoreCase)
             ? "your company billing workspace"
             : $"{company.Name} and start using your billing workspace";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "Email verification",
-            "Activate your Recurvo account",
+            "Activate your Recurvos account",
             $"Hi {user.FullName}, please verify your email to activate {accountReference}.",
             "Verify email",
             verificationUrl,
@@ -370,7 +370,7 @@ public sealed class AuthService(
                 "Your account will stay inactive until the email is verified.",
                 "If you did not create this account, you can safely ignore this email."
             ],
-            "This email was sent because a new Recurvo account was created with this address.");
+            "This email was sent because a new Recurvos account was created with this address.");
 
         _pendingRawToken = null;
         try
@@ -395,10 +395,10 @@ public sealed class AuthService(
         }
 
         var resetUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(_pendingPasswordResetToken)}";
-        var subject = "Reset your Recurvo password";
+        var subject = "Reset your Recurvos password";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "Password reset",
-            "Reset your Recurvo password",
+            "Reset your Recurvos password",
             $"Hi {user.FullName}, we received a request to reset the password for {company.Name}. Use the secure link below to choose a new password.",
             "Reset password",
             resetUrl,
@@ -407,7 +407,7 @@ public sealed class AuthService(
                 "If you did not request a password reset, you can ignore this email.",
                 "Signing in again will require your new password."
             ],
-            "This email was sent because a password reset was requested for your Recurvo account.");
+            "This email was sent because a password reset was requested for your Recurvos account.");
 
         _pendingPasswordResetToken = null;
         try

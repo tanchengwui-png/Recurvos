@@ -1442,7 +1442,7 @@ public sealed class SettingsService(
 
         company = new Company
         {
-            Name = "Recurvo",
+            Name = "Recurvos",
             RegistrationNumber = "PLATFORM-OWNER",
             Email = "support@recurvo.com",
             Phone = "+60300000000",

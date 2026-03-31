@@ -66,7 +66,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
             {
                 Company = platformCompany,
                 CompanyId = platformCompany.Id,
-                FullName = "Recurvo Owner",
+                FullName = "Recurvos Owner",
                 Email = "owner@recurvo.com",
                 PasswordHash = passwordHasher.Hash("P@ssw0rd!@#$%"),
                 IsEmailVerified = true,
@@ -153,9 +153,9 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 dbContext.Customers.Add(customer);
             }
 
-            var starter = await EnsureProductAsync(subscriberCompany.Id, "Recurvo Starter", "STARTER", "Core recurring billing for smaller operators.", "Subscriptions", true, cancellationToken);
-            var growth = await EnsureProductAsync(subscriberCompany.Id, "Recurvo Growth", "GROWTH", "Higher-volume recurring billing with expanded workflows.", "Subscriptions", true, cancellationToken);
-            var premium = await EnsureProductAsync(subscriberCompany.Id, "Recurvo Premium", "PREMIUM", "Premium recurring billing for mature service businesses.", "Subscriptions", true, cancellationToken);
+            var starter = await EnsureProductAsync(subscriberCompany.Id, "Recurvos Starter", "STARTER", "Core recurring billing for smaller operators.", "Subscriptions", true, cancellationToken);
+            var growth = await EnsureProductAsync(subscriberCompany.Id, "Recurvos Growth", "GROWTH", "Higher-volume recurring billing with expanded workflows.", "Subscriptions", true, cancellationToken);
+            var premium = await EnsureProductAsync(subscriberCompany.Id, "Recurvos Premium", "PREMIUM", "Premium recurring billing for mature service businesses.", "Subscriptions", true, cancellationToken);
 
             var starterMonthly = await EnsurePlanAsync(starter, "Starter Monthly", "STARTER-MONTHLY", 49m, IntervalUnit.Month, 1, true, 0, cancellationToken);
             await EnsurePlanAsync(starter, "Starter Yearly", "STARTER-YEARLY", 490m, IntervalUnit.Year, 1, false, 1, cancellationToken);

@@ -108,7 +108,7 @@ public sealed class FakeEmailSender : IEmailSender
     {
         var message = Sent.LastOrDefault(x =>
             string.Equals(x.To, email, StringComparison.OrdinalIgnoreCase) &&
-            x.Subject.Contains("Reset your Recurvo password", StringComparison.OrdinalIgnoreCase));
+            x.Subject.Contains("Reset your Recurvos password", StringComparison.OrdinalIgnoreCase));
         if (message == default)
         {
             throw new InvalidOperationException($"No password reset email sent to {email}.");
