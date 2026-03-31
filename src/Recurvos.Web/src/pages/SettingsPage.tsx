@@ -5,7 +5,7 @@ import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
-import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy, ReminderHistoryItem, ReminderHistoryPage } from "../types";
+import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy, ReminderHistoryItem, ReminderHistoryPage, SubscriberWhatsAppQueueItem } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
 
@@ -53,6 +53,37 @@ function formatReminderStatus(status: ReminderHistoryItem["status"]) {
       : "Pending";
 }
 
+function formatWhatsAppQueueStatus(status: string) {
+  switch (status.toLowerCase()) {
+    case "sent":
+      return "Sent";
+    case "failed":
+      return "Failed";
+    case "deferred":
+      return "Deferred";
+    case "cancelled":
+      return "Cancelled";
+    case "sending":
+      return "Sending";
+    default:
+      return "Pending";
+  }
+}
+
+function buildWhatsAppPreviewMessage(template: string, companyName: string) {
+  return template
+    .replaceAll("{CustomerName}", "Aina Syuhada")
+    .replaceAll("{CompanyName}", companyName)
+    .replaceAll("{InvoiceNumber}", "INV-2026-001007")
+    .replaceAll("{AmountDue}", "MYR 99.00")
+    .replaceAll("{Currency}", "MYR")
+    .replaceAll("{DueDate}", "04 Apr 2026")
+    .replaceAll("{ActionLink}", "https://app.recurvos.com/payment-confirmation?token=sample")
+    .replaceAll("{PaymentGatewayLink}", "https://pay.example.com/invoice/INV-2026-001007")
+    .replaceAll("{PaymentConfirmationLink}", "https://app.recurvos.com/payment-confirmation?token=sample")
+    .replaceAll("{PaymentLink}", "https://app.recurvos.com/payment-confirmation?token=sample");
+}
+
 const DEFAULT_WHATSAPP_TEMPLATE = [
   "Hi {CustomerName},",
   "",
@@ -88,6 +119,8 @@ export function SettingsPage() {
   const [reminderHistoryCurrentPage, setReminderHistoryCurrentPage] = useState(1);
   const [reminderHistoryPageSize, setReminderHistoryPageSize] = useState(10);
   const [reminderHistoryTotalCount, setReminderHistoryTotalCount] = useState(0);
+  const [whatsAppQueue, setWhatsAppQueue] = useState<SubscriberWhatsAppQueueItem[]>([]);
+  const [whatsAppQueueError, setWhatsAppQueueError] = useState("");
   const [paymentQrFile, setPaymentQrFile] = useState<File | null>(null);
   const [paymentQrResponsibilityAccepted, setPaymentQrResponsibilityAccepted] = useState(false);
   const [paymentQrError, setPaymentQrError] = useState("");
@@ -228,6 +261,8 @@ export function SettingsPage() {
   const reminderHistoryTotalPages = Math.max(1, Math.ceil(reminderHistoryTotalCount / reminderHistoryPageSize));
   const reminderHistoryRangeStart = reminderHistoryTotalCount === 0 ? 0 : (reminderHistoryCurrentPage - 1) * reminderHistoryPageSize + 1;
   const reminderHistoryRangeEnd = reminderHistoryTotalCount === 0 ? 0 : Math.min(reminderHistoryTotalCount, reminderHistoryCurrentPage * reminderHistoryPageSize);
+  const selectedCompanyName = companies.find((item) => item.id === selectedCompanyId)?.name ?? "Blue Oak Pilates Studio Sdn Bhd";
+  const whatsAppPreviewMessage = buildWhatsAppPreviewMessage(invoiceSettings?.whatsAppTemplate ?? DEFAULT_WHATSAPP_TEMPLATE, selectedCompanyName);
 
   function buildInvoiceSettingsPayload(settings: CompanyInvoiceSettings) {
     return {
@@ -345,8 +380,26 @@ export function SettingsPage() {
       setPaymentQrError("");
       setPaymentGatewayTestMessage("");
       setPaymentGatewayTestTone("default");
+      setWhatsAppQueueError("");
     } catch (loadError) {
       setFormError(loadError instanceof Error ? loadError.message : "Unable to load subscriber settings.");
+    }
+  }
+
+  async function loadWhatsAppQueue(companyId = selectedCompanyId) {
+    if (!companyId) {
+      setWhatsAppQueue([]);
+      setWhatsAppQueueError("");
+      return;
+    }
+
+    try {
+      const items = await api.get<SubscriberWhatsAppQueueItem[]>(`/settings/whatsapp-queue?companyId=${companyId}`);
+      setWhatsAppQueue(items);
+      setWhatsAppQueueError("");
+    } catch (error) {
+      setWhatsAppQueue([]);
+      setWhatsAppQueueError(error instanceof Error ? error.message : "Unable to load recent WhatsApp queue items.");
     }
   }
 
@@ -420,6 +473,10 @@ export function SettingsPage() {
 
   useEffect(() => {
     void load();
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    void loadWhatsAppQueue();
   }, [selectedCompanyId]);
 
   useEffect(() => {
@@ -1304,6 +1361,70 @@ export function SettingsPage() {
                   <HelperText>
                     Customer phone numbers come from the customer record. The platform owner manages the shared API connection. Use {"{ActionLink}"} for the best available link, {"{PaymentGatewayLink}"} only for online gateway checkout, and {"{PaymentConfirmationLink}"} for manual payment proof submission. Existing {"{PaymentLink}"} still works as a legacy alias for {"{ActionLink}"}.
                   </HelperText>
+                  <div className="settings-numbering-workspace">
+                    <section className="settings-subpanel settings-numbering-card">
+                      <div className="settings-subpanel-header">
+                        <div>
+                          <p className="eyebrow">Preview</p>
+                          <strong>Message that will be sent</strong>
+                        </div>
+                      </div>
+                      <HelperText>Sample preview using placeholder values so this subscriber can see the final message format.</HelperText>
+                      <pre className="settings-message-template" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{whatsAppPreviewMessage}</pre>
+                    </section>
+                    <section className="settings-subpanel settings-numbering-card">
+                      <div className="settings-subpanel-header">
+                        <div>
+                          <p className="eyebrow">Queue</p>
+                          <strong>Recent WhatsApp items</strong>
+                        </div>
+                        <span className={`status-pill ${whatsAppQueue.length > 0 ? "status-pill-active" : "status-pill-inactive"}`}>
+                          {whatsAppQueue.length} item{whatsAppQueue.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      {whatsAppQueueError ? <HelperText tone="error">{whatsAppQueueError}</HelperText> : null}
+                      {whatsAppQueue.length > 0 ? (
+                        <div className="table-scroll">
+                          <table className="catalog-table">
+                            <thead>
+                              <tr>
+                                <th>Invoice</th>
+                                <th>Status</th>
+                                <th>Next send</th>
+                                <th>Last error</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {whatsAppQueue.map((item) => (
+                                <tr key={item.id}>
+                                  <td className="table-primary-cell">
+                                    <div className="table-primary-cell-stack">
+                                      <div>
+                                        <strong className="table-primary-title">{item.invoiceNumber}</strong>
+                                        <div className="table-meta">
+                                          <span className="table-meta-item">{item.customerName}</span>
+                                          <span className="table-meta-item">{item.recipientPhoneNumber}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <span className={`status-pill ${item.status === "Sent" ? "status-pill-active" : "status-pill-inactive"}`}>
+                                      {formatWhatsAppQueueStatus(item.status)}
+                                    </span>
+                                  </td>
+                                  <td>{formatReminderDateTime(item.nextAttemptAtUtc ?? item.createdAtUtc)}</td>
+                                  <td>{item.errorMessage?.trim() || "-"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <HelperText>No recent queued WhatsApp messages for this company.</HelperText>
+                      )}
+                    </section>
+                  </div>
                   <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"

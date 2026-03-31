@@ -424,6 +424,20 @@ export type ReminderHistoryPage = {
   totalCount: number;
 };
 
+export type SubscriberWhatsAppQueueItem = {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  recipientPhoneNumber: string;
+  status: string;
+  attemptCount: number;
+  createdAtUtc: string;
+  lastAttemptAtUtc?: string | null;
+  nextAttemptAtUtc?: string | null;
+  errorMessage?: string | null;
+};
+
 export type CompanyInvoiceSettings = {
   companyId: string;
   prefix: string;

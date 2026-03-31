@@ -134,6 +134,32 @@ public sealed class SettingsService(
         return new ReminderHistoryPageDto(items, safePage, safePageSize, totalCount);
     }
 
+    public async Task<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>> GetCompanyWhatsAppQueueItemsAsync(Guid? companyId, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+
+        return await dbContext.WhatsAppOutboundQueues
+            .AsNoTracking()
+            .Include(x => x.Invoice)
+                .ThenInclude(x => x!.Customer)
+            .Where(x => x.CompanyId == resolvedCompanyId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(10)
+            .Select(x => new SubscriberWhatsAppQueueItemDto(
+                x.Id,
+                x.InvoiceId,
+                x.Invoice != null ? x.Invoice.InvoiceNumber : string.Empty,
+                x.Invoice != null && x.Invoice.Customer != null ? x.Invoice.Customer.Name : string.Empty,
+                x.RecipientPhoneNumber,
+                x.Status,
+                x.AttemptCount,
+                x.CreatedAtUtc,
+                x.LastAttemptAtUtc,
+                x.NextAttemptAtUtc,
+                x.ErrorMessage))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default)
     {
         var settings = await EnsureInvoiceSettingsAsync(await GetOwnedCompanyIdAsync(companyId, cancellationToken), cancellationToken);

@@ -38,6 +38,19 @@ public sealed record ReminderHistoryPageDto(
     int PageSize,
     int TotalCount);
 
+public sealed record SubscriberWhatsAppQueueItemDto(
+    Guid Id,
+    Guid InvoiceId,
+    string InvoiceNumber,
+    string CustomerName,
+    string RecipientPhoneNumber,
+    string Status,
+    int AttemptCount,
+    DateTime CreatedAtUtc,
+    DateTime? LastAttemptAtUtc,
+    DateTime? NextAttemptAtUtc,
+    string? ErrorMessage);
+
 public sealed class UpdateCompanyInvoiceSettingsRequest
 {
     [Required, MaxLength(20)]
@@ -501,6 +514,7 @@ public interface ISettingsService
     Task<IReadOnlyCollection<DunningRuleDto>> GetDunningRulesAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<DunningRuleDto>> UpdateDunningRulesAsync(Guid? companyId, UpdateDunningRulesRequest request, CancellationToken cancellationToken = default);
     Task<ReminderHistoryPageDto> GetReminderHistoryAsync(Guid? companyId, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>> GetCompanyWhatsAppQueueItemsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> UpdateCompanyInvoiceSettingsAsync(Guid? companyId, UpdateCompanyInvoiceSettingsRequest request, CancellationToken cancellationToken = default);
     Task<PlatformWhatsAppSettingsDto> GetPlatformWhatsAppSettingsAsync(CancellationToken cancellationToken = default);

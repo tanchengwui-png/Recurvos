@@ -295,4 +295,8 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
     [HttpGet("reminder-history")]
     public async Task<ActionResult<ReminderHistoryPageDto>> GetReminderHistory([FromQuery] Guid? companyId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
         Ok(await settingsService.GetReminderHistoryAsync(companyId, page, pageSize, cancellationToken));
+
+    [HttpGet("whatsapp-queue")]
+    public async Task<ActionResult<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>>> GetWhatsAppQueue([FromQuery] Guid? companyId, CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetCompanyWhatsAppQueueItemsAsync(companyId, cancellationToken));
 }
