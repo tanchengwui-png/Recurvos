@@ -36,6 +36,8 @@ services:
       WhatsAppWebJs__BaseUrl: http://worker:3011/api
     ports:
       - "7002:8080"
+    volumes:
+      - /srv/recurvos-storage/staging/app:/app/storage
     restart: unless-stopped
 
   web:
