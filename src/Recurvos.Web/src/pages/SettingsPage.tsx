@@ -8,6 +8,7 @@ import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from
 import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy, ReminderHistoryItem, ReminderHistoryPage, SubscriberWhatsAppQueueItem } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
+const DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL = "https://www.billplz.com";
 
 function formatDocumentNumber(prefix: string, sequence: number, padding: number) {
   const now = new Date();
@@ -288,8 +289,12 @@ export function SettingsPage() {
       subscriberBillplzApiKey: settings.subscriberBillplzApiKey,
       subscriberBillplzCollectionId: settings.subscriberBillplzCollectionId,
       subscriberBillplzXSignatureKey: settings.subscriberBillplzXSignatureKey,
-      subscriberBillplzBaseUrl: settings.subscriberBillplzBaseUrl,
-      subscriberBillplzRequireSignatureVerification: settings.subscriberBillplzRequireSignatureVerification,
+      subscriberBillplzBaseUrl: settings.paymentGatewayProvider === "billplz"
+        ? (settings.subscriberBillplzBaseUrl?.trim() || DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL)
+        : settings.subscriberBillplzBaseUrl,
+      subscriberBillplzRequireSignatureVerification: settings.paymentGatewayProvider === "billplz"
+        ? true
+        : settings.subscriberBillplzRequireSignatureVerification,
       isTaxEnabled: settings.isTaxEnabled,
       taxName: settings.taxName,
       taxRate: settings.taxRate,
@@ -321,8 +326,8 @@ export function SettingsPage() {
         return "Billplz base URL is required.";
       }
 
-      if (settings.subscriberBillplzRequireSignatureVerification && !(settings.subscriberBillplzXSignatureKey ?? "").trim()) {
-        return "Billplz x signature key is required when signature verification is enabled.";
+      if (!(settings.subscriberBillplzXSignatureKey ?? "").trim()) {
+        return "Billplz x signature key is required.";
       }
     }
 
@@ -443,8 +448,8 @@ export function SettingsPage() {
         subscriberBillplzApiKey: currentSettings.subscriberBillplzApiKey,
         subscriberBillplzCollectionId: currentSettings.subscriberBillplzCollectionId,
         subscriberBillplzXSignatureKey: currentSettings.subscriberBillplzXSignatureKey,
-        subscriberBillplzBaseUrl: currentSettings.subscriberBillplzBaseUrl,
-        subscriberBillplzRequireSignatureVerification: currentSettings.subscriberBillplzRequireSignatureVerification,
+        subscriberBillplzBaseUrl: currentSettings.subscriberBillplzBaseUrl?.trim() || DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL,
+        subscriberBillplzRequireSignatureVerification: true,
       });
       setPaymentGatewayTestTone("default");
       setPaymentGatewayTestMessage(result.message);
@@ -1063,6 +1068,12 @@ export function SettingsPage() {
                             ...current,
                             paymentGatewayProvider: event.target.value as CompanyInvoiceSettings["paymentGatewayProvider"],
                             paymentGatewayTermsAccepted: event.target.value === "none" ? false : current.paymentGatewayTermsAccepted,
+                            subscriberBillplzBaseUrl: event.target.value === "billplz"
+                              ? (current.subscriberBillplzBaseUrl?.trim() || DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL)
+                              : current.subscriberBillplzBaseUrl,
+                            subscriberBillplzRequireSignatureVerification: event.target.value === "billplz"
+                              ? true
+                              : current.subscriberBillplzRequireSignatureVerification,
                           } : current)}
                         >
                           <option value="none">Not configured</option>
@@ -1099,7 +1110,7 @@ export function SettingsPage() {
                               disabled={!paymentGatewayConfigurationEnabled}
                               value={invoiceSettings.subscriberBillplzBaseUrl ?? ""}
                               onChange={(event) => setInvoiceSettings((current) => current ? { ...current, subscriberBillplzBaseUrl: event.target.value } : current)}
-                              placeholder="https://www.billplz-sandbox.com"
+                              placeholder={DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL}
                             />
                           </label>
                         </div>
@@ -1114,15 +1125,7 @@ export function SettingsPage() {
                             />
                           </label>
                         </div>
-                        <label className="checkbox-row settings-checkbox-row">
-                          <input
-                            type="checkbox"
-                            disabled={!paymentGatewayConfigurationEnabled}
-                            checked={invoiceSettings.subscriberBillplzRequireSignatureVerification}
-                            onChange={(event) => setInvoiceSettings((current) => current ? { ...current, subscriberBillplzRequireSignatureVerification: event.target.checked } : current)}
-                          />
-                          <span>Require webhook signature verification</span>
-                        </label>
+                        <HelperText>Webhook signature verification is required and always enforced for Billplz.</HelperText>
                         <label className="checkbox-row settings-checkbox-row settings-risk-checkbox">
                           <input
                             type="checkbox"

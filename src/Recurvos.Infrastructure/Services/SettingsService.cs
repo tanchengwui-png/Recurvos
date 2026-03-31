@@ -221,8 +221,8 @@ public sealed class SettingsService(
                 request.SubscriberBillplzApiKey,
                 request.SubscriberBillplzCollectionId,
                 request.SubscriberBillplzXSignatureKey,
-                request.SubscriberBillplzBaseUrl,
-                request.SubscriberBillplzRequireSignatureVerification);
+                string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl) ? BillplzOptions.LiveBaseUrl : request.SubscriberBillplzBaseUrl,
+                true);
         }
 
         settings.Prefix = request.Prefix.Trim();
@@ -256,11 +256,11 @@ public sealed class SettingsService(
         settings.SubscriberBillplzXSignatureKey = paymentGatewayProvider == "billplz" && !string.IsNullOrWhiteSpace(request.SubscriberBillplzXSignatureKey)
             ? request.SubscriberBillplzXSignatureKey.Trim()
             : null;
-        settings.SubscriberBillplzBaseUrl = paymentGatewayProvider == "billplz" && !string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl)
-            ? request.SubscriberBillplzBaseUrl.Trim()
+        settings.SubscriberBillplzBaseUrl = paymentGatewayProvider == "billplz"
+            ? (string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl) ? BillplzOptions.LiveBaseUrl : request.SubscriberBillplzBaseUrl.Trim())
             : null;
         settings.SubscriberBillplzRequireSignatureVerification = paymentGatewayProvider == "billplz"
-            ? request.SubscriberBillplzRequireSignatureVerification
+            ? true
             : null;
         settings.IsTaxEnabled = request.IsTaxEnabled;
         settings.TaxName = string.IsNullOrWhiteSpace(request.TaxName) ? "SST" : request.TaxName.Trim();
@@ -1484,8 +1484,7 @@ public sealed class SettingsService(
                 && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzApiKey)
                 && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzCollectionId)
                 && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzBaseUrl)
-                && ((settings.SubscriberBillplzRequireSignatureVerification ?? true) == false
-                    || !string.IsNullOrWhiteSpace(settings.SubscriberBillplzXSignatureKey)),
+                && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzXSignatureKey),
             _ => false,
         };
     }
@@ -1585,16 +1584,20 @@ public sealed class SettingsService(
             throw new InvalidOperationException("Only Billplz is supported right now.");
         }
 
+        var baseUrl = string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl)
+            ? BillplzOptions.LiveBaseUrl
+            : request.SubscriberBillplzBaseUrl;
+
         ValidateSubscriberBillplzSettings(
             request.SubscriberBillplzApiKey,
             request.SubscriberBillplzCollectionId,
             request.SubscriberBillplzXSignatureKey,
-            request.SubscriberBillplzBaseUrl,
-            request.SubscriberBillplzRequireSignatureVerification);
+            baseUrl,
+            true);
 
         using var requestMessage = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{request.SubscriberBillplzBaseUrl!.Trim().TrimEnd('/')}/api/v4/collections/{request.SubscriberBillplzCollectionId!.Trim()}");
+            $"{baseUrl.Trim().TrimEnd('/')}/api/v4/collections/{request.SubscriberBillplzCollectionId!.Trim()}");
         requestMessage.Headers.Authorization = CreateBasicAuthHeader(request.SubscriberBillplzApiKey!.Trim());
 
         using var httpClient = new HttpClient();
