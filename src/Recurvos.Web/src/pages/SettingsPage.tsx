@@ -43,7 +43,15 @@ function formatReminderDateTime(value?: string | null) {
     return "Not sent";
   }
 
-  return new Date(value).toLocaleString();
+  const rounded = new Date(value);
+  rounded.setSeconds(0, 0);
+  return rounded.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function formatReminderStatus(status: ReminderHistoryItem["status"]) {
@@ -1385,6 +1393,7 @@ export function SettingsPage() {
                           {whatsAppQueue.length} item{whatsAppQueue.length === 1 ? "" : "s"}
                         </span>
                       </div>
+                      <HelperText>Next send times are shown to the nearest minute because the WhatsApp queue is processed by a minutely job.</HelperText>
                       {whatsAppQueueError ? <HelperText tone="error">{whatsAppQueueError}</HelperText> : null}
                       {whatsAppQueue.length > 0 ? (
                         <div className="table-scroll">

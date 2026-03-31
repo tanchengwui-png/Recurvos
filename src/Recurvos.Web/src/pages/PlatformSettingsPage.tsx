@@ -273,7 +273,10 @@ export function PlatformSettingsPage() {
   function formatUtcDateTime(value?: string | null) {
     if (!value) return "Not available";
 
-    return new Date(value).toLocaleString(undefined, {
+    const rounded = new Date(value);
+    rounded.setSeconds(0, 0);
+
+    return rounded.toLocaleString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -1240,6 +1243,7 @@ export function PlatformSettingsPage() {
                 />
               </label>
             </div>
+            <HelperText>Queued WhatsApp sends are processed by a minutely job, so next-send times are shown to the nearest minute rather than exact seconds.</HelperText>
             <HelperText>Queued WhatsApp sends are only dispatched inside this UTC hour window. Use matching UTC hours for your operating timezone.</HelperText>
             <label className="form-label">
               Template name
