@@ -81,10 +81,13 @@ public sealed class InvoiceService(
     }
 
     public async Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsAsync(Guid id, CancellationToken cancellationToken = default)
+        => await GetWhatsAppLinkOptionsForCompanyAsync(GetCompanyId(), id, cancellationToken);
+
+    public async Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsForCompanyAsync(Guid companyId, Guid id, CancellationToken cancellationToken = default)
     {
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
-            .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (invoice is null)
         {
             return null;

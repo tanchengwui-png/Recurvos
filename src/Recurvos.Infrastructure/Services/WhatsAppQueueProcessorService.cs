@@ -133,7 +133,7 @@ public sealed class WhatsAppQueueProcessorService(
                 continue;
             }
 
-            var linkOptions = await invoiceService.GetWhatsAppLinkOptionsAsync(queueItem.InvoiceId, cancellationToken);
+            var linkOptions = await invoiceService.GetWhatsAppLinkOptionsForCompanyAsync(queueItem.CompanyId, queueItem.InvoiceId, cancellationToken);
             var companyName = await dbContext.Companies
                 .Where(x => x.Id == queueItem.CompanyId)
                 .Select(x => x.Name)

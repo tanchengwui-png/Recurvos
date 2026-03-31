@@ -177,4 +177,5 @@ public interface IInvoiceService
     Task<int> SendRemindersAsync(CancellationToken cancellationToken = default);
     Task<WhatsAppRetryResultDto> RetryFailedWhatsAppNotificationAsync(Guid notificationId, CancellationToken cancellationToken = default);
     Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsForCompanyAsync(Guid companyId, Guid id, CancellationToken cancellationToken = default);
 }
