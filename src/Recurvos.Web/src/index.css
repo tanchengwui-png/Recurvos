@@ -1880,8 +1880,23 @@ select {
 
 .text-input[type="date"],
 input[type="date"] {
+  display: block;
+  width: 100%;
+  min-height: 3.25rem;
+  line-height: 1.2;
   color-scheme: light;
   padding-right: 2.75rem;
+}
+
+.text-input[type="date"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-datetime-edit {
+  padding: 0;
+}
+
+.text-input[type="date"]::-webkit-date-and-time-value,
+input[type="date"]::-webkit-date-and-time-value {
+  min-height: 1.2em;
+  text-align: left;
 }
 
 .text-input[type="date"]::-webkit-calendar-picker-indicator,

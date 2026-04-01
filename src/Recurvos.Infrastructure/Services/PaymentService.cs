@@ -595,6 +595,7 @@ public sealed class PaymentService(
                 issuerProfile.RegistrationNumber,
                 issuerProfile.BillingEmail,
                 invoiceSettings?.ShowCompanyAddressOnReceipt == true ? issuerProfile.Address : null,
+                await ReadLogoBytesIfExistsAsync(issuerCompany.LogoPath, cancellationToken),
                 payment.Invoice.Customer.Name,
                 payment.Invoice.Customer.BillingAddress,
                 receiptNumber,
@@ -659,6 +660,16 @@ public sealed class PaymentService(
 
         return string.Equals(packageCode, "growth", StringComparison.OrdinalIgnoreCase)
             || string.Equals(packageCode, "premium", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<byte[]?> ReadLogoBytesIfExistsAsync(string? logoPath, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(logoPath) || !File.Exists(logoPath))
+        {
+            return null;
+        }
+
+        return await File.ReadAllBytesAsync(logoPath, cancellationToken);
     }
 
     private string? ResolveProofPath(string? proofPath)

@@ -691,6 +691,7 @@ public sealed class SubscriberPackageBillingService(
                 issuerProfile.RegistrationNumber,
                 issuerProfile.BillingEmail,
                 invoiceSettings.ShowCompanyAddressOnReceipt ? issuerProfile.Address : null,
+                await ReadBytesIfExistsAsync(issuerCompany.LogoPath, cancellationToken),
                 invoice.Customer.Name,
                 invoice.Customer.BillingAddress,
                 receiptNumber,

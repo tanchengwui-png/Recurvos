@@ -11,6 +11,7 @@ public static class ReceiptPdfTemplate
         string? issuerRegistrationNumber,
         string issuerEmail,
         string? issuerAddress,
+        byte[]? logoBytes,
         string customerName,
         string? customerAddress,
         string receiptNumber,
@@ -43,6 +44,11 @@ public static class ReceiptPdfTemplate
                         row.RelativeItem().Column(left =>
                         {
                             left.Spacing(6);
+                            if (logoBytes is { Length: > 0 })
+                            {
+                                left.Item().Height(42).Width(160).Image(logoBytes).FitArea();
+                            }
+
                             left.Item().Text(issuerName).FontSize(22).SemiBold().FontColor("#0F172A");
                             if (!string.IsNullOrWhiteSpace(issuerRegistrationNumber))
                             {
