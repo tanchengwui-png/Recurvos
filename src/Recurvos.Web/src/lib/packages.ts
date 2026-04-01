@@ -170,4 +170,10 @@ export const packageFeatureDefinitions: PackageFeatureDefinition[] = [
     description: "Use and manage payment gateway settings for payment links and callbacks.",
     category: "Payments",
   },
+  {
+    value: "Auto receipt emails",
+    label: "Auto receipt emails",
+    description: "Send receipts automatically after successful payments and let the system recover missed sends.",
+    category: "Payments",
+  },
 ];

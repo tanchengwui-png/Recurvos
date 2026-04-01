@@ -273,6 +273,48 @@ public sealed class PaymentService(
         }
     }
 
+    public async Task<int> RecoverMissedReceiptEmailsAsync(CancellationToken cancellationToken = default)
+    {
+        var candidateIds = await dbContext.Payments
+            .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
+            .Where(x =>
+                x.Status == PaymentStatus.Succeeded
+                && x.PaidAtUtc.HasValue
+                && !x.ReceiptEmailedAtUtc.HasValue
+                && x.Invoice != null
+                && x.Invoice.Customer != null
+                && !string.IsNullOrWhiteSpace(x.Invoice.Customer.Email))
+            .OrderBy(x => x.CreatedAtUtc)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+
+        var sent = 0;
+        foreach (var candidateId in candidateIds)
+        {
+            var emailedAtUtc = await dbContext.Payments
+                .Where(x => x.Id == candidateId)
+                .Select(x => x.ReceiptEmailedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (emailedAtUtc.HasValue)
+            {
+                continue;
+            }
+
+            await TryAutoSendReceiptIfEligibleAsync(candidateId, cancellationToken);
+
+            emailedAtUtc = await dbContext.Payments
+                .Where(x => x.Id == candidateId)
+                .Select(x => x.ReceiptEmailedAtUtc)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (emailedAtUtc.HasValue)
+            {
+                sent++;
+            }
+        }
+
+        return sent;
+    }
+
     public async Task<int> RetryFailedPaymentsAsync(CancellationToken cancellationToken = default)
     {
         var failed = await dbContext.Payments.Include(x => x.Invoice).ThenInclude(x => x!.Customer).Include(x => x.Attempts)
@@ -605,6 +647,11 @@ public sealed class PaymentService(
 
     private async Task<bool> IsAutoReceiptEmailEligibleAsync(Guid companyId, CancellationToken cancellationToken)
     {
+        if (await featureEntitlementService.CompanyHasFeatureAsync(companyId, PlatformFeatureKeys.AutoReceiptEmails, cancellationToken))
+        {
+            return true;
+        }
+
         var packageCode = await dbContext.Companies
             .Where(x => x.Id == companyId && !x.IsPlatformAccount)
             .Select(x => x.SelectedPackage)

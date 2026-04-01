@@ -30,6 +30,7 @@ public sealed class PlatformController(
         ("send-invoice-reminders", "Send invoice reminders"),
         ("process-whatsapp-queue", "Process WhatsApp queue"),
         ("retry-failed-payments", "Retry failed payments"),
+        ("recover-missed-receipt-emails", "Recover missed receipt emails"),
         ("cleanup-stale-signups", "Cleanup stale signups")
     ];
 
@@ -247,6 +248,10 @@ public sealed class PlatformController(
                     "retry-failed-payments",
                     "Retry failed payments",
                     backgroundJobClient.Enqueue<RetryFailedPaymentsJob>(job => job.ExecuteAsync())),
+                "recover-missed-receipt-emails" => (
+                    "recover-missed-receipt-emails",
+                    "Recover missed receipt emails",
+                    backgroundJobClient.Enqueue<RecoverMissedReceiptEmailsJob>(job => job.ExecuteAsync())),
                 "cleanup-stale-signups" => (
                     "cleanup-stale-signups",
                     "Cleanup stale signups",

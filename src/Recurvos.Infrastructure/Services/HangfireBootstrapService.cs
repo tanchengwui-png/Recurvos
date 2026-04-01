@@ -38,6 +38,10 @@ public sealed class HangfireBootstrapService(
             "retry-failed-payments",
             job => job.ExecuteAsync(),
             Cron.Hourly);
+        recurringJobManager.AddOrUpdate<RecoverMissedReceiptEmailsJob>(
+            "recover-missed-receipt-emails",
+            job => job.ExecuteAsync(),
+            Cron.Hourly);
         recurringJobManager.AddOrUpdate<CleanupStaleSignupsJob>(
             "cleanup-stale-signups",
             job => job.ExecuteAsync(),

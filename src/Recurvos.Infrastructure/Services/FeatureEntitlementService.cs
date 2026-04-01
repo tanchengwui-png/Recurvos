@@ -25,6 +25,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         PlatformFeatureKeys.PaymentLinkGeneration,
         PlatformFeatureKeys.PublicPaymentConfirmation,
         PlatformFeatureKeys.PaymentGatewayConfiguration,
+        PlatformFeatureKeys.AutoReceiptEmails,
     ];
 
     private static readonly IReadOnlyDictionary<string, string> FeatureTextMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -49,6 +50,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         ["Payment record screen for customer to upload their payment"] = PlatformFeatureKeys.PublicPaymentConfirmation,
         ["Payment gateway configuration"] = PlatformFeatureKeys.PaymentGatewayConfiguration,
         ["Payment reminder workflows"] = PlatformFeatureKeys.WhatsAppNotifications,
+        ["Auto receipt emails"] = PlatformFeatureKeys.AutoReceiptEmails,
     };
 
     private static readonly IReadOnlyDictionary<string, string> FeatureLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -69,6 +71,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         [PlatformFeatureKeys.PaymentLinkGeneration] = "payment link generation",
         [PlatformFeatureKeys.PublicPaymentConfirmation] = "public payment confirmation",
         [PlatformFeatureKeys.PaymentGatewayConfiguration] = "payment gateway configuration",
+        [PlatformFeatureKeys.AutoReceiptEmails] = "automatic receipt emails",
     };
 
     public async Task<FeatureAccessDto> GetCurrentAccessAsync(CancellationToken cancellationToken = default)
@@ -236,6 +239,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
                 "Configurable WhatsApp",
                 "Payment tracking",
                 "Payment record screen for customer to upload their payment",
+                "Auto receipt emails",
                 "Finance exports",
             ],
             "premium" =>
@@ -253,6 +257,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
                 "Payment record screen for customer to upload their payment",
                 "Finance exports",
                 "Payment gateway configuration",
+                "Auto receipt emails",
             ],
             _ => []
         };

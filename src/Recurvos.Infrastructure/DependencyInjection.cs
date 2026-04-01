@@ -106,6 +106,7 @@ public static class DependencyInjection
         services.AddScoped<SendInvoiceRemindersJob>();
         services.AddScoped<ProcessWhatsAppQueueJob>();
         services.AddScoped<RetryFailedPaymentsJob>();
+        services.AddScoped<RecoverMissedReceiptEmailsJob>();
         services.AddScoped<CleanupStaleSignupsJob>();
 
         return services;

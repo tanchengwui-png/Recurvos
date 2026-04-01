@@ -74,5 +74,6 @@ public interface IPaymentService
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task<bool> SendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task TryAutoSendReceiptIfEligibleAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<int> RecoverMissedReceiptEmailsAsync(CancellationToken cancellationToken = default);
     Task<int> RetryFailedPaymentsAsync(CancellationToken cancellationToken = default);
 }
