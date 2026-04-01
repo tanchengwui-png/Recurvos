@@ -22,6 +22,7 @@ public sealed class CreatePaymentLinkCommand
 public sealed record PaymentLinkResult(string ExternalPaymentId, string PaymentUrl, string RawResponse);
 
 public sealed record PaymentAttemptDto(int AttemptNumber, PaymentStatus Status, string? FailureCode, string? FailureMessage);
+public sealed record PaymentHistoryDto(DateTime CreatedAtUtc, string Action, string Description);
 
 public sealed record PaymentDto(
     Guid Id,
@@ -39,6 +40,7 @@ public sealed record PaymentDto(
     bool HasReceipt,
     string? ProofFileName,
     DateTime? PaidAtUtc,
+    IReadOnlyCollection<PaymentHistoryDto> History,
     IReadOnlyCollection<PaymentAttemptDto> Attempts,
     IReadOnlyCollection<RefundDto> Refunds,
     IReadOnlyCollection<PaymentDisputeDto> Disputes);
@@ -71,5 +73,6 @@ public interface IPaymentService
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadProofAsync(Guid id, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task<bool> SendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
+    Task TryAutoSendReceiptIfEligibleAsync(Guid id, CancellationToken cancellationToken = default);
     Task<int> RetryFailedPaymentsAsync(CancellationToken cancellationToken = default);
 }

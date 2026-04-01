@@ -19,6 +19,7 @@ public sealed class PaymentConfirmationService(
     IAuditService auditService,
     IFeatureEntitlementService featureEntitlementService,
     PlatformOwnerNotificationService platformOwnerNotificationService,
+    IPaymentService paymentService,
     IDataProtectionProvider dataProtectionProvider,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
@@ -146,6 +147,7 @@ public sealed class PaymentConfirmationService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
+        await paymentService.TryAutoSendReceiptIfEligibleAsync(payment.Id, cancellationToken);
         await auditService.WriteAsync("payment.confirmation.approved", nameof(PaymentConfirmationSubmission), submission.Id.ToString(), submission.Invoice.InvoiceNumber, cancellationToken);
         await auditService.WriteAsync("invoice.payment-recorded", nameof(Invoice), submission.InvoiceId.ToString(), $"customer-confirmation:{submission.Amount:0.00}", cancellationToken);
         return Map(submission);

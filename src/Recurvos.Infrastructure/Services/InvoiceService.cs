@@ -33,6 +33,7 @@ public sealed class InvoiceService(
     IPackageLimitService packageLimitService,
     IBillingReadinessService billingReadinessService,
     IPaymentConfirmationService paymentConfirmationService,
+    IPaymentService paymentService,
     PlatformOwnerNotificationService platformOwnerNotificationService,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
@@ -368,6 +369,7 @@ public sealed class InvoiceService(
             .Select(x => x.Id)
             .FirstAsync(cancellationToken);
         await platformOwnerNotificationService.TryNotifyNewPaymentAsync(paymentId, cancellationToken);
+        await paymentService.TryAutoSendReceiptIfEligibleAsync(paymentId, cancellationToken);
         await auditService.WriteAsync("invoice.paid", nameof(Invoice), invoice.Id.ToString(), $"amount={outstanding:0.00}", cancellationToken);
         return await GetByIdAsync(id, cancellationToken);
     }
@@ -419,6 +421,7 @@ public sealed class InvoiceService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
+        await paymentService.TryAutoSendReceiptIfEligibleAsync(payment.Id, cancellationToken);
         await auditService.WriteAsync(
             "invoice.payment-recorded",
             nameof(Invoice),

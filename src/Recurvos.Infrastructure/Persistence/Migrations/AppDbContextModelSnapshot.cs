@@ -1346,6 +1346,9 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<string>("ReceiptPdfPath")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("ReceiptEmailedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 

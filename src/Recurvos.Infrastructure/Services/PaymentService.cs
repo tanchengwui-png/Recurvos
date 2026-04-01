@@ -34,14 +34,21 @@ public sealed class PaymentService(
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PaymentTracking, cancellationToken);
         var payments = await Query(GetCompanyId()).OrderByDescending(x => x.CreatedAtUtc).ToListAsync(cancellationToken);
-        return payments.Select(Map).ToList();
+        var historyMap = await GetHistoryMapAsync(payments.Select(x => x.Id), cancellationToken);
+        return payments.Select(payment => Map(payment, historyMap.GetValueOrDefault(payment.Id, Array.Empty<PaymentHistoryDto>()))).ToList();
     }
 
     public async Task<PaymentDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PaymentTracking, cancellationToken);
         var payment = await Query(GetCompanyId()).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
-        return payment is null ? null : Map(payment);
+        if (payment is null)
+        {
+            return null;
+        }
+
+        var historyMap = await GetHistoryMapAsync([payment.Id], cancellationToken);
+        return Map(payment, historyMap.GetValueOrDefault(payment.Id, Array.Empty<PaymentHistoryDto>()));
     }
 
     public async Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string? externalPaymentId, Guid? invoiceId, CancellationToken cancellationToken = default)
@@ -134,7 +141,8 @@ public sealed class PaymentService(
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("payment.link.created", nameof(Payment), payment.Id.ToString(), payment.ExternalPaymentId, cancellationToken);
         payment.Invoice = invoice;
-        return Map(payment);
+        var historyMap = await GetHistoryMapAsync([payment.Id], cancellationToken);
+        return Map(payment, historyMap.GetValueOrDefault(payment.Id, Array.Empty<PaymentHistoryDto>()));
     }
 
     public async Task<(byte[] Content, string FileName, string ContentType)?> DownloadProofAsync(Guid id, CancellationToken cancellationToken = default)
@@ -211,8 +219,58 @@ public sealed class PaymentService(
             await ResolveSubscriberCustomerEmailCcAsync(payment.CompanyId, cancellationToken),
             cancellationToken);
 
+        payment.ReceiptEmailedAtUtc = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("payment.receipt-sent", nameof(Payment), payment.Id.ToString(), payment.Invoice.InvoiceNumber, cancellationToken);
         return true;
+    }
+
+    public async Task TryAutoSendReceiptIfEligibleAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var payment = await LoadReceiptEmailPaymentAsync(id, cancellationToken: cancellationToken);
+        if (payment?.Invoice?.Customer is null
+            || string.IsNullOrWhiteSpace(payment.Invoice.Customer.Email)
+            || payment.ReceiptEmailedAtUtc.HasValue
+            || !await IsAutoReceiptEmailEligibleAsync(payment.CompanyId, cancellationToken))
+        {
+            return;
+        }
+
+        try
+        {
+            var receiptFile = await EnsureReceiptFileAsync(payment, cancellationToken);
+            if (receiptFile is null)
+            {
+                return;
+            }
+
+            var file = receiptFile.Value;
+            var receiptNumber = Path.GetFileNameWithoutExtension(file.FileName);
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == payment.CompanyId, cancellationToken);
+            var body = EmailTemplateRenderer.RenderReceiptEmail(
+                company.Name,
+                payment.Invoice.Customer.Name,
+                payment.Invoice.InvoiceNumber,
+                receiptNumber,
+                $"{payment.Currency} {payment.Amount:0.00}",
+                payment.PaidAtUtc!.Value.ToString("dd MMM yyyy"));
+
+            await emailSender.SendAsync(
+                payment.Invoice.Customer.Email.Trim(),
+                $"Receipt {receiptNumber} for {payment.Invoice.InvoiceNumber}",
+                body,
+                [new EmailAttachment(file.FileName, file.Content, file.ContentType)],
+                await ResolveSubscriberCustomerEmailCcAsync(payment.CompanyId, cancellationToken),
+                cancellationToken);
+
+            payment.ReceiptEmailedAtUtc = DateTime.UtcNow;
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await auditService.WriteAsync("payment.receipt-auto-sent", nameof(Payment), payment.Id.ToString(), payment.Invoice.InvoiceNumber, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await auditService.WriteAsync("payment.receipt-auto-send-failed", nameof(Payment), payment.Id.ToString(), exception.Message, cancellationToken);
+        }
     }
 
     public async Task<int> RetryFailedPaymentsAsync(CancellationToken cancellationToken = default)
@@ -313,6 +371,7 @@ public sealed class PaymentService(
             payment.Status = PaymentStatus.Reversed;
             payment.PaidAtUtc = null;
             payment.ReceiptPdfPath = null;
+            payment.ReceiptEmailedAtUtc = null;
 
             dbContext.PaymentAttempts.Add(new PaymentAttempt
             {
@@ -339,6 +398,7 @@ public sealed class PaymentService(
         if (!succeeded)
         {
             payment.ReceiptPdfPath = null;
+            payment.ReceiptEmailedAtUtc = null;
         }
         dbContext.PaymentAttempts.Add(new PaymentAttempt
         {
@@ -414,6 +474,7 @@ public sealed class PaymentService(
         if (succeeded)
         {
             await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
+            await TryAutoSendReceiptIfEligibleAsync(payment.Id, cancellationToken);
         }
     }
 
@@ -425,7 +486,7 @@ public sealed class PaymentService(
             .Include(x => x.Disputes)
             .Where(x => x.CompanyId == companyId);
 
-    private static PaymentDto Map(Payment payment) =>
+    private static PaymentDto Map(Payment payment, IReadOnlyCollection<PaymentHistoryDto> history) =>
         new(
             payment.Id,
             payment.InvoiceId,
@@ -442,17 +503,35 @@ public sealed class PaymentService(
             payment.Status == PaymentStatus.Succeeded && payment.PaidAtUtc.HasValue,
             payment.ProofFileName,
             payment.PaidAtUtc,
+            history,
             payment.Attempts.OrderBy(x => x.AttemptNumber).Select(x => new PaymentAttemptDto(x.AttemptNumber, x.Status, x.FailureCode, x.FailureMessage)).ToList(),
             payment.Refunds.OrderByDescending(x => x.CreatedAtUtc).Select(RefundService.Map).ToList(),
             payment.Disputes.OrderByDescending(x => x.OpenedAtUtc).Select(x => new PaymentDisputeDto(x.Id, x.ExternalDisputeId, x.Amount, x.Reason, x.Status.ToString(), x.OpenedAtUtc, x.ResolvedAtUtc)).ToList());
 
+    private async Task<Dictionary<Guid, IReadOnlyCollection<PaymentHistoryDto>>> GetHistoryMapAsync(IEnumerable<Guid> paymentIds, CancellationToken cancellationToken)
+    {
+        var ids = paymentIds.Select(x => x.ToString()).ToList();
+        var entries = await dbContext.AuditLogs
+            .Where(x => x.CompanyId == GetCompanyId() && x.EntityName == nameof(Payment) && ids.Contains(x.EntityId))
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        return entries
+            .GroupBy(x => Guid.Parse(x.EntityId))
+            .ToDictionary(
+                x => x.Key,
+                x => (IReadOnlyCollection<PaymentHistoryDto>)x
+                    .Select(entry => new PaymentHistoryDto(entry.CreatedAtUtc, entry.Action, entry.Metadata ?? entry.Action))
+                    .ToList());
+    }
+
     private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
 
-    private async Task<Payment?> LoadReceiptEmailPaymentAsync(Guid paymentId, Guid companyId, CancellationToken cancellationToken)
+    private async Task<Payment?> LoadReceiptEmailPaymentAsync(Guid paymentId, Guid? companyId = null, CancellationToken cancellationToken = default)
         => await dbContext.Payments
             .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
             .Include(x => x.Invoice).ThenInclude(x => x!.LineItems)
-            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == paymentId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Id == paymentId && (!companyId.HasValue || x.CompanyId == companyId.Value), cancellationToken);
 
     private async Task<(byte[] Content, string FileName, string ContentType)?> EnsureReceiptFileAsync(Payment payment, CancellationToken cancellationToken)
     {
@@ -522,6 +601,17 @@ public sealed class PaymentService(
             .FirstOrDefaultAsync(cancellationToken);
 
         return string.IsNullOrWhiteSpace(subscriberEmail) ? null : [subscriberEmail.Trim()];
+    }
+
+    private async Task<bool> IsAutoReceiptEmailEligibleAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var packageCode = await dbContext.Companies
+            .Where(x => x.Id == companyId && !x.IsPlatformAccount)
+            .Select(x => x.SelectedPackage)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.Equals(packageCode, "growth", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(packageCode, "premium", StringComparison.OrdinalIgnoreCase);
     }
 
     private string? ResolveProofPath(string? proofPath)

@@ -531,6 +531,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Payments"
+            ADD COLUMN IF NOT EXISTS "ReceiptEmailedAtUtc" timestamp with time zone NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE company_invoice_settings
             ADD COLUMN IF NOT EXISTS "WhatsAppEnabled" boolean NOT NULL DEFAULT FALSE;
             """, cancellationToken);

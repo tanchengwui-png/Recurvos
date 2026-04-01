@@ -942,6 +942,90 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     }
 
     [Fact]
+    public async Task Payment_Get_IncludesReceiptSendHistory()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var invoice = (await client.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var markPaidResponse = await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/mark-paid", new { });
+        markPaidResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var payments = await client.GetFromJsonAsync<List<PaymentView>>("/api/payments", TestWebApplicationFactory.JsonOptions);
+        var payment = payments!.First(x => x.InvoiceId == invoice.Id && x.Status == "Succeeded");
+
+        var sendResponse = await client.PostAsync($"/api/payments/{payment.Id}/send-receipt", JsonContent.Create(new { }));
+        sendResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        payments = await client.GetFromJsonAsync<List<PaymentView>>("/api/payments", TestWebApplicationFactory.JsonOptions);
+        var updated = payments!.First(x => x.Id == payment.Id);
+
+        updated.History.Should().Contain(x => x.Action == "payment.receipt-sent");
+    }
+
+    [Fact]
+    public async Task Invoice_MarkPaid_AutoSendsReceipt_ForGrowthPackage()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies.FirstAsync(x => x.Id == companyId);
+            company.SelectedPackage = "growth";
+            company.PackageStatus = "active";
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var fakeEmailSender = scope.ServiceProvider.GetRequiredService<FakeEmailSender>();
+        var baselineReceiptEmails = fakeEmailSender.Sent.Count(x => x.Subject.Contains("Receipt", StringComparison.OrdinalIgnoreCase));
+
+        var invoice = (await client.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var response = await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/mark-paid", new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        fakeEmailSender.Sent.Count(x => x.Subject.Contains("Receipt", StringComparison.OrdinalIgnoreCase)).Should().Be(baselineReceiptEmails + 1);
+        fakeEmailSender.Sent.Should().Contain(x =>
+            x.Subject.Contains(invoice.InvoiceNumber, StringComparison.OrdinalIgnoreCase)
+            && x.Subject.Contains("Receipt", StringComparison.OrdinalIgnoreCase));
+
+        var storedPayment = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Payments
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstAsync(x => x.InvoiceId == invoice.Id);
+        storedPayment.ReceiptEmailedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Invoice_MarkPaid_DoesNotAutoSendReceipt_ForStarterPackage()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var fakeEmailSender = scope.ServiceProvider.GetRequiredService<FakeEmailSender>();
+        var baselineReceiptEmails = fakeEmailSender.Sent.Count(x => x.Subject.Contains("Receipt", StringComparison.OrdinalIgnoreCase));
+
+        var invoice = (await client.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var response = await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/mark-paid", new { });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        fakeEmailSender.Sent.Count(x => x.Subject.Contains("Receipt", StringComparison.OrdinalIgnoreCase)).Should().Be(baselineReceiptEmails);
+
+        var storedPayment = await scope.ServiceProvider.GetRequiredService<AppDbContext>().Payments
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstAsync(x => x.InvoiceId == invoice.Id);
+        storedPayment.ReceiptEmailedAtUtc.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Invoice_ReverseLatestManualPayment_ReopensInvoice()
     {
         await _factory.EnsureSeededAsync();
@@ -1700,7 +1784,8 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     private sealed record FeatureAccessView(string PackageCode, string PackageStatus, IReadOnlyCollection<string> FeatureKeys);
     private sealed record SubscriberPackageBillingSummaryFullView(string? PackageCode, string? PackageStatus, string? PendingUpgradePackageCode, bool CanCancelPendingUpgrade, IReadOnlyCollection<SubscriberPackageBillingInvoiceView> Invoices);
     private sealed record PaymentResponse(string ExternalPaymentId);
-    private sealed record PaymentView(Guid Id, Guid InvoiceId, decimal Amount, string Status, decimal NetCollectedAmount, bool HasProof, IReadOnlyCollection<RefundView> Refunds);
+    private sealed record PaymentHistoryView(DateTime CreatedAtUtc, string Action, string Description);
+    private sealed record PaymentView(Guid Id, Guid InvoiceId, decimal Amount, string Status, decimal NetCollectedAmount, bool HasProof, IReadOnlyCollection<RefundView> Refunds, IReadOnlyCollection<PaymentHistoryView> History);
     private sealed record PaymentConfirmationLinkView(Guid InvoiceId, string InvoiceNumber, string Url);
     private sealed record PaymentConfirmationView(Guid Id, Guid InvoiceId, string InvoiceNumber, string Status);
     private sealed record RefundView(Guid Id, string Reason);

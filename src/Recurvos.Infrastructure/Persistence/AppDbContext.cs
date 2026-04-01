@@ -207,6 +207,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(40)
             .HasDefaultValue("none");
 
+        modelBuilder.Entity<Payment>()
+            .Property(x => x.ReceiptEmailedAtUtc);
+
         modelBuilder.Entity<CreditNote>()
             .Property(x => x.CreditNoteNumber)
             .HasMaxLength(50)

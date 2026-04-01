@@ -292,6 +292,7 @@ export type Payment = {
   hasReceipt: boolean;
   proofFileName?: string | null;
   paidAtUtc?: string | null;
+  history: { createdAtUtc: string; action: string; description: string }[];
   attempts: { attemptNumber: number; status: string; failureCode?: string | null; failureMessage?: string | null }[];
   refunds: Refund[];
   disputes: PaymentDispute[];

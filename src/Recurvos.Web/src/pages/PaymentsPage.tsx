@@ -111,6 +111,17 @@ export function PaymentsPage() {
     setActiveTab(nextTab);
   }, [searchParams]);
 
+  function getReceiptSendSummary(item: Payment) {
+    const sendCount = item.history.filter((entry) =>
+      entry.action === "payment.receipt-sent" || entry.action === "payment.receipt-auto-sent").length;
+
+    if (sendCount === 0) {
+      return null;
+    }
+
+    return sendCount === 1 ? "Receipt sent" : `Receipt sent x${sendCount}`;
+  }
+
   function selectTab(tab: "pending" | "history" | "records") {
     setActiveTab(tab);
     setSearchParams((current) => {
@@ -133,7 +144,7 @@ export function PaymentsPage() {
           <h2>Payments</h2>
         </div>
       </header>
-      {successMessage ? <HelperText tone="success">{successMessage}</HelperText> : null}
+      {successMessage ? <HelperText>{successMessage}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
       <section className="card settings-tab-card">
         <div className="settings-tab-strip" role="tablist" aria-label="Payments sections">
@@ -358,7 +369,17 @@ export function PaymentsPage() {
                   <tr>
                     <td className="sticky-cell sticky-cell-left table-primary-cell">
                       <div className="table-primary-cell-inner">
-                        <span>{item.invoiceNumber}</span>
+                        <div>
+                          <span>{item.invoiceNumber}</span>
+                          {getReceiptSendSummary(item) ? (
+                            <div className="table-meta">
+                              <span className="table-meta-item">
+                                <span className="table-meta-dot table-meta-dot-active" />
+                                {getReceiptSendSummary(item)}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
                         <RowActionMenu
                           items={[
                             {
