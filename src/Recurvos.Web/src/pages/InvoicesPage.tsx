@@ -9,6 +9,7 @@ import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
+import { copyTextToClipboard } from "../lib/clipboard";
 import { formatCurrency } from "../lib/format";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { BillingReadiness, CompanyInvoiceSettings, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, Payment, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
@@ -306,23 +307,6 @@ export function InvoicesPage() {
     URL.revokeObjectURL(objectUrl);
   }
 
-  async function copyToClipboard(text: string) {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.setAttribute("readonly", "true");
-    textArea.style.position = "absolute";
-    textArea.style.left = "-9999px";
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand("copy");
-    textArea.remove();
-  }
-
   function buildWhatsAppInvoiceMessage(invoice: Invoice, links?: InvoiceWhatsAppLinkOptions | null) {
     const companyName = getAuth()?.companyName ?? "our team";
     const amountDue = formatCurrency(invoice.balanceAmount, invoice.currency);
@@ -421,7 +405,7 @@ export function InvoicesPage() {
 
       const links = await getWhatsAppLinks(invoice);
       const message = buildWhatsAppInvoiceMessage(invoice, links);
-      await copyToClipboard(message);
+      await copyTextToClipboard(message);
       setSuccessMessage(`WhatsApp message copied for invoice ${invoice.invoiceNumber}.`);
     } catch (error) {
       setSuccessMessage("");
@@ -434,7 +418,7 @@ export function InvoicesPage() {
       setFormError("");
       setSuccessMessage("");
       const url = await buildWhatsAppBrowserLink(invoice);
-      await copyToClipboard(url);
+      await copyTextToClipboard(url);
       setSuccessMessage(`WhatsApp browser link copied for invoice ${invoice.invoiceNumber}.`);
     } catch (error) {
       setSuccessMessage("");
@@ -666,7 +650,7 @@ export function InvoicesPage() {
                                     throw new Error("Payment link is not available.");
                                   }
 
-                                  await copyToClipboard(payment.paymentLinkUrl);
+                                  await copyTextToClipboard(payment.paymentLinkUrl);
                                   setSuccessMessage(`Payment link copied for invoice ${item.invoiceNumber}.`);
                                 } catch (error) {
                                   setSuccessMessage("");
@@ -687,12 +671,8 @@ export function InvoicesPage() {
                               onClick: async () => {
                                 try {
                                   const link = await api.post<PaymentConfirmationLink>(`/payment-confirmations/invoices/${item.id}/link`);
-                                  if (navigator.clipboard?.writeText) {
-                                    await navigator.clipboard.writeText(link.url);
-                                    setSuccessMessage(`Payment confirmation URL copied for invoice ${item.invoiceNumber}.`);
-                                  } else {
-                                    setSuccessMessage(`Payment confirmation URL: ${link.url}`);
-                                  }
+                                  await copyTextToClipboard(link.url);
+                                  setSuccessMessage(`Payment confirmation URL copied for invoice ${item.invoiceNumber}.`);
                                 } catch (error) {
                                   setSuccessMessage("");
                                   setFormError(error instanceof Error ? error.message : "Unable to create payment confirmation link.");
