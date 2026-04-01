@@ -14,8 +14,8 @@ public sealed class WhatsAppQueueProcessorService(
     IInvoiceService invoiceService,
     IAuditService auditService)
 {
-    private const int MaxMessagesPerRun = 12;
-    private const int MaxMessagesPerCompanyPerRun = 2;
+    private const int MaxMessagesPerRun = 120;
+    private const int MaxMessagesPerCompanyPerRun = 6;
 
     public async Task<int> ProcessAsync(CancellationToken cancellationToken = default)
     {
