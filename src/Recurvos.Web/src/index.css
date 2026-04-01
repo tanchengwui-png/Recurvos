@@ -1502,8 +1502,15 @@ th {
 
 .invoice-payment-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px;
+  grid-template-columns: minmax(0, 1fr) minmax(11.5rem, 13rem);
   gap: 0.9rem;
+}
+
+.invoice-payment-grid > .form-label,
+.invoice-payment-grid .text-input,
+.invoice-payment-grid select,
+.invoice-payment-grid input[type="date"] {
+  min-width: 0;
 }
 
 .subscription-details-grid {
@@ -1882,10 +1889,12 @@ select {
 input[type="date"] {
   display: block;
   width: 100%;
+  max-width: 100%;
   min-height: 3.25rem;
   line-height: 1.2;
   color-scheme: light;
   padding-right: 2.75rem;
+  overflow: hidden;
 }
 
 .text-input[type="date"]::-webkit-datetime-edit,
