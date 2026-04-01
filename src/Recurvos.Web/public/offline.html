@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08111f" />
+    <title>Offline | Recurvos</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08111f;
+        --panel: rgba(11, 23, 38, 0.94);
+        --border: rgba(148, 163, 184, 0.18);
+        --text: #f8fafc;
+        --muted: #8ea0b8;
+        --accent-start: #f97316;
+        --accent-end: #fb7185;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font-family: "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(249, 115, 22, 0.2), transparent 28%),
+          radial-gradient(circle at 85% 0%, rgba(56, 189, 248, 0.12), transparent 24%),
+          linear-gradient(180deg, #0a1526 0%, var(--bg) 100%);
+      }
+
+      main {
+        width: min(100%, 480px);
+        padding: 28px;
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        background: var(--panel);
+        box-shadow: 0 22px 60px rgba(2, 8, 23, 0.42);
+      }
+
+      .eyebrow {
+        margin: 0 0 10px;
+        color: #f5b2a4;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-size: 12px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: 32px;
+        letter-spacing: -0.04em;
+      }
+
+      p {
+        margin: 0 0 14px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+
+      a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+        color: white;
+        text-decoration: none;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Offline</p>
+      <h1>Recurvos needs a connection.</h1>
+      <p>The app shell is installed, but billing data and actions still depend on the live API.</p>
+      <p>Reconnect to continue working with invoices, payments, customers, and subscriptions.</p>
+      <a href="/">Try again</a>
+    </main>
+  </body>
+</html>
