@@ -70,5 +70,6 @@ public interface IPaymentService
     Task<PaymentDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadProofAsync(Guid id, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> SendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
     Task<int> RetryFailedPaymentsAsync(CancellationToken cancellationToken = default);
 }

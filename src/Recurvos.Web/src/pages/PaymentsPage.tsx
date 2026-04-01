@@ -41,6 +41,7 @@ export function PaymentsPage() {
   const [refundForm, setRefundForm] = useState<{ paymentId: string; invoiceId: string; amount: string; reason: string; externalRefundId: string } | null>(null);
   const [reviewForm, setReviewForm] = useState<{ id: string; invoiceNumber: string; action: "approve" | "reject"; reviewNote: string } | null>(null);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [refundError, setRefundError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const pendingConfirmations = confirmations.filter((item) => item.status === "Pending");
@@ -132,6 +133,7 @@ export function PaymentsPage() {
           <h2>Payments</h2>
         </div>
       </header>
+      {successMessage ? <HelperText tone="success">{successMessage}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
       <section className="card settings-tab-card">
         <div className="settings-tab-strip" role="tablist" aria-label="Payments sections">
@@ -389,6 +391,24 @@ export function PaymentsPage() {
                                 URL.revokeObjectURL(objectUrl);
                               }).catch((downloadError) => {
                                 setError(downloadError instanceof Error ? downloadError.message : "Unable to download receipt.");
+                              }),
+                            }, {
+                              label: "Send receipt",
+                              onClick: () => setConfirmState({
+                                title: "Send receipt",
+                                description: `Send receipt for ${item.invoiceNumber} to the customer by email?`,
+                                action: async () => {
+                                  try {
+                                    setError("");
+                                    await api.post(`/payments/${item.id}/send-receipt`);
+                                    setSuccessMessage(`Receipt sent for ${item.invoiceNumber}.`);
+                                    setConfirmState(null);
+                                  } catch (sendError) {
+                                    setSuccessMessage("");
+                                    setConfirmState(null);
+                                    setError(sendError instanceof Error ? sendError.message : "Unable to send receipt.");
+                                  }
+                                },
                               }),
                             }] : []),
                           ]}

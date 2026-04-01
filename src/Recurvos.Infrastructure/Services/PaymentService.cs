@@ -20,6 +20,7 @@ public sealed class PaymentService(
     IAuditService auditService,
     IFeatureEntitlementService featureEntitlementService,
     PlatformOwnerNotificationService platformOwnerNotificationService,
+    IEmailSender emailSender,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : IPaymentService
@@ -160,52 +161,58 @@ public sealed class PaymentService(
     public async Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PaymentTracking, cancellationToken);
-        var payment = await dbContext.Payments
-            .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
-            .Include(x => x.Invoice).ThenInclude(x => x!.LineItems)
-            .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == id, cancellationToken);
-        if (payment?.Invoice?.Customer is null || payment.Status != PaymentStatus.Succeeded || !payment.PaidAtUtc.HasValue)
+        var payment = await LoadReceiptEmailPaymentAsync(id, GetCompanyId(), cancellationToken);
+        if (payment is null)
         {
             return null;
         }
 
-        var filePath = ResolveReceiptPath(payment.ReceiptPdfPath);
-        if (filePath is null || !File.Exists(filePath))
-        {
-            var issuerCompany = await dbContext.Companies.FirstAsync(x => x.Id == payment.CompanyId, cancellationToken);
-            var invoiceSettings = await dbContext.CompanyInvoiceSettings.FirstOrDefaultAsync(x => x.CompanyId == payment.CompanyId, cancellationToken);
-            var receiptNumber = await GenerateReceiptNumberAsync(payment.CompanyId, cancellationToken);
-            var description = payment.Invoice.LineItems.FirstOrDefault()?.Description ?? $"Invoice {payment.Invoice.InvoiceNumber}";
-            var issuerProfile = PlatformIssuerProfileResolver.Resolve(issuerCompany, invoiceSettings);
-            var receiptBytes = ReceiptPdfTemplate.Render(
-                issuerProfile.CompanyName,
-                issuerProfile.RegistrationNumber,
-                issuerProfile.BillingEmail,
-                invoiceSettings?.ShowCompanyAddressOnReceipt == true ? issuerProfile.Address : null,
-                payment.Invoice.Customer.Name,
-                payment.Invoice.Customer.BillingAddress,
-                receiptNumber,
-                payment.Invoice.InvoiceNumber,
-                description,
-                payment.Amount,
-                payment.Currency,
-                payment.GatewayName,
-                payment.PaidAtUtc.Value,
-                payment.ExternalPaymentId ?? payment.GatewayTransactionId ?? payment.GatewaySettlementRef,
-                payment.Invoice.AmountDue);
-
-            payment.ReceiptPdfPath = await SaveReceiptPdfAsync(payment.CompanyId, receiptNumber, receiptBytes, cancellationToken);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            filePath = ResolveReceiptPath(payment.ReceiptPdfPath);
-        }
-
-        if (filePath is null || !File.Exists(filePath))
+        var receiptFile = await EnsureReceiptFileAsync(payment, cancellationToken);
+        if (receiptFile is null)
         {
             return null;
         }
 
-        var fileName = Path.GetFileName(filePath);
-        return (await File.ReadAllBytesAsync(filePath, cancellationToken), string.IsNullOrWhiteSpace(fileName) ? $"{payment.Invoice.InvoiceNumber}-receipt.pdf" : fileName, "application/pdf");
+        return receiptFile;
+    }
+
+    public async Task<bool> SendReceiptAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PaymentTracking, cancellationToken);
+        var payment = await LoadReceiptEmailPaymentAsync(id, GetCompanyId(), cancellationToken);
+        if (payment is null)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(payment.Invoice!.Customer!.Email))
+        {
+            throw new InvalidOperationException("This customer does not have an email address.");
+        }
+
+        var receiptFile = await EnsureReceiptFileAsync(payment, cancellationToken)
+            ?? throw new InvalidOperationException("Receipt PDF could not be generated.");
+
+        var receiptNumber = Path.GetFileNameWithoutExtension(receiptFile.FileName);
+        var company = await dbContext.Companies.FirstAsync(x => x.Id == payment.CompanyId, cancellationToken);
+        var body = EmailTemplateRenderer.RenderReceiptEmail(
+            company.Name,
+            payment.Invoice.Customer.Name,
+            payment.Invoice.InvoiceNumber,
+            receiptNumber,
+            $"{payment.Currency} {payment.Amount:0.00}",
+            payment.PaidAtUtc!.Value.ToString("dd MMM yyyy"));
+
+        await emailSender.SendAsync(
+            payment.Invoice.Customer.Email.Trim(),
+            $"Receipt {receiptNumber} for {payment.Invoice.InvoiceNumber}",
+            body,
+            [new EmailAttachment(receiptFile.FileName, receiptFile.Content, receiptFile.ContentType)],
+            await ResolveSubscriberCustomerEmailCcAsync(payment.CompanyId, cancellationToken),
+            cancellationToken);
+
+        await auditService.WriteAsync("payment.receipt-sent", nameof(Payment), payment.Id.ToString(), payment.Invoice.InvoiceNumber, cancellationToken);
+        return true;
     }
 
     public async Task<int> RetryFailedPaymentsAsync(CancellationToken cancellationToken = default)
@@ -440,6 +447,82 @@ public sealed class PaymentService(
             payment.Disputes.OrderByDescending(x => x.OpenedAtUtc).Select(x => new PaymentDisputeDto(x.Id, x.ExternalDisputeId, x.Amount, x.Reason, x.Status.ToString(), x.OpenedAtUtc, x.ResolvedAtUtc)).ToList());
 
     private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+
+    private async Task<Payment?> LoadReceiptEmailPaymentAsync(Guid paymentId, Guid companyId, CancellationToken cancellationToken)
+        => await dbContext.Payments
+            .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
+            .Include(x => x.Invoice).ThenInclude(x => x!.LineItems)
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == paymentId, cancellationToken);
+
+    private async Task<(byte[] Content, string FileName, string ContentType)?> EnsureReceiptFileAsync(Payment payment, CancellationToken cancellationToken)
+    {
+        if (payment.Invoice?.Customer is null || payment.Status != PaymentStatus.Succeeded || !payment.PaidAtUtc.HasValue)
+        {
+            return null;
+        }
+
+        var filePath = ResolveReceiptPath(payment.ReceiptPdfPath);
+        if (filePath is null || !File.Exists(filePath))
+        {
+            var issuerCompany = await dbContext.Companies.FirstAsync(x => x.Id == payment.CompanyId, cancellationToken);
+            var invoiceSettings = await dbContext.CompanyInvoiceSettings.FirstOrDefaultAsync(x => x.CompanyId == payment.CompanyId, cancellationToken);
+            var receiptNumber = await GenerateReceiptNumberAsync(payment.CompanyId, cancellationToken);
+            var description = payment.Invoice.LineItems.FirstOrDefault()?.Description ?? $"Invoice {payment.Invoice.InvoiceNumber}";
+            var issuerProfile = PlatformIssuerProfileResolver.Resolve(issuerCompany, invoiceSettings);
+            var receiptBytes = ReceiptPdfTemplate.Render(
+                issuerProfile.CompanyName,
+                issuerProfile.RegistrationNumber,
+                issuerProfile.BillingEmail,
+                invoiceSettings?.ShowCompanyAddressOnReceipt == true ? issuerProfile.Address : null,
+                payment.Invoice.Customer.Name,
+                payment.Invoice.Customer.BillingAddress,
+                receiptNumber,
+                payment.Invoice.InvoiceNumber,
+                description,
+                payment.Amount,
+                payment.Currency,
+                payment.GatewayName,
+                payment.PaidAtUtc.Value,
+                payment.ExternalPaymentId ?? payment.GatewayTransactionId ?? payment.GatewaySettlementRef,
+                payment.Invoice.AmountDue);
+
+            payment.ReceiptPdfPath = await SaveReceiptPdfAsync(payment.CompanyId, receiptNumber, receiptBytes, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            filePath = ResolveReceiptPath(payment.ReceiptPdfPath);
+        }
+
+        if (filePath is null || !File.Exists(filePath))
+        {
+            return null;
+        }
+
+        var fileName = Path.GetFileName(filePath);
+        return (await File.ReadAllBytesAsync(filePath, cancellationToken), string.IsNullOrWhiteSpace(fileName) ? $"{payment.Invoice.InvoiceNumber}-receipt.pdf" : fileName, "application/pdf");
+    }
+
+    private async Task<IReadOnlyCollection<string>?> ResolveSubscriberCustomerEmailCcAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var companyProjection = await dbContext.Companies
+            .Where(x => x.Id == companyId && !x.IsPlatformAccount)
+            .Select(x => new
+            {
+                x.SubscriberId,
+                CcSubscriberOnCustomerEmails = x.InvoiceSettings != null ? x.InvoiceSettings.CcSubscriberOnCustomerEmails : true
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (companyProjection is null || !companyProjection.CcSubscriberOnCustomerEmails || !companyProjection.SubscriberId.HasValue)
+        {
+            return null;
+        }
+
+        var subscriberEmail = await dbContext.Users
+            .Where(x => x.Id == companyProjection.SubscriberId.Value)
+            .Select(x => x.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrWhiteSpace(subscriberEmail) ? null : [subscriberEmail.Trim()];
+    }
 
     private string? ResolveProofPath(string? proofPath)
     {

@@ -718,7 +718,7 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var problem = await response.Content.ReadAsStringAsync();
-        problem.Should().Contain("responsibility acknowledgement", StringComparison.OrdinalIgnoreCase);
+        problem.ToLowerInvariant().Should().Contain("responsibility acknowledgement");
     }
 
     [Fact]
@@ -903,6 +903,42 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         message.Attachments.Single().FileName.Should().Be($"{invoice.InvoiceNumber}.pdf");
         message.Attachments.Single().ContentType.Should().Be("application/pdf");
         message.Cc.Should().ContainSingle(x => x == "tanchengwui+basic@hotmail.com");
+    }
+
+    [Fact]
+    public async Task Payment_SendReceipt_UsesBrandedEmailTemplate()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var invoice = (await client.GetFromJsonAsync<List<InvoiceDto>>("/api/invoices", TestWebApplicationFactory.JsonOptions))!.First();
+        var markPaidResponse = await client.PostAsJsonAsync($"/api/invoices/{invoice.Id}/mark-paid", new { });
+        markPaidResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var payments = await client.GetFromJsonAsync<List<PaymentView>>("/api/payments", TestWebApplicationFactory.JsonOptions);
+        var payment = payments!.First(x => x.InvoiceId == invoice.Id && x.Status == "Succeeded");
+
+        var sendResponse = await client.PostAsync($"/api/payments/{payment.Id}/send-receipt", JsonContent.Create(new { }));
+        sendResponse.StatusCode.Should().Be(HttpStatusCode.Accepted);
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var fakeEmailSender = scope.ServiceProvider.GetRequiredService<FakeEmailSender>();
+        var message = fakeEmailSender.Sent.Last(x => x.Subject.Contains(invoice.InvoiceNumber, StringComparison.OrdinalIgnoreCase)
+            && x.Subject.Contains("Receipt", StringComparison.OrdinalIgnoreCase));
+
+        message.Body.Should().Contain("Payment receipt");
+        message.Body.Should().Contain(invoice.InvoiceNumber);
+        message.Body.Should().Contain("Your receipt is attached.");
+        message.Body.Should().Contain("Recurvos Billing Platform");
+        message.Attachments.Should().ContainSingle();
+        message.Attachments.Single().FileName.Should().EndWith(".pdf");
+        message.Attachments.Single().ContentType.Should().Be("application/pdf");
+        message.Cc.Should().ContainSingle(x => x == "tanchengwui+basic@hotmail.com");
+
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var storedPayment = await dbContext.Payments.FirstAsync(x => x.Id == payment.Id);
+        storedPayment.ReceiptPdfPath.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]
