@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "./ConfirmModal";
+import { InstallPromptCard } from "./InstallPromptCard";
 import { api } from "../lib/api";
 import { getAuth, setAuth } from "../lib/auth";
+import { useInstallPromptState } from "../hooks/useInstallPromptState";
+import { isStandalonePwa } from "../lib/pwa";
 import type { BillingReadiness, CompanyLookup, FeatureAccess, FeedbackNotificationSummary, PaymentConfirmation, SubscriberPackageBillingSummary } from "../types";
 
 function formatPackageLabel(packageCode?: string | null) {
@@ -109,6 +112,7 @@ export function AppShell() {
   const [pendingSetupCount, setPendingSetupCount] = useState<number | null>(null);
   const [feedbackUnreadCount, setFeedbackUnreadCount] = useState(0);
   const [pendingPaymentConfirmationCount, setPendingPaymentConfirmationCount] = useState(0);
+  const installPrompt = useInstallPromptState(location.pathname);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -128,6 +132,46 @@ export function AppShell() {
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileNavOpen(false);
+      }
+    };
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(display-mode: standalone)");
+
+    const syncStandaloneClass = () => {
+      document.body.classList.toggle("app-pwa-standalone", isStandalonePwa());
+    };
+
+    syncStandaloneClass();
+
+    mediaQuery.addEventListener("change", syncStandaloneClass);
+    return () => {
+      mediaQuery.removeEventListener("change", syncStandaloneClass);
+      document.body.classList.remove("app-pwa-standalone");
+    };
   }, []);
 
   useEffect(() => {
@@ -223,6 +267,12 @@ export function AppShell() {
     !auth.isPlatformOwner &&
     location.pathname !== "/payments" &&
     pendingPaymentConfirmationCount > 0,
+  );
+  const showInstallPrompt = Boolean(
+    auth &&
+    !auth.isPlatformOwner &&
+    ["/", "/settings", "/help/quick-start"].includes(location.pathname) &&
+    installPrompt.shouldShowPrompt,
   );
   const currentPageLabel = getPageLabel(location.pathname, auth?.isPlatformOwner ?? false);
 
@@ -339,6 +389,7 @@ export function AppShell() {
                   key={path}
                   to={path}
                   className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                  onClick={() => setMobileNavOpen(false)}
                 >
                   {label}
                 </NavLink>
@@ -360,6 +411,7 @@ export function AppShell() {
                     key={item.path}
                     to={item.path}
                     className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                    onClick={() => setMobileNavOpen(false)}
                   >
                     {item.label}
                     {item.label === "Payments" && pendingPaymentConfirmationCount > 0 ? (
@@ -378,6 +430,7 @@ export function AppShell() {
                   key={path}
                   to={path}
                   className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                  onClick={() => setMobileNavOpen(false)}
                 >
                   {label}
                   {label === "Feedback" && feedbackUnreadCount > 0 ? (
@@ -438,7 +491,10 @@ export function AppShell() {
             <button
               type="button"
               className="button"
-              onClick={() => navigate("/package-billing")}
+              onClick={() => {
+                setMobileNavOpen(false);
+                navigate("/package-billing");
+              }}
             >
               View my plan
             </button>
@@ -458,11 +514,31 @@ export function AppShell() {
             <button
               type="button"
               className="button"
-              onClick={() => navigate("/payments?tab=pending")}
+              onClick={() => {
+                setMobileNavOpen(false);
+                navigate("/payments?tab=pending");
+              }}
             >
               Review payments
             </button>
           </section>
+        ) : null}
+        {showInstallPrompt ? (
+          <InstallPromptCard
+            canTriggerInstall={installPrompt.canTriggerInstall}
+            isManualInstallOnly={installPrompt.isManualInstallOnly}
+            onDismiss={installPrompt.dismiss}
+            onPrimaryAction={() => {
+              setMobileNavOpen(false);
+
+              if (installPrompt.canTriggerInstall) {
+                void installPrompt.promptInstall();
+                return;
+              }
+
+              navigate("/settings#install-help");
+            }}
+          />
         ) : null}
         <Outlet />
       </main>
@@ -470,7 +546,10 @@ export function AppShell() {
         <button
           type="button"
           className="quickstart-float-button"
-          onClick={() => navigate("/help/quick-start")}
+          onClick={() => {
+            setMobileNavOpen(false);
+            navigate("/help/quick-start");
+          }}
         >
           <span className="quickstart-float-kicker">Quick Start</span>
           {pendingSetupCount && pendingSetupCount > 0 ? (

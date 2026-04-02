@@ -134,6 +134,7 @@ export function QuickStartPage() {
   const nextStepIndex = stepsWithState.findIndex((step) => !step.done);
   const currentStep = stepsWithState[Math.max(nextStepIndex, 0)] ?? setupSteps[0];
   const completedSteps = stepsWithState.filter((step) => step.done).length;
+  const remainingSteps = stepsWithState.filter((step) => !step.done);
   const allDone = stepsWithState.length > 0 && completedSteps === stepsWithState.length;
   const heroActionHref = allDone ? "/" : currentStep.actionHref;
   const heroActionLabel = allDone ? "Open dashboard" : currentStep.actionLabel;
@@ -159,10 +160,24 @@ export function QuickStartPage() {
       </header>
 
       <section className="card quickstart-hero">
-        <div>
+        <div className="quickstart-hero-copy">
           <p className="eyebrow">Recommended Order</p>
           <h3>Set up billing in 5 steps</h3>
           <p className="muted">Focus on the essentials first. Everything else can wait until after your first invoice or subscription is ready.</p>
+          <div className="quickstart-hero-metrics" aria-label="Quick start progress">
+            <div className="quickstart-hero-metric">
+              <span>Completed</span>
+              <strong>{loading ? "-" : completedSteps}</strong>
+            </div>
+            <div className="quickstart-hero-metric">
+              <span>Remaining</span>
+              <strong>{loading ? "-" : Math.max(stepsWithState.length - completedSteps, 0)}</strong>
+            </div>
+            <div className="quickstart-hero-metric">
+              <span>Current focus</span>
+              <strong>{loading ? "Checking..." : allDone ? "Ready to bill" : currentStep.title}</strong>
+            </div>
+          </div>
         </div>
         <div className="quickstart-actions">
           <Link to="/" className="button button-secondary">Back to dashboard</Link>
@@ -178,6 +193,9 @@ export function QuickStartPage() {
           </div>
           <span className="badge">{loading ? "Checking..." : allDone ? `${completedSteps} of ${stepsWithState.length} done` : `Step ${Math.max(nextStepIndex + 1, 1)} of ${stepsWithState.length}`}</span>
         </div>
+        <div className="quickstart-progress-bar" aria-hidden="true">
+          <span style={{ width: `${stepsWithState.length > 0 ? (completedSteps / stepsWithState.length) * 100 : 0}%` }} />
+        </div>
         <div className="quickstart-featured-step">
           <div>
             <strong>{featuredTitle}</strong>
@@ -185,6 +203,16 @@ export function QuickStartPage() {
           </div>
           <Link to={heroActionHref} className="button button-primary">{heroActionLabel}</Link>
         </div>
+        {!loading && !allDone && remainingSteps.length > 1 ? (
+          <div className="quickstart-next-list">
+            {remainingSteps.slice(1, 3).map((step) => (
+              <div key={step.key} className="quickstart-next-item">
+                <span>{step.title}</span>
+                <Link to={step.actionHref} className="inline-link">{step.actionLabel}</Link>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="card">

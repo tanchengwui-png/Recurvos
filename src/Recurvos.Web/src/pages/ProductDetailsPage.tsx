@@ -181,8 +181,9 @@ export function ProductDetailsPage() {
                                   setConfirmState(null);
                                   await load();
                                 } catch (error) {
-                                  setConfirmState(null);
-                                  setActionError(error instanceof Error ? error.message : "Unable to set default plan.");
+                                  const nextError = error instanceof Error ? error.message : "Unable to set default plan.";
+                                  setActionError(nextError);
+                                  throw new Error(nextError);
                                 }
                               },
                             });
@@ -203,8 +204,9 @@ export function ProductDetailsPage() {
                                     setConfirmState(null);
                                     await load();
                                   } catch (error) {
-                                    setConfirmState(null);
-                                    setActionError(error instanceof Error ? error.message : "Unable to update plan status.");
+                                    const nextError = error instanceof Error ? error.message : "Unable to update plan status.";
+                                    setActionError(nextError);
+                                    throw new Error(nextError);
                                   }
                                 },
                               });
@@ -223,8 +225,9 @@ export function ProductDetailsPage() {
                                   setConfirmState(null);
                                   await load();
                                 } catch (error) {
-                                  setConfirmState(null);
-                                  setActionError(error instanceof Error ? error.message : "Unable to delete plan.");
+                                  const nextError = error instanceof Error ? error.message : "Unable to delete plan.";
+                                  setActionError(nextError);
+                                  throw new Error(nextError);
                                 }
                               },
                             });

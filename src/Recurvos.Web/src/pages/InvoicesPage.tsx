@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
+import { useClipboardWithFallback } from "../hooks/useClipboardWithFallback";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
@@ -76,6 +77,28 @@ function compareInvoices(left: Invoice, right: Invoice, sortState: InvoiceSortSt
   return compareText(left.invoiceNumber, right.invoiceNumber) * direction;
 }
 
+function getInvoiceMobileStatusClassName(invoice: Invoice) {
+  if (invoice.status === "Voided") {
+    return "subscription-mobile-status-cancelled";
+  }
+
+  if (invoice.balanceAmount <= 0) {
+    return "subscription-mobile-status-active";
+  }
+
+  if (new Date(invoice.dueDateUtc).getTime() < Date.now()) {
+    return "subscription-mobile-status-cancelled";
+  }
+
+  return "subscription-mobile-status-warning";
+}
+
+function getInvoicePeriodLabel(invoice: Invoice) {
+  return invoice.periodStartUtc && invoice.periodEndUtc
+    ? `${new Date(invoice.periodStartUtc).toLocaleDateString()} - ${new Date(invoice.periodEndUtc).toLocaleDateString()}`
+    : "-";
+}
+
 export function InvoicesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -83,6 +106,7 @@ export function InvoicesPage() {
   const paymentFormRef = useRef<HTMLDivElement | null>(null);
   const creditNoteFormRef = useRef<HTMLDivElement | null>(null);
   const adjustPaymentFormRef = useRef<HTMLDivElement | null>(null);
+  const { copyTextWithFallback, clipboardFallbackModal } = useClipboardWithFallback();
   const [items, setItems] = useState<Invoice[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -306,23 +330,6 @@ export function InvoicesPage() {
     URL.revokeObjectURL(objectUrl);
   }
 
-  async function copyToClipboard(text: string) {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.setAttribute("readonly", "true");
-    textArea.style.position = "absolute";
-    textArea.style.left = "-9999px";
-    document.body.appendChild(textArea);
-    textArea.select();
-    document.execCommand("copy");
-    textArea.remove();
-  }
-
   function buildWhatsAppInvoiceMessage(invoice: Invoice, links?: InvoiceWhatsAppLinkOptions | null) {
     const companyName = getAuth()?.companyName ?? "our team";
     const amountDue = formatCurrency(invoice.balanceAmount, invoice.currency);
@@ -421,8 +428,18 @@ export function InvoicesPage() {
 
       const links = await getWhatsAppLinks(invoice);
       const message = buildWhatsAppInvoiceMessage(invoice, links);
-      await copyToClipboard(message);
-      setSuccessMessage(`WhatsApp message copied for invoice ${invoice.invoiceNumber}.`);
+      await copyTextWithFallback({
+        text: message,
+        title: "Copy WhatsApp message",
+        onCopied: () => {
+          setFormError("");
+          setSuccessMessage(`WhatsApp message copied for invoice ${invoice.invoiceNumber}.`);
+        },
+        onCopyFailed: (error) => {
+          setSuccessMessage("");
+          setFormError(error.message);
+        },
+      });
     } catch (error) {
       setSuccessMessage("");
       setFormError(error instanceof Error ? error.message : "Unable to copy WhatsApp message.");
@@ -434,12 +451,278 @@ export function InvoicesPage() {
       setFormError("");
       setSuccessMessage("");
       const url = await buildWhatsAppBrowserLink(invoice);
-      await copyToClipboard(url);
-      setSuccessMessage(`WhatsApp browser link copied for invoice ${invoice.invoiceNumber}.`);
+      await copyTextWithFallback({
+        text: url,
+        title: "Copy WhatsApp browser link",
+        onCopied: () => {
+          setFormError("");
+          setSuccessMessage(`WhatsApp browser link copied for invoice ${invoice.invoiceNumber}.`);
+        },
+        onCopyFailed: (error) => {
+          setSuccessMessage("");
+          setFormError(error.message);
+        },
+      });
     } catch (error) {
       setSuccessMessage("");
       setFormError(error instanceof Error ? error.message : "Unable to copy WhatsApp browser link.");
     }
+  }
+
+  function getInvoiceActions(item: Invoice) {
+    return [
+      {
+        label: expandedId === item.id ? "Hide details" : "View details",
+        onClick: () => setExpandedId((current) => current === item.id ? null : item.id),
+      },
+      {
+        label: "Send invoice",
+        disabled: !billingReadiness?.isReady || item.status === "Voided",
+        title: item.status === "Voided"
+          ? "Voided invoices cannot be sent."
+          : !billingReadiness?.isReady
+            ? "Complete billing setup before sending invoices."
+            : undefined,
+        onClick: () => setConfirmState({
+          title: "Send invoice",
+          description: `Send invoice ${item.invoiceNumber} to ${item.customerName}?`,
+          action: async () => {
+            try {
+              setFormError("");
+              await api.post(`/invoices/${item.id}/send`);
+              setSuccessMessage(`Invoice ${item.invoiceNumber} was sent to ${item.customerName}.`);
+              setConfirmState(null);
+              await load();
+            } catch (error) {
+              setSuccessMessage("");
+              const nextError = error instanceof Error ? error.message : "Unable to send invoice.";
+              setFormError(nextError);
+              throw new Error(nextError);
+            }
+          },
+        }),
+      },
+      {
+        label: "Record payment",
+        disabled: item.status === "Voided" || item.balanceAmount <= 0,
+        title: item.status === "Voided"
+          ? "Voided invoices cannot receive payments."
+          : item.balanceAmount <= 0
+            ? "This invoice is already fully paid."
+            : undefined,
+        onClick: () => {
+          setAdjustPaymentForm(null);
+          setCreditNoteForm(null);
+          setPaymentForm({
+            invoiceId: item.id,
+            amount: String(item.balanceAmount),
+            method: "Bank transfer",
+            reference: "",
+            paidAtUtc: new Date().toISOString().slice(0, 10),
+            proofFile: null,
+            useFullBalance: true,
+          });
+        },
+      },
+      {
+        label: item.balanceAmount > 0 && item.history.some((entry) => entry.action === "payment.link.created") ? "Refresh payment link" : "Generate payment link",
+        disabled: !featureAccess?.featureKeys.includes("payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
+        title: item.balanceAmount <= 0
+          ? "This invoice has no outstanding balance."
+          : !featureAccess?.featureKeys.includes("payment_link_generation")
+            ? getFeatureHint("payment_link_generation")
+            : !invoiceSettings?.paymentGatewayReady
+              ? "Set up a payment gateway in Settings > Payment first."
+              : undefined,
+        onClick: async () => {
+          try {
+            setFormError("");
+            setSuccessMessage("");
+            const payment = await api.post<{ paymentLinkUrl?: string | null }>(`/payments/invoice/${item.id}/link`);
+            if (!payment.paymentLinkUrl) {
+              throw new Error("Payment link could not be generated.");
+            }
+
+            setSuccessMessage(`Payment link is ready for invoice ${item.invoiceNumber}.`);
+            await load();
+          } catch (error) {
+            setSuccessMessage("");
+            setFormError(error instanceof Error ? error.message : "Unable to generate payment link.");
+          }
+        },
+      },
+      {
+        label: "Copy payment link",
+        disabled: !featureAccess?.featureKeys.includes("payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
+        title: item.balanceAmount <= 0
+          ? "This invoice has no outstanding balance."
+          : !featureAccess?.featureKeys.includes("payment_link_generation")
+            ? getFeatureHint("payment_link_generation")
+            : !invoiceSettings?.paymentGatewayReady
+              ? "Set up a payment gateway in Settings > Payment first."
+              : undefined,
+        onClick: async () => {
+          try {
+            setFormError("");
+            const payment = await api.post<{ paymentLinkUrl?: string | null }>(`/payments/invoice/${item.id}/link`);
+            if (!payment.paymentLinkUrl) {
+              throw new Error("Payment link is not available.");
+            }
+
+            await copyTextWithFallback({
+              text: payment.paymentLinkUrl,
+              title: "Copy payment link",
+              onCopied: () => {
+                setFormError("");
+                setSuccessMessage(`Payment link copied for invoice ${item.invoiceNumber}.`);
+              },
+              onCopyFailed: (error) => {
+                setSuccessMessage("");
+                setFormError(error.message);
+              },
+            });
+          } catch (error) {
+            setSuccessMessage("");
+            setFormError(error instanceof Error ? error.message : "Unable to copy payment link.");
+          }
+        },
+      },
+      {
+        label: "Copy payment confirmation URL",
+        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("public_payment_confirmation"),
+        title: item.status === "Voided"
+          ? "Voided invoices cannot issue payment confirmation links."
+          : item.balanceAmount <= 0
+            ? "This invoice is already fully paid."
+            : !featureAccess?.featureKeys.includes("public_payment_confirmation")
+              ? getFeatureHint("public_payment_confirmation")
+              : undefined,
+        onClick: async () => {
+          try {
+            const link = await api.post<PaymentConfirmationLink>(`/payment-confirmations/invoices/${item.id}/link`);
+            await copyTextWithFallback({
+              text: link.url,
+              title: "Copy payment confirmation URL",
+              onCopied: () => {
+                setFormError("");
+                setSuccessMessage(`Payment confirmation URL copied for invoice ${item.invoiceNumber}.`);
+              },
+              onCopyFailed: (error) => {
+                setSuccessMessage("");
+                setFormError(error.message);
+              },
+            });
+          } catch (error) {
+            setSuccessMessage("");
+            setFormError(error instanceof Error ? error.message : "Unable to create payment confirmation link.");
+          }
+        },
+      },
+      {
+        label: "Copy WhatsApp message",
+        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_copy_message"),
+        title: item.status === "Voided"
+          ? "Voided invoices should not be shared for payment."
+          : item.balanceAmount <= 0
+            ? "This invoice is already fully paid."
+            : !featureAccess?.featureKeys.includes("whatsapp_copy_message")
+              ? getFeatureHint("whatsapp_copy_message")
+              : undefined,
+        onClick: () => void copyWhatsAppMessage(item),
+      },
+      {
+        label: "Copy WhatsApp browser link",
+        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_browser_link"),
+        title: item.status === "Voided"
+          ? "Voided invoices should not be shared for payment."
+          : item.balanceAmount <= 0
+            ? "This invoice is already fully paid."
+            : !featureAccess?.featureKeys.includes("whatsapp_browser_link")
+              ? getFeatureHint("whatsapp_browser_link")
+              : undefined,
+        onClick: () => void copyWhatsAppBrowserLink(item),
+      },
+      {
+        label: "Issue credit note",
+        disabled: item.status === "Voided" || item.eligibleCreditAmount <= 0,
+        title: item.status === "Voided"
+          ? "Voided invoices cannot receive credit notes."
+          : item.eligibleCreditAmount <= 0
+            ? "This invoice has no remaining eligible amount for a credit note."
+            : undefined,
+        onClick: () => {
+          setAdjustPaymentForm(null);
+          setPaymentForm(null);
+          setCreditNoteForm({
+            invoiceId: item.id,
+            invoiceNumber: item.invoiceNumber,
+            customerName: item.customerName,
+            currency: item.currency,
+            eligibleCreditAmount: item.eligibleCreditAmount,
+            reason: "",
+            issuedAtUtc: new Date().toISOString().slice(0, 10),
+            description: `Credit note for invoice ${item.invoiceNumber}`,
+            amount: "",
+          });
+        },
+      },
+      ...(item.paidAmount > 0 ? [{
+        label: "Adjust payment",
+        onClick: () => {
+          const refundablePayments = payments.filter((payment) =>
+            payment.invoiceId === item.id
+            && payment.status === "Succeeded"
+            && payment.attempts.length === 0
+            && payment.refundedAmount < payment.amount);
+          setPaymentForm(null);
+          setCreditNoteForm(null);
+          setAdjustPaymentForm({
+            invoiceId: item.id,
+            invoiceNumber: item.invoiceNumber,
+            currency: item.currency,
+            invoiceTotal: item.total,
+            paidAmount: item.paidAmount,
+            mode: "reverse",
+            selectedPaymentId: refundablePayments[0]?.id ?? "",
+            amount: "",
+            reason: "",
+          });
+        },
+      }, {
+        label: "Download receipt",
+        onClick: () => void downloadReceipt(item.id, item.invoiceNumber),
+      }] : []),
+      { label: "Download PDF", onClick: () => void downloadPdf(item.id, item.invoiceNumber) },
+      {
+        label: "Void invoice",
+        tone: "danger" as const,
+        disabled: item.status === "Voided" || item.balanceAmount <= 0 || item.paidAmount > 0 || item.creditNotes.some((note) => note.status === "Issued"),
+        title: item.status === "Voided"
+          ? "This invoice is already voided."
+          : item.balanceAmount <= 0
+            ? "Fully paid invoices cannot be voided."
+            : item.paidAmount > 0
+              ? "Paid invoices cannot be voided."
+              : item.creditNotes.some((note) => note.status === "Issued")
+                ? "Invoices with issued credit notes cannot be voided."
+                : undefined,
+        onClick: () => setConfirmState({
+          title: "Void invoice",
+          description: `Void invoice ${item.invoiceNumber}?`,
+          action: async () => {
+            try {
+              await api.post(`/invoices/${item.id}/cancel`);
+              setConfirmState(null);
+              await load();
+            } catch (error) {
+              const nextError = error instanceof Error ? error.message : "Unable to void invoice.";
+              setFormError(nextError);
+              throw new Error(nextError);
+            }
+          },
+        }),
+      },
+    ];
   }
 
   function toggleSort(column: InvoiceSortColumn) {
@@ -493,19 +776,20 @@ export function InvoicesPage() {
       ) : null}
 
       <section className="card">
-        <div className="inline-fields" style={{ marginBottom: "1rem", alignItems: "end" }}>
-          <label className="form-label" style={{ flex: "1 1 18rem" }}>
+        <div className="inline-fields pwa-filter-bar invoice-filter-bar" style={{ marginBottom: "1rem", alignItems: "end" }}>
+          <label className="form-label invoice-filter-search">
             Search
             <input
+              aria-label="Search invoices"
               className="text-input"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search invoice number, customer, status, or source"
             />
           </label>
-          <label className="form-label" style={{ minWidth: "12rem" }}>
+          <label className="form-label invoice-filter-select">
             Status
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "open" | "paid" | "overdue" | "voided")}>
+            <select aria-label="Filter invoices by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "open" | "paid" | "overdue" | "voided")}>
               <option value="all">All statuses</option>
               <option value="open">Outstanding</option>
               <option value="paid">Paid</option>
@@ -513,9 +797,9 @@ export function InvoicesPage() {
               <option value="voided">Voided</option>
             </select>
           </label>
-          <label className="form-label" style={{ minWidth: "12rem" }}>
+          <label className="form-label invoice-filter-select">
             Source
-            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | "manual" | "subscription" | "platform")}>
+            <select aria-label="Filter invoices by source" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | "manual" | "subscription" | "platform")}>
               <option value="all">All sources</option>
               <option value="manual">Manual</option>
               <option value="subscription">Subscription</option>
@@ -526,17 +810,68 @@ export function InvoicesPage() {
         {searchQuery || statusFilter !== "all" || sourceFilter !== "all" ? (
           <HelperText>{`${filteredItems.length} matching invoice${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
         ) : null}
-        <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
-          <div ref={topInnerRef} />
+        <div className="subscription-mobile-list">
+          {pagination.pagedItems.map((item) => (
+            <article key={item.id} className="subscription-mobile-card">
+              <div className="subscription-mobile-card-header">
+                <div className="subscription-mobile-identity">
+                  <strong>{item.invoiceNumber}</strong>
+                  <div className="eyebrow">{item.customerName}</div>
+                </div>
+                <div className="subscription-mobile-actions">
+                  <RowActionMenu items={getInvoiceActions(item)} label="More" />
+                </div>
+              </div>
+              <div className="subscription-mobile-summary">
+                <div className="subscription-mobile-amount">{formatCurrency(item.total, item.currency)}</div>
+                <div className="subscription-mobile-cadence">{`Balance ${formatCurrency(item.balanceAmount, item.currency)}`}</div>
+              </div>
+              <div className="subscription-mobile-card-topline">
+                <span className={`subscription-mobile-status ${getInvoiceMobileStatusClassName(item)}`}>
+                  {item.statusLabel}
+                </span>
+                <span className="subscription-mobile-inline-note">{item.sourceType}</span>
+                <span className="subscription-mobile-inline-note">{`Due ${new Date(item.dueDateUtc).toLocaleDateString()}`}</span>
+              </div>
+              <div className="subscription-mobile-meta">
+                <div className="subscription-mobile-meta-row">
+                  <span className="subscription-mobile-meta-label">Customer</span>
+                  <span className="subscription-mobile-meta-value">{item.customerName}</span>
+                </div>
+                <div className="subscription-mobile-meta-row">
+                  <span className="subscription-mobile-meta-label">Period</span>
+                  <span className="subscription-mobile-meta-value">{getInvoicePeriodLabel(item)}</span>
+                </div>
+                <div className="subscription-mobile-meta-row">
+                  <span className="subscription-mobile-meta-label">Paid</span>
+                  <span className="subscription-mobile-meta-value">{formatCurrency(item.paidAmount, item.currency)}</span>
+                </div>
+                <div className="subscription-mobile-meta-row">
+                  <span className="subscription-mobile-meta-label">Balance</span>
+                  <span className="subscription-mobile-meta-value">{formatCurrency(item.balanceAmount, item.currency)}</span>
+                </div>
+                {getInvoiceSendSummary(item) ? (
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">History</span>
+                    <span className="subscription-mobile-meta-value">{getInvoiceSendSummary(item)}</span>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          ))}
         </div>
-        <div
-          ref={(node) => {
-            tableScrollRef.current = node;
-            contentScrollRef.current = node;
-          }}
-          className="table-scroll table-scroll-bounded table-scroll-draggable"
-        >
-          <table className="catalog-table invoice-table">
+        <div className="subscription-table-shell">
+          <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
+            <div ref={topInnerRef} />
+          </div>
+          <div
+            ref={(node) => {
+              tableScrollRef.current = node;
+              contentScrollRef.current = node;
+            }}
+            className="table-scroll table-scroll-bounded table-scroll-draggable"
+          >
+            <table className="catalog-table invoice-table">
             <thead>
               <tr>
                 {renderSortHeader("Invoice", "invoice", "sticky-cell sticky-cell-left")}
@@ -567,243 +902,7 @@ export function InvoicesPage() {
                             </div>
                           ) : null}
                         </div>
-                        <RowActionMenu
-                          items={[
-                            {
-                              label: expandedId === item.id ? "Hide details" : "View details",
-                              onClick: () => setExpandedId((current) => current === item.id ? null : item.id),
-                            },
-                            {
-                              label: "Send invoice",
-                              disabled: !billingReadiness?.isReady || item.status === "Voided",
-                              title: item.status === "Voided"
-                                ? "Voided invoices cannot be sent."
-                                : !billingReadiness?.isReady
-                                  ? "Complete billing setup before sending invoices."
-                                  : undefined,
-                              onClick: () => setConfirmState({
-                                title: "Send invoice",
-                                description: `Send invoice ${item.invoiceNumber} to ${item.customerName}?`,
-                                action: async () => {
-                                  try {
-                                    setFormError("");
-                                    await api.post(`/invoices/${item.id}/send`);
-                                    setSuccessMessage(`Invoice ${item.invoiceNumber} was sent to ${item.customerName}.`);
-                                    setConfirmState(null);
-                                    await load();
-                                  } catch (error) {
-                                    setSuccessMessage("");
-                                    setConfirmState(null);
-                                    setFormError(error instanceof Error ? error.message : "Unable to send invoice.");
-                                  }
-                                },
-                              }),
-                            },
-                            {
-                              label: "Record payment",
-                              disabled: item.status === "Voided" || item.balanceAmount <= 0,
-                              title: item.status === "Voided"
-                                ? "Voided invoices cannot receive payments."
-                                : item.balanceAmount <= 0
-                                  ? "This invoice is already fully paid."
-                                  : undefined,
-                              onClick: () => {
-                                setAdjustPaymentForm(null);
-                                setCreditNoteForm(null);
-                                setPaymentForm({
-                                  invoiceId: item.id,
-                                  amount: String(item.balanceAmount),
-                                  method: "Bank transfer",
-                                  reference: "",
-                                  paidAtUtc: new Date().toISOString().slice(0, 10),
-                                  proofFile: null,
-                                  useFullBalance: true,
-                                });
-                              },
-                            },
-                            {
-                              label: item.balanceAmount > 0 && item.history.some((entry) => entry.action === "payment.link.created") ? "Refresh payment link" : "Generate payment link",
-                              disabled: !featureAccess?.featureKeys.includes("payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
-                              title: item.balanceAmount <= 0
-                                ? "This invoice has no outstanding balance."
-                                : !featureAccess?.featureKeys.includes("payment_link_generation")
-                                  ? getFeatureHint("payment_link_generation")
-                                  : !invoiceSettings?.paymentGatewayReady
-                                    ? "Set up a payment gateway in Settings > Payment first."
-                                    : undefined,
-                              onClick: async () => {
-                                try {
-                                  setFormError("");
-                                  setSuccessMessage("");
-                                  const payment = await api.post<{ paymentLinkUrl?: string | null }>(`/payments/invoice/${item.id}/link`);
-                                  if (!payment.paymentLinkUrl) {
-                                    throw new Error("Payment link could not be generated.");
-                                  }
-
-                                  setSuccessMessage(`Payment link is ready for invoice ${item.invoiceNumber}.`);
-                                  await load();
-                                } catch (error) {
-                                  setSuccessMessage("");
-                                  setFormError(error instanceof Error ? error.message : "Unable to generate payment link.");
-                                }
-                              },
-                            },
-                            {
-                              label: "Copy payment link",
-                              disabled: !featureAccess?.featureKeys.includes("payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
-                              title: item.balanceAmount <= 0
-                                ? "This invoice has no outstanding balance."
-                                : !featureAccess?.featureKeys.includes("payment_link_generation")
-                                  ? getFeatureHint("payment_link_generation")
-                                  : !invoiceSettings?.paymentGatewayReady
-                                    ? "Set up a payment gateway in Settings > Payment first."
-                                    : undefined,
-                              onClick: async () => {
-                                try {
-                                  setFormError("");
-                                  const payment = await api.post<{ paymentLinkUrl?: string | null }>(`/payments/invoice/${item.id}/link`);
-                                  if (!payment.paymentLinkUrl) {
-                                    throw new Error("Payment link is not available.");
-                                  }
-
-                                  await copyToClipboard(payment.paymentLinkUrl);
-                                  setSuccessMessage(`Payment link copied for invoice ${item.invoiceNumber}.`);
-                                } catch (error) {
-                                  setSuccessMessage("");
-                                  setFormError(error instanceof Error ? error.message : "Unable to copy payment link.");
-                                }
-                              },
-                            },
-                            {
-                              label: "Copy payment confirmation URL",
-                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("public_payment_confirmation"),
-                              title: item.status === "Voided"
-                                ? "Voided invoices cannot issue payment confirmation links."
-                                : item.balanceAmount <= 0
-                                  ? "This invoice is already fully paid."
-                                : !featureAccess?.featureKeys.includes("public_payment_confirmation")
-                                  ? getFeatureHint("public_payment_confirmation")
-                                  : undefined,
-                              onClick: async () => {
-                                try {
-                                  const link = await api.post<PaymentConfirmationLink>(`/payment-confirmations/invoices/${item.id}/link`);
-                                  if (navigator.clipboard?.writeText) {
-                                    await navigator.clipboard.writeText(link.url);
-                                    setSuccessMessage(`Payment confirmation URL copied for invoice ${item.invoiceNumber}.`);
-                                  } else {
-                                    setSuccessMessage(`Payment confirmation URL: ${link.url}`);
-                                  }
-                                } catch (error) {
-                                  setSuccessMessage("");
-                                  setFormError(error instanceof Error ? error.message : "Unable to create payment confirmation link.");
-                                }
-                              },
-                            },
-                            {
-                              label: "Copy WhatsApp message",
-                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_copy_message"),
-                              title: item.status === "Voided"
-                                ? "Voided invoices should not be shared for payment."
-                                : item.balanceAmount <= 0
-                                  ? "This invoice is already fully paid."
-                                : !featureAccess?.featureKeys.includes("whatsapp_copy_message")
-                                  ? getFeatureHint("whatsapp_copy_message")
-                                  : undefined,
-                              onClick: () => void copyWhatsAppMessage(item),
-                            },
-                            {
-                              label: "Copy WhatsApp browser link",
-                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_browser_link"),
-                              title: item.status === "Voided"
-                                ? "Voided invoices should not be shared for payment."
-                                : item.balanceAmount <= 0
-                                  ? "This invoice is already fully paid."
-                                : !featureAccess?.featureKeys.includes("whatsapp_browser_link")
-                                  ? getFeatureHint("whatsapp_browser_link")
-                                  : undefined,
-                              onClick: () => void copyWhatsAppBrowserLink(item),
-                            },
-                            {
-                              label: "Issue credit note",
-                              disabled: item.status === "Voided" || item.eligibleCreditAmount <= 0,
-                              title: item.status === "Voided"
-                                ? "Voided invoices cannot receive credit notes."
-                                : item.eligibleCreditAmount <= 0
-                                  ? "This invoice has no remaining eligible amount for a credit note."
-                                  : undefined,
-                              onClick: () => {
-                                setAdjustPaymentForm(null);
-                                setPaymentForm(null);
-                                setCreditNoteForm({
-                                  invoiceId: item.id,
-                                  invoiceNumber: item.invoiceNumber,
-                                  customerName: item.customerName,
-                                  currency: item.currency,
-                                  eligibleCreditAmount: item.eligibleCreditAmount,
-                                  reason: "",
-                                  issuedAtUtc: new Date().toISOString().slice(0, 10),
-                                  description: `Credit note for invoice ${item.invoiceNumber}`,
-                                  amount: "",
-                                });
-                              },
-                            },
-                            ...(item.paidAmount > 0 ? [{
-                              label: "Adjust payment",
-                              onClick: () => {
-                                const refundablePayments = payments.filter((payment) =>
-                                  payment.invoiceId === item.id
-                                  && payment.status === "Succeeded"
-                                  && payment.attempts.length === 0
-                                  && payment.refundedAmount < payment.amount);
-                                setPaymentForm(null);
-                                setCreditNoteForm(null);
-                                setAdjustPaymentForm({
-                                  invoiceId: item.id,
-                                  invoiceNumber: item.invoiceNumber,
-                                  currency: item.currency,
-                                  invoiceTotal: item.total,
-                                  paidAmount: item.paidAmount,
-                                  mode: "reverse",
-                                  selectedPaymentId: refundablePayments[0]?.id ?? "",
-                                  amount: "",
-                                  reason: "",
-                                });
-                              },
-                            }, {
-                              label: "Download receipt",
-                              onClick: () => void downloadReceipt(item.id, item.invoiceNumber),
-                            }] : []),
-                            { label: "Download PDF", onClick: () => void downloadPdf(item.id, item.invoiceNumber) },
-                            {
-                              label: "Void invoice",
-                              tone: "danger",
-                              disabled: item.status === "Voided" || item.balanceAmount <= 0 || item.paidAmount > 0 || item.creditNotes.some((note) => note.status === "Issued"),
-                              title: item.status === "Voided"
-                                ? "This invoice is already voided."
-                                : item.balanceAmount <= 0
-                                  ? "Fully paid invoices cannot be voided."
-                                : item.paidAmount > 0
-                                ? "Paid invoices cannot be voided."
-                                : item.creditNotes.some((note) => note.status === "Issued")
-                                  ? "Invoices with issued credit notes cannot be voided."
-                                  : undefined,
-                              onClick: () => setConfirmState({
-                                title: "Void invoice",
-                                description: `Void invoice ${item.invoiceNumber}?`,
-                                action: async () => {
-                                  try {
-                                    await api.post(`/invoices/${item.id}/cancel`);
-                                    setConfirmState(null);
-                                    await load();
-                                  } catch (error) {
-                                    setConfirmState(null);
-                                    setFormError(error instanceof Error ? error.message : "Unable to void invoice.");
-                                  }
-                                },
-                              }),
-                            },
-                          ]}
-                        />
+	                        <RowActionMenu items={getInvoiceActions(item)} />
                       </div>
                     </td>
                     <td>{item.customerName}</td>
@@ -813,7 +912,7 @@ export function InvoicesPage() {
                       </span>
                     </td>
                     <td>{item.sourceType}</td>
-                    <td>{item.periodStartUtc && item.periodEndUtc ? `${new Date(item.periodStartUtc).toLocaleDateString()} - ${new Date(item.periodEndUtc).toLocaleDateString()}` : "-"}</td>
+                    <td>{getInvoicePeriodLabel(item)}</td>
                     <td>{formatCurrency(item.total, item.currency)}</td>
                     <td>{formatCurrency(item.paidAmount, item.currency)}</td>
                     <td>{formatCurrency(item.balanceAmount, item.currency)}</td>
@@ -823,24 +922,25 @@ export function InvoicesPage() {
               ))}
             </tbody>
             </table>
-          {items.length === 0 ? (
-            <div className="empty-state">
-              <h3>No invoices yet</h3>
-              <p className="muted">Wait for subscription renewals to generate invoices automatically, or use invoice actions here once records exist.</p>
-              <div className="empty-state-actions">
-                <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
-              </div>
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="empty-state">
-              <h3>No matching invoices</h3>
-              <p className="muted">Try a different keyword or filter to narrow the invoice list.</p>
-            </div>
-          ) : null}
+          </div>
+          <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
+            <div ref={bottomInnerRef} />
+          </div>
         </div>
-        <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
-          <div ref={bottomInnerRef} />
-        </div>
+        {items.length === 0 ? (
+          <div className="empty-state">
+            <h3>No invoices yet</h3>
+            <p className="muted">Wait for subscription renewals to generate invoices automatically, or use invoice actions here once records exist.</p>
+            <div className="empty-state-actions">
+              <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
+            </div>
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="empty-state">
+            <h3>No matching invoices</h3>
+            <p className="muted">Try a different keyword or filter to narrow the invoice list.</p>
+          </div>
+        ) : null}
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
 
         {paymentForm ? (
@@ -948,8 +1048,9 @@ export function InvoicesPage() {
                     setPaymentForm(null);
                     await load();
                   } catch (error) {
-                    setConfirmState(null);
-                    setFormError(error instanceof Error ? error.message : "Unable to record payment.");
+                    const nextError = error instanceof Error ? error.message : "Unable to record payment.";
+                    setFormError(nextError);
+                    throw new Error(nextError);
                   }
                 },
               })}>Save payment</button>
@@ -1024,8 +1125,9 @@ export function InvoicesPage() {
                     setCreditNoteForm(null);
                     await load();
                   } catch (error) {
-                    setConfirmState(null);
-                    setFormError(error instanceof Error ? error.message : "Unable to issue credit note.");
+                    const nextError = error instanceof Error ? error.message : "Unable to issue credit note.";
+                    setFormError(nextError);
+                    throw new Error(nextError);
                   }
                 },
               })}>Issue credit note</button>
@@ -1146,9 +1248,10 @@ export function InvoicesPage() {
                     setAdjustPaymentForm(null);
                     await load();
                   } catch (error) {
-                    setConfirmState(null);
                     setSuccessMessage("");
-                    setFormError(error instanceof Error ? error.message : "Unable to adjust payment.");
+                    const nextError = error instanceof Error ? error.message : "Unable to adjust payment.";
+                    setFormError(nextError);
+                    throw new Error(nextError);
                   }
                 },
               })}>{adjustPaymentForm.mode === "reverse" ? "Reverse payment" : "Save refund"}</button>
@@ -1169,6 +1272,8 @@ export function InvoicesPage() {
         onConfirm={async () => { if (confirmState) await confirmState.action(); }}
         onCancel={() => setConfirmState(null)}
       />
+
+      {clipboardFallbackModal}
 
       {selectedInvoice ? (
         <div className="modal-backdrop invoice-detail-backdrop" role="presentation" onClick={() => setExpandedId(null)}>

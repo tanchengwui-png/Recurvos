@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 const subscriberEmail = process.env.PLAYWRIGHT_STEP4_EMAIL ?? "tanchengwui@hotmail.com";
@@ -12,6 +13,8 @@ const contactPhone = process.env.PLAYWRIGHT_STEP4_PHONE ?? "+60 17-304 2586";
 const companyAddress = process.env.PLAYWRIGHT_STEP4_COMPANY_ADDRESS ?? "Level 10, Jalan Sultan Ismail, 50250 Kuala Lumpur";
 const customerAddress = process.env.PLAYWRIGHT_STEP4_CUSTOMER_ADDRESS ?? "Suite 8-3, Menara UOA Bangsar, 59000 Kuala Lumpur";
 let cachedAuthJson: string | null = null;
+let cachedSubscriberAuthJson: string | null = null;
+let cachedOwnerApiAuth: StoredAuth | null = null;
 
 type SubscriberPackageBillingInvoice = {
   id: string;
@@ -25,6 +28,11 @@ type SubscriberPackageBillingSummary = {
   packageStatus?: string | null;
   invoices: SubscriberPackageBillingInvoice[];
   availableUpgrades: { code: string; name: string }[];
+};
+
+type StoredAuth = {
+  accessToken: string;
+  refreshToken: string;
 };
 
 test.setTimeout(300_000);
@@ -129,6 +137,10 @@ async function login(page: Page, email: string, password: string) {
   await page.getByRole("button", { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(/\/app$/);
   await snapshotAuth(page);
+
+  if (email === subscriberEmail) {
+    cachedSubscriberAuthJson = cachedAuthJson;
+  }
 }
 
 async function signOut(page: Page) {
@@ -204,7 +216,7 @@ async function upgradeSubscriberToGrowth(page: Page) {
   const growthUpgradeCard = page.locator(".subscriber-upgrade-item").filter({ hasText: /growth/i }).first();
   await expect(growthUpgradeCard).toBeVisible({ timeout: 15000 });
   await growthUpgradeCard.getByRole("button", { name: /see upgrade price/i }).click();
-  await expect(page.getByRole("dialog", { name: /upgrade quote/i })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("dialog").filter({ hasText: /upgrade quote/i })).toBeVisible({ timeout: 15000 });
   await page.getByRole("button", { name: /create upgrade invoice/i }).click();
   await expect(page.getByText(/upgrade invoice .* is ready/i).first()).toBeVisible({ timeout: 30000 });
 
@@ -229,6 +241,7 @@ async function createProduct(
   page: Page,
   details: { name: string; code: string; description: string; category: string },
 ) {
+  await openProductForm(page);
   await ensureCompanySelectedForProduct(page);
   await page.getByLabel(/^name$/i).fill(details.name);
   await page.getByLabel(/^code$/i).fill(details.code);
@@ -238,22 +251,29 @@ async function createProduct(
   await confirmModal(page);
   await page.waitForLoadState("networkidle").catch(() => undefined);
 
+  await expect(page).toHaveURL(/\/products$/);
   const createdRow = page.locator(".products-table tbody tr").filter({ hasText: details.name }).first();
   await expect(createdRow).toBeVisible({ timeout: 15000 });
   return details.name;
 }
 
 async function ensureCompanySelectedForProduct(page: Page) {
-  const companySelect = page.locator("#product-company");
+  const companySelect = page.locator("#product-company").or(page.getByRole("combobox", { name: /company/i }).first());
   await expect(companySelect).toBeVisible();
-  await page.waitForFunction(
-    (selector) => {
-      const select = document.querySelector(selector) as HTMLSelectElement | null;
-      return Boolean(select && select.options.length > 0 && select.value);
-    },
-    "#product-company",
-    { timeout: 15000 },
-  );
+  const currentValue = await companySelect.inputValue().catch(() => "");
+  if (currentValue) {
+    return;
+  }
+
+  const options = companySelect.locator("option");
+  const optionCount = await options.count();
+  for (let index = 0; index < optionCount; index += 1) {
+    const value = await options.nth(index).getAttribute("value");
+    if (value) {
+      await companySelect.selectOption(value);
+      return;
+    }
+  }
 }
 
 async function createPlan(
@@ -272,22 +292,22 @@ async function createPlan(
     return;
   }
 
-  await page.locator("#plan-product").selectOption({ label: details.productName });
-  await page.locator("#plan-name").fill(details.planName);
-  await page.locator("#plan-code").fill(details.planCode);
-  await page.locator("#plan-billing-type").selectOption(details.billingType);
+  await openPlanForm(page);
+  await page.locator("#plan-product").or(page.getByRole("combobox", { name: /product/i }).first()).selectOption({ label: details.productName });
+  await page.locator("#plan-name").or(page.getByLabel(/^plan name$/i)).fill(details.planName);
+  await page.locator("#plan-code").or(page.getByLabel(/^plan code$/i)).fill(details.planCode);
+  await page.locator("#plan-billing-type").or(page.getByRole("combobox", { name: /billing type/i }).first()).selectOption(details.billingType);
   if (details.billingType === "Recurring") {
-    await page.locator("#plan-interval-unit").selectOption(details.intervalUnit ?? "Month");
-    await page.locator("#plan-interval-count").fill(details.intervalCount ?? "1");
+    await page.locator("#plan-interval-unit").or(page.getByRole("combobox", { name: /billing interval/i }).first()).selectOption({ label: intervalLabel(details.intervalUnit ?? "Month") });
+    await page.locator("#plan-interval-count").or(page.getByLabel(/every how many/i)).fill(details.intervalCount ?? "1");
   }
-  await page.locator("#plan-amount").fill(details.amount);
+  await page.locator("#plan-amount").or(page.getByLabel(/amount/i)).fill(details.amount);
   await page.getByRole("button", { name: /^create plan$/i }).click();
   await confirmModal(page);
   const immediateError = await firstVisibleText(page.locator(".helper-text-error, .helper-text.helper-text-error, [role='alert']"));
   await page.waitForLoadState("networkidle").catch(() => undefined);
-  await page.reload();
-  await page.waitForLoadState("networkidle").catch(() => undefined);
 
+  await expect(page).toHaveURL(/\/plans$/);
   if (await page.locator(".plans-table").getByText(details.planName, { exact: false }).first().isVisible().catch(() => false)) {
     return;
   }
@@ -306,12 +326,14 @@ async function createPlan(
 }
 
 async function createCustomer(page: Page, customerName: string) {
+  await openCustomerForm(page);
   await page.getByLabel(/^name$/i).fill(customerName);
   await page.getByLabel(/^email$/i).fill(contactEmail);
   await page.getByLabel(/^phone$/i).fill(contactPhone);
   await page.locator('input[name="billingAddress"]').fill(customerAddress);
-  await page.getByRole("button", { name: /^save$/i }).click();
+  await page.getByRole("button", { name: /^save( customer)?$/i }).click();
   await confirmModal(page);
+  await expect(page).toHaveURL(/\/customers$/);
   await expect(page.locator(".customer-table tbody tr").filter({ hasText: customerName }).first()).toBeVisible({ timeout: 15000 });
 }
 
@@ -324,10 +346,12 @@ async function fillSubscriptionDraft(
     startDate: string;
   },
 ) {
+  await openSubscriptionForm(page);
+  await ensureSubscriptionCompanySelected(page);
   const customerSelect = page.getByRole("combobox", { name: "Customer", exact: true });
   const planSelect = page.getByRole("combobox", { name: "Plan", exact: true });
-  const quantityInput = page.getByRole("textbox", { name: "Quantity", exact: true });
-  const startDateInput = page.getByRole("textbox", { name: "Start date", exact: true });
+  const quantityInput = page.getByLabel(/^quantity$/i);
+  const startDateInput = page.getByLabel(/^start date$/i);
 
   await customerSelect.selectOption({ label: details.customerName });
   await selectOptionContainingText(planSelect, details.recurringPlanName);
@@ -341,6 +365,75 @@ async function fillSubscriptionDraft(
   await expect(page.locator(".dashboard-list-item").filter({ hasText: details.oneTimePlanName }).first()).toBeVisible();
 
   await startDateInput.fill(details.startDate);
+}
+
+async function openProductForm(page: Page) {
+  if (/\/products\/new$/i.test(page.url())) {
+    return;
+  }
+
+  await page.getByRole("button", { name: /add product/i }).or(page.getByRole("link", { name: /add product/i })).click();
+  await page.waitForURL(/\/products\/new$/);
+}
+
+async function openPlanForm(page: Page) {
+  if (/\/plans\/new$/i.test(page.url())) {
+    return;
+  }
+
+  await page.getByRole("button", { name: /add plan/i }).or(page.getByRole("link", { name: /add plan/i })).click();
+  await page.waitForURL(/\/plans\/new$/);
+}
+
+async function openCustomerForm(page: Page) {
+  if (/\/customers\/new$/i.test(page.url())) {
+    return;
+  }
+
+  await page.getByRole("button", { name: /add customer/i }).or(page.getByRole("link", { name: /add customer/i })).click();
+  await page.waitForURL(/\/customers\/new$/);
+}
+
+async function openSubscriptionForm(page: Page) {
+  if (/\/subscriptions\/new$/i.test(page.url())) {
+    return;
+  }
+
+  await page.getByRole("button", { name: /add subscription|new subscription/i }).or(page.getByRole("link", { name: /add subscription|new subscription/i })).click();
+  await page.waitForURL(/\/subscriptions\/new$/);
+}
+
+async function ensureSubscriptionCompanySelected(page: Page) {
+  const companySelect = page.getByRole("combobox", { name: /company/i }).first();
+  if (!await companySelect.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const currentValue = await companySelect.inputValue().catch(() => "");
+  if (currentValue) {
+    return;
+  }
+
+  const options = companySelect.locator("option");
+  const count = await options.count();
+  for (let index = 0; index < count; index += 1) {
+    const value = await options.nth(index).getAttribute("value");
+    if (value) {
+      await companySelect.selectOption(value);
+      return;
+    }
+  }
+}
+
+function intervalLabel(value: "Month" | "Quarter" | "Year") {
+  switch (value) {
+    case "Month":
+      return "Monthly";
+    case "Quarter":
+      return "Quarterly";
+    case "Year":
+      return "Yearly";
+  }
 }
 
 async function selectOptionContainingText(select: Locator, text: string) {
@@ -390,7 +483,7 @@ async function payPackageInvoice(page: Page, invoiceId: string) {
     throw new Error("Package payment link was not returned.");
   }
 
-  await completeGatewayPayment(page.request, page.url(), paymentLinkInvoice.paymentLinkUrl);
+  await completeGatewayPayment(page, page.request, paymentLinkInvoice.paymentLinkUrl);
   await page.goto("/package-billing");
   await restoreAuthIfMissing(page);
   await page.waitForLoadState("networkidle").catch(() => undefined);
@@ -422,39 +515,99 @@ async function waitForPackageState(
 }
 
 async function getJson<T>(page: Page, path: string) {
-  const response = await apiRequest(page.request, await buildAbsoluteApiUrl(page, path), await buildAuthHeaders(page), "GET");
-  return await response.json() as T;
+  const response = await apiRequest(page, await buildAbsoluteApiUrl(page, path), "GET");
+  return JSON.parse(response.bodyText) as T;
 }
 
 async function postJson<T>(page: Page, path: string, method: "POST" | "PUT", body?: unknown) {
-  const headers = await buildAuthHeaders(page);
-  headers["Content-Type"] = "application/json";
-  const response = await apiRequest(page.request, await buildAbsoluteApiUrl(page, path), headers, method, body === undefined ? undefined : JSON.stringify(body));
-  return await response.json() as T;
+  const response = await apiRequest(page, await buildAbsoluteApiUrl(page, path), method, body);
+  return JSON.parse(response.bodyText) as T;
 }
 
-async function apiRequest(request: APIRequestContext, url: string, headers: Record<string, string>, method: "GET" | "POST" | "PUT", data?: string) {
-  const response = await request.fetch(url, { method, headers, data });
-  if (!response.ok()) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`${method} ${url} failed with ${response.status()}: ${body || "no response body"}`);
+async function apiRequest(
+  page: Page,
+  url: string,
+  method: "GET" | "POST" | "PUT",
+  body?: unknown,
+  allowRetry = true,
+) {
+  const result = await page.evaluate(
+    async ({ requestUrl, requestMethod, requestBody, refreshBaseUrl, shouldRetry }) => {
+      type BrowserAuth = { accessToken: string; refreshToken: string };
+
+      function getAuth() {
+        const raw = window.localStorage.getItem("recurvos.auth");
+        if (!raw) {
+          return null;
+        }
+
+        try {
+          const parsed = JSON.parse(raw) as Partial<BrowserAuth>;
+          return parsed.accessToken && parsed.refreshToken
+            ? { accessToken: parsed.accessToken, refreshToken: parsed.refreshToken }
+            : null;
+        } catch {
+          return null;
+        }
+      }
+
+      async function send(accessToken: string) {
+        return fetch(requestUrl, {
+          method: requestMethod,
+          headers: {
+            ...(requestBody === undefined ? {} : { "Content-Type": "application/json" }),
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+        });
+      }
+
+      const auth = getAuth();
+      if (!auth) {
+        return { ok: false, status: 401, bodyText: "No auth payload in local storage." };
+      }
+
+      let response = await send(auth.accessToken);
+      if (response.status === 401 && shouldRetry) {
+        const refreshResponse = await fetch(refreshBaseUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken: auth.refreshToken }),
+        });
+
+        if (refreshResponse.ok) {
+          const refreshedText = await refreshResponse.text();
+          window.localStorage.setItem("recurvos.auth", refreshedText);
+          const refreshed = JSON.parse(refreshedText) as BrowserAuth;
+          response = await send(refreshed.accessToken);
+        }
+      }
+
+      return {
+        ok: response.ok,
+        status: response.status,
+        bodyText: await response.text(),
+      };
+    },
+    {
+      requestUrl: url,
+      requestMethod: method,
+      requestBody: body,
+      refreshBaseUrl: await buildAbsoluteApiUrl(page, "/api/auth/refresh"),
+      shouldRetry: allowRetry,
+    },
+  );
+
+  const latestAuth = await page.evaluate(() => window.localStorage.getItem("recurvos.auth"));
+  if (latestAuth) {
+    cachedAuthJson = latestAuth;
   }
 
-  return response;
-}
-
-async function buildAuthHeaders(page: Page) {
-  const raw = await page.evaluate(() => window.localStorage.getItem("recurvos.auth"));
-  const resolvedRaw = raw ?? cachedAuthJson;
-  const token = resolvedRaw
-    ? extractAccessToken(resolvedRaw)
-    : null;
-
-  if (!token) {
-    throw new Error("Could not resolve the current access token from local storage.");
+  if (!result.ok) {
+    throw new Error(`${method} ${url} failed with ${result.status}: ${result.bodyText || "no response body"}`);
   }
 
-  return { Authorization: `Bearer ${token}` };
+  return result;
 }
 
 async function snapshotAuth(page: Page) {
@@ -470,18 +623,43 @@ async function restoreAuthIfMissing(page: Page) {
     return;
   }
 
-  await page.goto("/login");
   await page.evaluate((value) => window.localStorage.setItem("recurvos.auth", value), cachedAuthJson);
   await page.goto("/package-billing");
 }
 
-function extractAccessToken(raw: string) {
+function parseAuth(raw: string) {
   try {
-    const parsed = JSON.parse(raw) as { accessToken?: string };
-    return parsed.accessToken ?? null;
+    const parsed = JSON.parse(raw) as Partial<StoredAuth>;
+    if (!parsed.accessToken || !parsed.refreshToken) {
+      return null;
+    }
+
+    return {
+      accessToken: parsed.accessToken,
+      refreshToken: parsed.refreshToken,
+    } satisfies StoredAuth;
   } catch {
     return null;
   }
+}
+
+async function resolveAuth(page: Page) {
+  const raw = await page.evaluate(() => window.localStorage.getItem("recurvos.auth"));
+  const parsed = raw ? parseAuth(raw) : null;
+  if (parsed) {
+    cachedAuthJson = raw;
+    return parsed;
+  }
+
+  if (cachedAuthJson) {
+    const cachedParsed = parseAuth(cachedAuthJson);
+    if (cachedParsed) {
+      await page.evaluate((value) => window.localStorage.setItem("recurvos.auth", value), cachedAuthJson);
+      return cachedParsed;
+    }
+  }
+
+  throw new Error("Could not resolve an authenticated session for API requests.");
 }
 
 async function buildAbsoluteApiUrl(page: Page, path: string) {
@@ -489,7 +667,7 @@ async function buildAbsoluteApiUrl(page: Page, path: string) {
   return `${apiBaseUrl}${normalizedPath.replace(/^\/api/, "")}`;
 }
 
-async function completeGatewayPayment(request: APIRequestContext, currentPageUrl: string, paymentLinkUrl: string) {
+async function completeGatewayPayment(page: Page, request: APIRequestContext, paymentLinkUrl: string) {
   const appOrigin = new URL(apiBaseUrl).origin;
   const parsedPaymentUrl = new URL(paymentLinkUrl);
 
@@ -514,11 +692,122 @@ async function completeGatewayPayment(request: APIRequestContext, currentPageUrl
     throw new Error(`Could not derive the payment id from ${paymentLinkUrl}.`);
   }
 
-  const response = await request.post(`${appOrigin}/api/webhooks/billplz/complete?billplz[id]=${encodeURIComponent(paymentId)}&billplz[paid]=true`);
-  if (!response.ok()) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Billplz completion failed with ${response.status()}: ${body || "no response body"}`);
+  const settings = await getPlatformBillplzSettings(page);
+  if (!settings?.xSignatureKey) {
+    throw new Error("Platform Billplz x signature key could not be resolved for staging webhook simulation.");
   }
+
+  const paidAt = new Date().toISOString();
+  const payload = signBillplzWebhookPayload(
+    {
+      id: paymentId,
+      paid: "true",
+      paid_at: paidAt,
+    },
+    settings.xSignatureKey,
+  );
+
+  const response = await page.evaluate(
+    async ({ requestUrl, formValues }) => {
+      const body = new URLSearchParams(formValues).toString();
+      const result = await fetch(requestUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body,
+      });
+      return {
+        ok: result.ok,
+        status: result.status,
+        bodyText: await result.text(),
+      };
+    },
+    {
+      requestUrl: `${appOrigin}/api/webhooks/billplz`,
+      formValues: payload,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Billplz completion failed with ${response.status}: ${response.bodyText || "no response body"} | paymentLinkUrl=${paymentLinkUrl} | payload=${JSON.stringify(payload)}`);
+  }
+}
+
+async function getPlatformBillplzSettings(page: Page) {
+  const ownerAuth = await getOwnerApiAuth(page);
+  return await browserFetchJson<{
+    xSignatureKey?: string | null;
+    isActiveProvider?: boolean;
+  }>(
+    page,
+    `${apiBaseUrl}/settings/platform-billplz?environment=staging`,
+    ownerAuth.accessToken,
+  );
+}
+
+async function getOwnerApiAuth(page: Page) {
+  if (cachedOwnerApiAuth) {
+    return cachedOwnerApiAuth;
+  }
+
+  cachedOwnerApiAuth = await page.evaluate(
+    async ({ requestUrl, email, password }) => {
+      const response = await fetch(requestUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!response.ok) {
+        throw new Error(`Owner login failed with ${response.status}.`);
+      }
+
+      return await response.json() as { accessToken: string; refreshToken: string };
+    },
+    {
+      requestUrl: `${apiBaseUrl}/auth/login`,
+      email: ownerEmail,
+      password: ownerPassword,
+    },
+  );
+
+  return cachedOwnerApiAuth;
+}
+
+async function browserFetchJson<T>(page: Page, url: string, accessToken: string) {
+  const result = await page.evaluate(
+    async ({ requestUrl, bearerToken }) => {
+      const response = await fetch(requestUrl, {
+        headers: {
+          Authorization: `Bearer ${bearerToken}`,
+        },
+      });
+      return {
+        ok: response.ok,
+        status: response.status,
+        bodyText: await response.text(),
+      };
+    },
+    {
+      requestUrl: url,
+      bearerToken: accessToken,
+    },
+  );
+
+  if (!result.ok) {
+    throw new Error(`GET ${url} failed with ${result.status}: ${result.bodyText || "no response body"}`);
+  }
+
+  return JSON.parse(result.bodyText) as T;
+}
+
+function signBillplzWebhookPayload(values: Record<string, string>, signatureKey: string) {
+  const canonical = Object.entries(values)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}${value}`)
+    .join("|");
+  const signature = createHmac("sha256", signatureKey).update(canonical, "utf8").digest("hex").toLowerCase();
+  return {
+    ...values,
+    x_signature: signature,
+  };
 }
 
 function monthsAgo(count: number) {

@@ -46,6 +46,17 @@ function getRangeLabel(startDateUtc: string, endDateUtc: string) {
   return `${days} day${days === 1 ? "" : "s"}`;
 }
 
+function toDateInputValue(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+type FinancePreset = {
+  value: string;
+  label: string;
+  startDateUtc: string;
+  endDateUtc: string;
+};
+
 export function FinancePage() {
   const [documentType, setDocumentType] = useState<DocumentType>("invoices");
   const [startDateUtc, setStartDateUtc] = useState(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
@@ -69,6 +80,27 @@ export function FinancePage() {
     () => getRangeLabel(startDateUtc, endDateUtc),
     [endDateUtc, startDateUtc],
   );
+  const rangePresets = useMemo<FinancePreset[]>(() => {
+    const today = new Date();
+    const end = toDateInputValue(today);
+    const last7 = new Date(today);
+    last7.setDate(today.getDate() - 6);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+
+    return [
+      { value: "last-7", label: "Last 7 days", startDateUtc: toDateInputValue(last7), endDateUtc: end },
+      { value: "this-month", label: "This month", startDateUtc: toDateInputValue(monthStart), endDateUtc: end },
+      { value: "last-month", label: "Last month", startDateUtc: toDateInputValue(lastMonthStart), endDateUtc: toDateInputValue(lastMonthEnd) },
+    ];
+  }, []);
+  const activePreset = rangePresets.find((preset) => preset.startDateUtc === startDateUtc && preset.endDateUtc === endDateUtc)?.value ?? null;
+
+  function applyPreset(preset: FinancePreset) {
+    setStartDateUtc(preset.startDateUtc);
+    setEndDateUtc(preset.endDateUtc);
+  }
 
   async function downloadExport() {
     setIsDownloading(true);
@@ -108,7 +140,7 @@ export function FinancePage() {
   }
 
   return (
-    <div className="page">
+    <div className="page finance-page">
       <header className="page-header">
         <div>
           <p className="eyebrow">Finance</p>
@@ -123,8 +155,8 @@ export function FinancePage() {
         <div className="finance-hero-copy">
           <div>
             <p className="eyebrow">Export workspace</p>
-            <h3 className="section-title">Download the records you need</h3>
-            <p className="muted form-intro">Choose a finance document set, confirm the date range, and export a CSV that is ready for review or handoff.</p>
+            <h3 className="section-title">Choose a report and export it fast</h3>
+            <p className="muted form-intro">Pick a document set, confirm the time window, and download a review-ready CSV.</p>
           </div>
           <div className="finance-summary-grid">
             <div className="finance-summary-item">
@@ -142,7 +174,7 @@ export function FinancePage() {
           </div>
         </div>
         <div className="finance-hero-callout">
-          <p className="eyebrow">Best for</p>
+          <p className="eyebrow">Current focus</p>
           <strong>{selectedDocument.label}</strong>
           <p>{selectedDocument.helper}</p>
         </div>
@@ -166,6 +198,7 @@ export function FinancePage() {
                 title={!financeEnabled ? (financeHint ? `Available on ${financeHint.packageName}` : "Upgrade required") : undefined}
                 onClick={() => setDocumentType(option.value)}
               >
+                <span className="finance-option-kicker">{documentType === option.value ? "Selected" : "Report type"}</span>
                 <strong>{option.label}</strong>
                 <p>{option.helper}</p>
               </button>
@@ -181,6 +214,18 @@ export function FinancePage() {
             </div>
           </div>
           <div className="form-stack">
+            <div className="finance-preset-grid">
+              {rangePresets.map((preset) => (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`finance-preset-chip ${activePreset === preset.value ? "finance-preset-chip-active" : ""}`}
+                  onClick={() => applyPreset(preset)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
             <div className="inline-fields settings-inline-fields-wide">
               <label className="form-label">
                 Start date
@@ -191,13 +236,27 @@ export function FinancePage() {
                 <input className="text-input" type="date" value={endDateUtc} onChange={(event) => setEndDateUtc(event.target.value)} />
               </label>
             </div>
+            <div className="finance-export-summary">
+              <div className="finance-export-summary-item">
+                <span className="eyebrow">Report</span>
+                <strong>{formatDocumentLabel(documentType)}</strong>
+              </div>
+              <div className="finance-export-summary-item">
+                <span className="eyebrow">Range</span>
+                <strong>{exportRangeLabel}</strong>
+              </div>
+              <div className="finance-export-summary-item">
+                <span className="eyebrow">Dates</span>
+                <strong>{`${startDateUtc} to ${endDateUtc}`}</strong>
+              </div>
+            </div>
             <div className="finance-export-footer">
               <div className="finance-export-note">
                 <p className="eyebrow">Ready to export</p>
                 <strong>{`${formatDocumentLabel(documentType)} for ${exportRangeLabel}`}</strong>
-                <p className="muted">The export file name is generated automatically by the backend.</p>
+                <p className="muted">The file name is generated automatically by the backend.</p>
               </div>
-              <button type="button" className="button button-primary" disabled={isDownloading || !financeEnabled} onClick={() => void downloadExport()}>
+              <button type="button" className="button button-primary finance-export-button" disabled={isDownloading || !financeEnabled} onClick={() => void downloadExport()}>
                 {isDownloading ? "Preparing export..." : "Download CSV"}
               </button>
             </div>

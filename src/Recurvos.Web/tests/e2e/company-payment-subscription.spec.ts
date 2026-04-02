@@ -183,6 +183,7 @@ async function createProduct(
   page: Page,
   details: { name: string; code: string; description: string; category: string },
 ) {
+  await openProductForm(page);
   await ensureCompanySelectedForProduct(page);
   await page.getByLabel(/^name$/i).fill(details.name);
   await page.getByLabel(/^code$/i).fill(details.code);
@@ -198,16 +199,22 @@ async function createProduct(
 }
 
 async function ensureCompanySelectedForProduct(page: Page) {
-  const companySelect = page.locator("#product-company");
+  const companySelect = page.locator("#product-company").or(page.getByRole("combobox", { name: /^company$/i }));
   await expect(companySelect).toBeVisible();
-  await page.waitForFunction(
-    (selector) => {
-      const select = document.querySelector(selector) as HTMLSelectElement | null;
-      return Boolean(select && select.options.length > 0 && select.value);
-    },
-    "#product-company",
-    { timeout: 15000 },
-  );
+
+  await expect.poll(async () => companySelect.locator("option").count(), { timeout: 15000 }).toBeGreaterThan(0);
+
+  const currentValue = await companySelect.inputValue().catch(() => "");
+  if (currentValue) {
+    return;
+  }
+
+  const firstOptionValue = await companySelect.locator("option").nth(0).getAttribute("value");
+  if (!firstOptionValue) {
+    throw new Error("Product company select did not load any valid company option.");
+  }
+
+  await companySelect.selectOption(firstOptionValue);
 }
 
 async function createPlan(
@@ -222,26 +229,28 @@ async function createPlan(
     intervalCount?: string;
   },
 ) {
-  await page.locator("#plan-product").selectOption({ label: details.productName });
-  await page.locator("#plan-name").fill(details.planName);
-  await page.locator("#plan-code").fill(details.planCode);
-  await page.locator("#plan-billing-type").selectOption(details.billingType);
+  await openPlanForm(page);
+  await page.locator("#plan-product").or(page.getByRole("combobox", { name: /^product$/i })).selectOption({ label: details.productName });
+  await page.locator("#plan-name").or(page.getByLabel(/^plan name$/i)).fill(details.planName);
+  await page.locator("#plan-code").or(page.getByLabel(/^plan code$/i)).fill(details.planCode);
+  await page.locator("#plan-billing-type").or(page.getByRole("combobox", { name: /^billing type$/i })).selectOption(details.billingType);
   if (details.billingType === "Recurring") {
-    await page.locator("#plan-interval-unit").selectOption(details.intervalUnit ?? "Month");
-    await page.locator("#plan-interval-count").fill(details.intervalCount ?? "1");
+    await page.locator("#plan-interval-unit").or(page.getByRole("combobox", { name: /^interval$/i })).selectOption({ label: intervalLabel(details.intervalUnit ?? "Month") });
+    await page.locator("#plan-interval-count").or(page.getByLabel(/^count$/i)).fill(details.intervalCount ?? "1");
   }
-  await page.locator("#plan-amount").fill(details.amount);
+  await page.locator("#plan-amount").or(page.getByLabel(/^amount$/i)).fill(details.amount);
   await page.getByRole("button", { name: /^create plan$/i }).click();
   await confirmModal(page);
   await expect(page.locator(".plans-table tbody tr").filter({ hasText: details.planName }).first()).toBeVisible({ timeout: 15000 });
 }
 
 async function createCustomer(page: Page, customerName: string) {
+  await openCustomerForm(page);
   await page.getByLabel(/^name$/i).fill(customerName);
   await page.getByLabel(/^email$/i).fill(contactEmail);
   await page.getByLabel(/^phone$/i).fill(contactPhone);
   await page.locator('input[name="billingAddress"]').fill(customerAddress);
-  await page.getByRole("button", { name: /^save$/i }).click();
+  await page.getByRole("button", { name: /^save customer$|^save$/i }).click();
   await confirmModal(page);
   await expect(page.locator(".customer-table tbody tr").filter({ hasText: customerName }).first()).toBeVisible({ timeout: 15000 });
 }
@@ -255,10 +264,13 @@ async function fillSubscriptionDraft(
     startDate: string;
   },
 ) {
-  const customerSelect = page.getByRole("combobox", { name: "Customer", exact: true });
-  const planSelect = page.getByRole("combobox", { name: "Plan", exact: true });
-  const quantityInput = page.getByRole("textbox", { name: "Quantity", exact: true });
-  const startDateInput = page.getByRole("textbox", { name: "Start date", exact: true });
+  await openSubscriptionForm(page);
+  await ensureSubscriptionCompanySelected(page);
+
+  const customerSelect = page.getByRole("combobox", { name: /^customer$/i });
+  const planSelect = page.getByRole("combobox", { name: /^plan$/i });
+  const quantityInput = page.getByLabel(/^quantity$/i);
+  const startDateInput = page.getByLabel(/^start date$/i);
 
   await customerSelect.selectOption({ label: details.customerName });
   await selectOptionContainingText(planSelect, details.recurringPlanName);
@@ -284,9 +296,93 @@ async function selectOptionContainingText(select: Locator, text: string) {
 }
 
 async function confirmModal(page: Page) {
-  const confirmButton = page.getByRole("button", { name: /^confirm$/i });
+  const dialog = page.getByRole("dialog").last();
+  await expect(dialog).toBeVisible();
+  const confirmButton = dialog.getByRole("button", { name: /^confirm$/i });
   await expect(confirmButton).toBeVisible();
   await confirmButton.click();
+}
+
+async function openProductForm(page: Page) {
+  const heading = page.getByRole("heading", { name: /create catalog item|update catalog item/i });
+  if (await heading.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const addButton = page.getByRole("button", { name: /add product|create first product/i }).first();
+  if (await addButton.isVisible().catch(() => false)) {
+    await addButton.click();
+  }
+
+  await expect(heading).toBeVisible({ timeout: 10000 });
+  await expect(page).toHaveURL(/\/products\/new$/);
+}
+
+async function openPlanForm(page: Page) {
+  const heading = page.getByRole("heading", { name: /create billing plan|update billing plan/i });
+  if (await heading.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const addButton = page.getByRole("button", { name: /add plan/i }).first();
+  if (await addButton.isVisible().catch(() => false)) {
+    await addButton.click();
+  }
+
+  await expect(heading).toBeVisible({ timeout: 10000 });
+  await expect(page).toHaveURL(/\/plans\/new$/);
+}
+
+async function openCustomerForm(page: Page) {
+  const heading = page.getByRole("heading", { name: /create customer profile|update customer profile/i });
+  if (await heading.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const addButton = page.getByRole("button", { name: /add customer|add first customer/i }).first();
+  if (await addButton.isVisible().catch(() => false)) {
+    await addButton.click();
+  }
+
+  await expect(heading).toBeVisible({ timeout: 10000 });
+  await expect(page).toHaveURL(/\/customers\/new$/);
+}
+
+async function openSubscriptionForm(page: Page) {
+  const heading = page.getByRole("heading", { name: /start customer billing/i });
+  if (await heading.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const addButton = page.getByRole("button", { name: /add subscription|create first subscription/i }).first();
+  if (await addButton.isVisible().catch(() => false)) {
+    await addButton.click();
+  }
+
+  await expect(heading).toBeVisible({ timeout: 10000 });
+  await expect(page).toHaveURL(/\/subscriptions\/new$/);
+}
+
+async function ensureSubscriptionCompanySelected(page: Page) {
+  const companySelect = page.getByRole("combobox", { name: /^company$/i });
+  await expect(companySelect).toBeVisible({ timeout: 10000 });
+  await expect.poll(async () => companySelect.locator("option").count(), { timeout: 15000 }).toBeGreaterThan(0);
+
+  const currentValue = await companySelect.inputValue().catch(() => "");
+  if (currentValue) {
+    return;
+  }
+
+  const optionCount = await companySelect.locator("option").count();
+  for (let index = 0; index < optionCount; index += 1) {
+    const optionValue = await companySelect.locator("option").nth(index).getAttribute("value");
+    if (optionValue) {
+      await companySelect.selectOption(optionValue);
+      return;
+    }
+  }
+
+  throw new Error("Subscription company select did not load any valid company option.");
 }
 
 function monthsAgo(count: number) {
@@ -297,4 +393,16 @@ function monthsAgo(count: number) {
 
 function toDateInputValue(value: Date) {
   return value.toISOString().slice(0, 10);
+}
+
+function intervalLabel(value: "Month" | "Quarter" | "Year") {
+  if (value === "Month") {
+    return "Monthly";
+  }
+
+  if (value === "Quarter") {
+    return "Quarterly";
+  }
+
+  return "Yearly";
 }

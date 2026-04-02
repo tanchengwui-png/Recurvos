@@ -567,6 +567,79 @@ export function SubscriberPackageBillingPage() {
           </div>
         ) : (
           <>
+            <div className="package-billing-mobile-list">
+              {pagination.pagedItems.map((invoice) => (
+                <article key={invoice.id} className="subscription-mobile-card">
+                  <div className="subscription-mobile-card-header">
+                    <div className="subscription-mobile-identity">
+                      <strong>{invoice.invoiceNumber}</strong>
+                      <div className="eyebrow">{invoice.packageName}</div>
+                    </div>
+                  </div>
+                  <div className="subscription-mobile-card-topline">
+                    <span className={`subscription-mobile-status ${invoice.amountDue <= 0 ? "subscription-mobile-status-active" : "subscription-mobile-status-inactive"}`}>
+                      {formatStatusLabel(invoice.status)}
+                    </span>
+                    <span className="subscription-mobile-inline-note">{formatDate(invoice.issueDateUtc)}</span>
+                  </div>
+                  <div className="subscription-mobile-summary">
+                    <div className="subscription-mobile-amount">{formatMoney(invoice.total, invoice.currency)}</div>
+                    <div className="subscription-mobile-cadence">{`Balance ${formatMoney(invoice.amountDue, invoice.currency)}`}</div>
+                  </div>
+                  <div className="subscription-mobile-meta">
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Package</span>
+                      <span className="subscription-mobile-meta-value">{invoice.packageName}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Issue date</span>
+                      <span className="subscription-mobile-meta-value">{formatDate(invoice.issueDateUtc)}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Due date</span>
+                      <span className="subscription-mobile-meta-value">{formatDate(invoice.dueDateUtc)}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Balance</span>
+                      <span className="subscription-mobile-meta-value">{formatMoney(invoice.amountDue, invoice.currency)}</span>
+                    </div>
+                  </div>
+                  <div className="button-stack package-billing-mobile-actions">
+                    {invoice.amountDue > 0 ? (
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        disabled={busyInvoiceId === invoice.id || invoice.hasPendingPaymentConfirmation || !hasBillingAddress}
+                        onClick={() => void createPaymentLink(invoice.id)}
+                      >
+                        {invoice.hasPendingPaymentConfirmation
+                          ? "Pending review"
+                          : busyInvoiceId === invoice.id
+                            ? "Preparing..."
+                            : "Pay now"}
+                      </button>
+                    ) : null}
+                    <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
+                      Download invoice
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      disabled={!invoice.hasReceipt}
+                      onClick={() => void download(`/package-billing/invoices/${invoice.id}/receipt`, `${invoice.invoiceNumber}-receipt.pdf`)}
+                    >
+                      Download receipt
+                    </button>
+                    {invoice.hasPendingPaymentConfirmation ? (
+                      <p className="muted package-billing-pending-note">
+                        A manual payment confirmation is outstanding, so links and new requests stay disabled until review completes.
+                      </p>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="package-billing-table-shell">
             <div className="table-scroll">
               <table className="catalog-table package-billing-table">
                 <thead>
@@ -640,6 +713,7 @@ export function SubscriberPackageBillingPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
             </div>
             <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
           </>
