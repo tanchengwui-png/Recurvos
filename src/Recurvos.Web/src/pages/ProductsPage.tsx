@@ -302,6 +302,7 @@ export function ProductsPage() {
             <thead>
               <tr>
                 <th className="sticky-cell sticky-cell-left">Product Name</th>
+                <th>Company</th>
                 <th>Status</th>
                 <th>Catalog</th>
                 <th>Default Plan</th>
@@ -330,8 +331,8 @@ export function ProductsPage() {
                     <div className="eyebrow">{item.productType === "One-Time" ? "One-time" : "Subscription"}</div>
                   </td>
                   <td>
-                    <div>{item.companyName}</div>
-                    <div className="eyebrow">{`${item.code} | ${item.plansCount} plan${item.plansCount === 1 ? "" : "s"}`}</div>
+                    <div>{item.code}</div>
+                    <div className="eyebrow">{`${item.productType === "One-Time" ? "One-time" : "Subscription"} | ${item.plansCount} plan${item.plansCount === 1 ? "" : "s"}`}</div>
                   </td>
                   <td>{item.defaultPlan ? `${item.defaultPlan.planName} - ${formatCurrency(item.defaultPlan.unitAmount, item.defaultPlan.currency)}` : "-"}</td>
                 </tr>
