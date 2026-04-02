@@ -11,6 +11,24 @@ import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { Payment, PaymentConfirmation } from "../types";
 
+function getPaymentStatusClassName(status: string) {
+  const normalized = status.toLowerCase();
+
+  if (normalized.includes("paid") || normalized.includes("success") || normalized.includes("approved")) {
+    return "subscription-mobile-status-active";
+  }
+
+  if (normalized.includes("pending") || normalized.includes("processing") || normalized.includes("review")) {
+    return "subscription-mobile-status-warning";
+  }
+
+  if (normalized.includes("reject") || normalized.includes("fail") || normalized.includes("refund") || normalized.includes("cancel")) {
+    return "subscription-mobile-status-cancelled";
+  }
+
+  return "subscription-mobile-status-inactive";
+}
+
 export function PaymentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const resolveTab = (value: string | null): "pending" | "history" | "records" => {
@@ -176,9 +194,82 @@ export function PaymentsPage() {
               <h3 className="section-title">Pending payment review</h3>
               <p className="muted form-intro">This queue only shows submissions that still need action.</p>
             </div>
-          </div>
+        </div>
         {pendingConfirmations.length > 0 ? (
           <>
+            <div className="payments-mobile-list">
+              {confirmationPagination.pagedItems.map((item) => (
+                <article key={item.id} className="subscription-mobile-card">
+                  <div className="subscription-mobile-card-header">
+                    <div className="subscription-mobile-identity">
+                      <strong>{item.invoiceNumber}</strong>
+                      <div className="eyebrow">{item.customerName}</div>
+                    </div>
+                  </div>
+                  <div className="subscription-mobile-card-topline">
+                    <span className={`subscription-mobile-status ${getPaymentStatusClassName(item.status)}`}>
+                      {item.status}
+                    </span>
+                    <span className="subscription-mobile-inline-note">{new Date(item.paidAtUtc).toLocaleDateString()}</span>
+                  </div>
+                  <div className="subscription-mobile-summary">
+                    <div className="subscription-mobile-amount">{formatCurrency(item.amount, item.currency)}</div>
+                    <div className="subscription-mobile-cadence">{item.payerName}</div>
+                  </div>
+                  <div className="subscription-mobile-meta">
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Customer</span>
+                      <span className="subscription-mobile-meta-value">{item.customerName}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Payer</span>
+                      <span className="subscription-mobile-meta-value">{item.payerName}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Reference</span>
+                      <span className="subscription-mobile-meta-value">{item.transactionReference || "-"}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Proof</span>
+                      <span className="subscription-mobile-meta-value">
+                        {item.hasProof ? (
+                          <button
+                            type="button"
+                            className="inline-link button-link"
+                            onClick={async () => {
+                              try {
+                                const file = await api.download(`/payment-confirmations/${item.id}/proof`);
+                                const url = URL.createObjectURL(file.blob);
+                                window.open(url, "_blank", "noopener,noreferrer");
+                                window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                              } catch (downloadError) {
+                                setError(downloadError instanceof Error ? downloadError.message : "Unable to open submitted proof.");
+                              }
+                            }}
+                          >
+                            Open
+                          </button>
+                        ) : "-"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="button-stack">
+                    {item.status === "Pending" ? (
+                      <button
+                        type="button"
+                        className="button button-compact payment-review-open"
+                        onClick={() => setReviewForm({ id: item.id, invoiceNumber: item.invoiceNumber, action: "approve", reviewNote: "" })}
+                      >
+                        Review
+                      </button>
+                    ) : (
+                      <span className="muted">{item.status}</span>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="payments-table-shell">
             <div ref={pendingTopScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
               <div ref={pendingTopInnerRef} />
             </div>
@@ -254,6 +345,7 @@ export function PaymentsPage() {
             <div ref={pendingBottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
               <div ref={pendingBottomInnerRef} />
             </div>
+            </div>
             <TablePagination {...confirmationPagination} onPageChange={confirmationPagination.setCurrentPage} onPageSizeChange={confirmationPagination.setPageSize} />
           </>
         ) : (
@@ -273,6 +365,43 @@ export function PaymentsPage() {
         </div>
         {processedConfirmations.length > 0 ? (
           <>
+            <div className="payments-mobile-list">
+              {historyPagination.pagedItems.map((item) => (
+                <article key={item.id} className="subscription-mobile-card">
+                  <div className="subscription-mobile-card-header">
+                    <div className="subscription-mobile-identity">
+                      <strong>{item.invoiceNumber}</strong>
+                      <div className="eyebrow">{item.customerName}</div>
+                    </div>
+                  </div>
+                  <div className="subscription-mobile-card-topline">
+                    <span className={`subscription-mobile-status ${getPaymentStatusClassName(item.status)}`}>
+                      {item.status}
+                    </span>
+                    <span className="subscription-mobile-inline-note">{new Date(item.paidAtUtc).toLocaleDateString()}</span>
+                  </div>
+                  <div className="subscription-mobile-summary">
+                    <div className="subscription-mobile-amount">{formatCurrency(item.amount, item.currency)}</div>
+                    <div className="subscription-mobile-cadence">{item.payerName}</div>
+                  </div>
+                  <div className="subscription-mobile-meta">
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Payer</span>
+                      <span className="subscription-mobile-meta-value">{item.payerName}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Paid at</span>
+                      <span className="subscription-mobile-meta-value">{new Date(item.paidAtUtc).toLocaleDateString()}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Review note</span>
+                      <span className="subscription-mobile-meta-value">{item.reviewNote || "-"}</span>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="payments-table-shell">
             <div ref={historyTopScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
               <div ref={historyTopInnerRef} />
             </div>
@@ -313,6 +442,7 @@ export function PaymentsPage() {
             <div ref={historyBottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
               <div ref={historyBottomInnerRef} />
             </div>
+            </div>
             <TablePagination {...historyPagination} onPageChange={historyPagination.setCurrentPage} onPageSizeChange={historyPagination.setPageSize} />
           </>
         ) : (
@@ -339,6 +469,144 @@ export function PaymentsPage() {
           </select>
           <p className="muted">{filteredItems.length} payments</p>
         </div>
+        {pagination.pagedItems.length > 0 ? (
+          <div className="payments-mobile-list">
+            {pagination.pagedItems.map((item) => (
+              <article key={item.id} className="subscription-mobile-card">
+                <div className="subscription-mobile-card-header">
+                  <div className="subscription-mobile-identity">
+                    <strong>{item.invoiceNumber}</strong>
+                    <div className="eyebrow">{item.gatewayName}</div>
+                  </div>
+                  <div className="subscription-mobile-actions">
+                    <RowActionMenu
+                      items={[
+                        {
+                          label: expandedPaymentId === item.id ? "Hide details" : "View details",
+                          onClick: () => setExpandedPaymentId((current) => current === item.id ? null : item.id),
+                        },
+                        {
+                          label: "Record refund",
+                          onClick: () => {
+                            setRefundError("");
+                            setRefundForm({
+                              paymentId: item.id,
+                              invoiceId: item.invoiceId,
+                              amount: String(item.netCollectedAmount),
+                              reason: "",
+                              externalRefundId: "",
+                            });
+                          },
+                        },
+                        ...(item.hasReceipt ? [{
+                          label: "Download receipt",
+                          onClick: () => void api.download(`/payments/${item.id}/receipt`).then((file) => {
+                            const objectUrl = URL.createObjectURL(file.blob);
+                            const anchor = document.createElement("a");
+                            anchor.href = objectUrl;
+                            anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
+                            document.body.appendChild(anchor);
+                            anchor.click();
+                            anchor.remove();
+                            URL.revokeObjectURL(objectUrl);
+                          }).catch((downloadError) => {
+                            setError(downloadError instanceof Error ? downloadError.message : "Unable to download receipt.");
+                          }),
+                        }, {
+                          label: "Send receipt",
+                          onClick: () => setConfirmState({
+                            title: "Send receipt",
+                            description: `Send receipt for ${item.invoiceNumber} to the customer by email?`,
+                            action: async () => {
+                              try {
+                                setError("");
+                                await api.post(`/payments/${item.id}/send-receipt`);
+                                setSuccessMessage(`Receipt sent for ${item.invoiceNumber}.`);
+                                setConfirmState(null);
+                              } catch (sendError) {
+                                setSuccessMessage("");
+                                const nextError = sendError instanceof Error ? sendError.message : "Unable to send receipt.";
+                                setError(nextError);
+                                throw new Error(nextError);
+                              }
+                            },
+                          }),
+                        }] : []),
+                      ]}
+                    />
+                  </div>
+                </div>
+                <div className="subscription-mobile-card-topline">
+                  <span className={`subscription-mobile-status ${getPaymentStatusClassName(item.status)}`}>
+                    {item.status}
+                  </span>
+                  <span className="subscription-mobile-inline-note">{item.attempts.length} attempts</span>
+                </div>
+                <div className="subscription-mobile-summary">
+                  <div className="subscription-mobile-amount">{formatCurrency(item.netCollectedAmount, "MYR")}</div>
+                  <div className="subscription-mobile-cadence">{getReceiptSendSummary(item) || "No receipt activity"}</div>
+                </div>
+                <div className="subscription-mobile-meta">
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Method</span>
+                    <span className="subscription-mobile-meta-value">{item.gatewayName}</span>
+                  </div>
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Amount</span>
+                    <span className="subscription-mobile-meta-value">{formatCurrency(item.amount, "MYR")}</span>
+                  </div>
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Refunded</span>
+                    <span className="subscription-mobile-meta-value">{formatCurrency(item.refundedAmount, "MYR")}</span>
+                  </div>
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Link</span>
+                    <span className="subscription-mobile-meta-value">
+                      {item.paymentLinkUrl ? (
+                        <a href={item.paymentLinkUrl} target="_blank" rel="noreferrer">Open</a>
+                      ) : "-"}
+                    </span>
+                  </div>
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Proof</span>
+                    <span className="subscription-mobile-meta-value">
+                      {item.hasProof ? <button type="button" className="inline-link button-link" onClick={async () => {
+                        try {
+                          const file = await api.download(`/payments/${item.id}/proof`);
+                          const objectUrl = URL.createObjectURL(file.blob);
+                          const anchor = document.createElement("a");
+                          anchor.href = objectUrl;
+                          anchor.download = file.fileName ?? "payment-proof";
+                          document.body.appendChild(anchor);
+                          anchor.click();
+                          anchor.remove();
+                          URL.revokeObjectURL(objectUrl);
+                        } catch (downloadError) {
+                          setError(downloadError instanceof Error ? downloadError.message : "Unable to download payment proof.");
+                        }
+                      }}>Open</button> : item.hasReceipt ? <button type="button" className="inline-link button-link" onClick={async () => {
+                        try {
+                          const file = await api.download(`/payments/${item.id}/receipt`);
+                          const objectUrl = URL.createObjectURL(file.blob);
+                          const anchor = document.createElement("a");
+                          anchor.href = objectUrl;
+                          anchor.download = file.fileName ?? `${item.invoiceNumber}-receipt.pdf`;
+                          document.body.appendChild(anchor);
+                          anchor.click();
+                          anchor.remove();
+                          URL.revokeObjectURL(objectUrl);
+                        } catch (downloadError) {
+                          setError(downloadError instanceof Error ? downloadError.message : "Unable to download receipt.");
+                        }
+                      }}>Receipt</button> : "-"}
+                    </span>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : null}
+        <div className="payments-table-shell">
         <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
           <div ref={topInnerRef} />
         </div>
@@ -426,8 +694,9 @@ export function PaymentsPage() {
                                     setConfirmState(null);
                                   } catch (sendError) {
                                     setSuccessMessage("");
-                                    setConfirmState(null);
-                                    setError(sendError instanceof Error ? sendError.message : "Unable to send receipt.");
+                                    const nextError = sendError instanceof Error ? sendError.message : "Unable to send receipt.";
+                                    setError(nextError);
+                                    throw new Error(nextError);
                                   }
                                 },
                               }),
@@ -551,16 +820,17 @@ export function PaymentsPage() {
               ))}
             </tbody>
           </table>
-          {pagination.pagedItems.length === 0 ? (
-            <div className="empty-state">
-              <h3>No payments found</h3>
-              <p className="muted">Try a different status or search term to review manual payment records.</p>
-            </div>
-          ) : null}
         </div>
         <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
           <div ref={bottomInnerRef} />
         </div>
+        </div>
+        {pagination.pagedItems.length === 0 ? (
+          <div className="empty-state">
+            <h3>No payments found</h3>
+            <p className="muted">Try a different status or search term to review manual payment records.</p>
+          </div>
+        ) : null}
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       ) : null}
@@ -602,8 +872,9 @@ export function PaymentsPage() {
                     setRefundForm(null);
                     await load();
                   } catch (submitError) {
-                    setConfirmState(null);
-                    setRefundError(submitError instanceof Error ? submitError.message : "Unable to record refund.");
+                    const nextError = submitError instanceof Error ? submitError.message : "Unable to record refund.";
+                    setRefundError(nextError);
+                    throw new Error(nextError);
                   }
                 },
               })}>Save refund</button>
@@ -669,8 +940,9 @@ export function PaymentsPage() {
                       setReviewForm(null);
                       await load();
                     } catch (submitError) {
-                      setConfirmState(null);
-                      setError(submitError instanceof Error ? submitError.message : "Unable to review payment confirmation.");
+                      const nextError = submitError instanceof Error ? submitError.message : "Unable to review payment confirmation.";
+                      setError(nextError);
+                      throw new Error(nextError);
                     }
                   },
                 })}

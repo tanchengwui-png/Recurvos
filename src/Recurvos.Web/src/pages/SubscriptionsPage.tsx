@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { SubscriptionDetailDrawer } from "../components/subscriptions/SubscriptionDetailDrawer";
@@ -11,7 +10,7 @@ import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { BillingReadiness, CompanyLookup, Customer, ProductPlan, Subscription } from "../types";
+import type { BillingReadiness, CompanyLookup, ProductPlan, Subscription } from "../types";
 
 function canPauseSubscription(subscription: Subscription) {
   return subscription.status === "Active" && !subscription.endedAtUtc && !subscription.cancelAtPeriodEnd;
@@ -47,24 +46,59 @@ function getGenerateInvoiceAvailability(subscription: Subscription) {
   };
 }
 
-function getEarliestSubscriptionStartDate() {
-  const earliest = new Date();
-  earliest.setMonth(earliest.getMonth() - 3);
-  return toDateInputValue(earliest);
+function formatSubscriptionDate(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleDateString() : "-";
+}
+
+function getSubscriptionBillingLabel(subscription: Subscription) {
+  if (subscription.hasMixedBillingIntervals) {
+    return "Mixed billing";
+  }
+
+  if (subscription.intervalUnit === "None") {
+    return "One-time";
+  }
+
+  return `${subscription.intervalCount} ${subscription.intervalUnit}`;
+}
+
+function getSubscriptionBillingMeta(subscription: Subscription) {
+  return subscription.hasMixedBillingIntervals
+    ? `${subscription.items.length} schedules`
+    : `${formatCurrency(subscription.unitPrice, subscription.currency)} x ${subscription.quantity}`;
+}
+
+function getSubscriptionPeriodLabel(subscription: Subscription) {
+  if (subscription.currentPeriodStartUtc && subscription.currentPeriodEndUtc) {
+    return `${formatSubscriptionDate(subscription.currentPeriodStartUtc)} to ${formatSubscriptionDate(subscription.currentPeriodEndUtc)}`;
+  }
+
+  if (subscription.endedAtUtc) {
+    return `Ended ${formatSubscriptionDate(subscription.endedAtUtc)}`;
+  }
+
+  return "No active period";
+}
+
+function getSubscriptionItemsPreview(subscription: Subscription) {
+  if (subscription.items.length === 0) {
+    return "No items";
+  }
+
+  const [firstItem, ...remainingItems] = subscription.items;
+  return remainingItems.length === 0
+    ? firstItem.productPlanName
+    : `${firstItem.productPlanName} + ${remainingItems.length} more`;
 }
 
 export function SubscriptionsPage() {
-  const earliestSubscriptionStartDate = getEarliestSubscriptionStartDate();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const actionFormRef = useRef<HTMLDivElement | null>(null);
   const loadRequestIdRef = useRef(0);
-  const companySyncRequestIdRef = useRef(0);
   const [items, setItems] = useState<Subscription[]>([]);
-  const [companies, setCompanies] = useState<CompanyLookup[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [plans, setPlans] = useState<ProductPlan[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [cancelSchedule, setCancelSchedule] = useState<{ id: string; date: string; reason: string } | null>(null);
@@ -85,46 +119,7 @@ export function SubscriptionsPage() {
     const value = searchParams.get("billing");
     return value === "due" || value === "recurring" || value === "one-time" || value === "mixed" ? value : "all";
   });
-  const [form, setForm] = useState({
-    companyId: "",
-    customerId: "",
-    productPlanId: "",
-    trialDays: "0",
-    quantity: "1",
-    items: [] as { productPlanId: string; quantity: number }[],
-    startDateUtc: new Date().toISOString().slice(0, 10),
-    notes: "",
-  });
-  const selectedPlan = plans.find((plan) => plan.id === form.productPlanId);
-  const trialDays = Number(form.trialDays || "0");
-  const trialPreviewEnd = trialDays > 0
-    ? new Date(new Date(form.startDateUtc).getTime() + trialDays * 24 * 60 * 60 * 1000)
-    : null;
-  const missingBillingItems = billingReadiness?.items.filter((item) => item.required && !item.done) ?? [];
-  const customerExistingSubscriptions = items.filter((item) => item.companyId === form.companyId
-    && item.customerId === form.customerId
-    && !item.endedAtUtc
-    && item.status !== "Cancelled");
-  const duplicateDraftItems = form.items
-    .map((draftItem) => {
-      const plan = plans.find((planOption) => planOption.id === draftItem.productPlanId);
-      const existingSubscriptions = customerExistingSubscriptions.filter((subscription) => subscription.items.some((subscriptionItem) => subscriptionItem.productPlanId === draftItem.productPlanId));
 
-      return existingSubscriptions.length > 0
-        ? {
-            productPlanId: draftItem.productPlanId,
-            planName: plan?.planName ?? draftItem.productPlanId,
-            count: existingSubscriptions.length,
-          }
-        : null;
-    })
-    .filter((item): item is { productPlanId: string; planName: string; count: number } => item !== null);
-  const hasDuplicateSubscriptionWarning = customerExistingSubscriptions.length > 0;
-  const duplicateSubscriptionMessage = duplicateDraftItems.length > 0
-    ? `This customer already has ${duplicateDraftItems.map((item) => `${item.planName} (${item.count})`).join(", ")} on another active subscription. Double-check before creating another one.`
-    : hasDuplicateSubscriptionWarning
-      ? `This customer already has ${customerExistingSubscriptions.length} active or paused subscription${customerExistingSubscriptions.length === 1 ? "" : "s"}. Double-check before creating another one.`
-      : "";
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredItems = items.filter((item) => {
     const matchesSearch = !normalizedSearchQuery
@@ -174,14 +169,14 @@ export function SubscriptionsPage() {
 
     return true;
   });
+
   const pagination = useClientPagination(filteredItems, [filteredItems.length, searchQuery, statusFilter, billingFilter], 20);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
 
   async function load() {
     const requestId = ++loadRequestIdRef.current;
-    const [subscriptions, customerList, companyList, dueInvoices] = await Promise.all([
+    const [subscriptions, companyList, dueInvoices] = await Promise.all([
       api.get<Subscription[]>("/subscriptions"),
-      api.get<Customer[]>("/customers"),
       api.get<CompanyLookup[]>("/companies"),
       api.get<{ count: number }>("/subscriptions/due-invoices/count"),
     ]);
@@ -191,29 +186,19 @@ export function SubscriptionsPage() {
     }
 
     setItems(subscriptions);
-    setCustomers(customerList);
-    setCompanies(companyList);
     setDueInvoiceCount(dueInvoices.count);
 
-    const activeCompanyId = form.companyId || companyList[0]?.id || "";
+    const activeCompanyId = companyList[0]?.id || "";
     if (!activeCompanyId) {
-      setPlans([]);
       return;
     }
 
-    const companyPlans = await api.get<ProductPlan[]>(`/companies/${activeCompanyId}/product-plans`);
     const readiness = await api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${activeCompanyId}`);
     if (requestId !== loadRequestIdRef.current) {
       return;
     }
-    setPlans(companyPlans);
+
     setBillingReadiness(readiness);
-    setForm((current) => ({
-      ...current,
-      companyId: activeCompanyId,
-      customerId: customerList.some((customer) => customer.id === current.customerId) ? current.customerId : customerList[0]?.id ?? "",
-      productPlanId: companyPlans.some((plan) => plan.id === current.productPlanId) ? current.productPlanId : companyPlans[0]?.id ?? "",
-    }));
   }
 
   useEffect(() => {
@@ -248,30 +233,6 @@ export function SubscriptionsPage() {
       setSearchParams(nextParams, { replace: true });
     }
   }, [billingFilter, searchQuery, searchParams, setSearchParams, statusFilter]);
-
-  useEffect(() => {
-    async function syncSelectedCompany() {
-      if (!form.companyId) {
-        return;
-      }
-
-      const requestId = ++companySyncRequestIdRef.current;
-      const companyPlans = await api.get<ProductPlan[]>(`/companies/${form.companyId}/product-plans`);
-      const readiness = await api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${form.companyId}`);
-      if (requestId !== companySyncRequestIdRef.current) {
-        return;
-      }
-      setPlans(companyPlans);
-      setBillingReadiness(readiness);
-      setForm((current) => ({
-        ...current,
-        customerId: customers.some((customer) => customer.id === current.customerId) ? current.customerId : customers[0]?.id ?? "",
-        productPlanId: companyPlans.some((plan) => plan.id === current.productPlanId) ? current.productPlanId : companyPlans[0]?.id ?? "",
-      }));
-    }
-
-    void syncSelectedCompany();
-  }, [form.companyId, customers]);
 
   useEffect(() => {
     if (!cancelSchedule && !pricingEdit && !migrationEdit) {
@@ -312,51 +273,17 @@ export function SubscriptionsPage() {
     };
   }, [selectedSubscription]);
 
-  async function createSubscription(event: FormEvent) {
-    event.preventDefault();
-    setError("");
+  useEffect(() => {
+    const state = location.state;
+    const flashMessage = state && typeof state === "object" && "flashMessage" in state ? state.flashMessage : null;
 
-    if (billingReadiness && !billingReadiness.isReady) {
-      setConfirmState(null);
-      setError(`Complete the company billing profile before starting subscriptions: ${missingBillingItems.map((item) => item.title).join(", ")}.`);
+    if (typeof flashMessage !== "string" || !flashMessage) {
       return;
     }
 
-    if (form.items.length === 0) {
-      setConfirmState(null);
-      setError("Add at least one plan before creating a subscription.");
-      return;
-    }
-
-    const selectedCustomer = customers.find((customer) => customer.id === form.customerId);
-    setConfirmState({
-      title: "Create subscription",
-      description: hasDuplicateSubscriptionWarning
-        ? `${selectedCustomer?.name || "This customer"} already has another active subscription. Create another one anyway?`
-        : `Create a subscription for ${selectedCustomer?.name || "the selected customer"}?`,
-      action: async () => {
-        try {
-          if (form.startDateUtc < earliestSubscriptionStartDate) {
-            throw new Error("Start date cannot be more than 3 months in the past.");
-          }
-
-          await api.post("/subscriptions", {
-            customerId: form.customerId,
-            startDateUtc: new Date(form.startDateUtc).toISOString(),
-            trialDays,
-            notes: form.notes,
-            items: form.items,
-          });
-          setConfirmState(null);
-          setForm((current) => ({ ...current, items: [] }));
-          await load();
-        } catch (submitError) {
-          setConfirmState(null);
-          setError(submitError instanceof Error ? submitError.message : "Unable to create subscription.");
-        }
-      },
-    });
-  }
+    setMessage(flashMessage);
+    navigate(location.pathname + location.search, { replace: true, state: null });
+  }, [location.pathname, location.search, location.state, navigate]);
 
   async function act(id: string, action: "pause" | "resume" | "cancel") {
     await api.post(`/subscriptions/${id}/${action}`, action === "cancel" ? { endOfPeriod: true } : {});
@@ -470,36 +397,87 @@ export function SubscriptionsPage() {
     });
   }
 
-  function addDraftItem() {
-    if (!form.productPlanId) {
-      return;
-    }
-
-    setForm((current) => {
-      const existing = current.items.find((item) => item.productPlanId === current.productPlanId);
-      if (existing) {
-        return {
-          ...current,
-          quantity: "1",
-          items: current.items.map((item) => item.productPlanId === current.productPlanId
-            ? { ...item, quantity: item.quantity + Number(current.quantity || "1") }
-            : item),
-        };
-      }
-
-      return {
-        ...current,
-        quantity: "1",
-        items: [...current.items, { productPlanId: current.productPlanId, quantity: Number(current.quantity || "1") }],
-      };
-    });
-  }
-
-  function removeDraftItem(productPlanId: string) {
-    setForm((current) => ({
-      ...current,
-      items: current.items.filter((item) => item.productPlanId !== productPlanId),
-    }));
+  function getSubscriptionActions(item: Subscription) {
+    return [
+      {
+        label: expandedId === item.id ? "Hide details" : "View details",
+        onClick: () => setExpandedId((current) => current === item.id ? null : item.id),
+      },
+      {
+        label: "Preview invoice",
+        onClick: () => setConfirmState({
+          title: "Preview next invoice",
+          description: `Generate a preview of the next invoice for ${item.customerName} without saving it?`,
+          action: async () => {
+            try {
+              await downloadSubscriptionPreview(item.id);
+              setMessage(`Preview invoice downloaded for ${item.customerName}. No invoice record was saved.`);
+              setError("");
+              setConfirmState(null);
+            } catch (previewError) {
+              setMessage("");
+              const nextError = previewError instanceof Error ? previewError.message : "Unable to generate preview invoice.";
+              setError(nextError);
+              throw new Error(nextError);
+            }
+          },
+        }),
+      },
+      {
+        label: "Generate invoice now",
+        disabled: getGenerateInvoiceAvailability(item).disabled,
+        title: getGenerateInvoiceAvailability(item).title,
+        onClick: () => setConfirmState({
+          title: "Generate invoice now",
+          description: `Create the next real subscription invoice now for ${item.customerName}? This saves an invoice record for the current invoice date.`,
+          action: async () => {
+            try {
+              await api.post(`/subscriptions/${item.id}/generate-invoice`);
+              setMessage(`Invoice generated for ${item.customerName}.`);
+              setError("");
+              setConfirmState(null);
+              await load();
+            } catch (generationError) {
+              setMessage("");
+              const nextError = generationError instanceof Error ? generationError.message : "Unable to generate invoice.";
+              setError(nextError);
+              throw new Error(nextError);
+            }
+          },
+        }),
+      },
+      ...(canPauseSubscription(item) ? [{
+        label: "Pause subscription",
+        onClick: () => setConfirmState({
+          title: "Pause subscription",
+          description: `Pause ${item.customerName}'s subscription?`,
+          action: async () => {
+            await act(item.id, "pause");
+            setConfirmState(null);
+          },
+        }),
+      }] : []),
+      ...(canResumeSubscription(item) ? [{
+        label: "Resume subscription",
+        onClick: () => setConfirmState({
+          title: "Resume subscription",
+          description: `Resume ${item.customerName}'s subscription?`,
+          action: async () => {
+            await act(item.id, "resume");
+            setConfirmState(null);
+          },
+        }),
+      }] : []),
+      ...(canCancelSubscription(item) ? [{
+        label: "Cancel subscription",
+        tone: "danger" as const,
+        onClick: () => setCancelSchedule({
+          id: item.id,
+          date: toDateInputValue(new Date()),
+          reason: "",
+        }),
+      }] : []),
+    ];
   }
 
   return (
@@ -516,20 +494,23 @@ export function SubscriptionsPage() {
             </p>
           ) : null}
         </div>
-        <button
-          type="button"
-          className="button button-secondary"
-          onClick={() => setConfirmState({
-            title: "Run invoices now",
-            description: "Generate invoices for all subscriptions whose invoice date has been reached? This uses the same invoice-date logic as the scheduled billing run.",
-            action: async () => {
-              await runDueInvoicesNow();
-              setConfirmState(null);
-            },
-          })}
-        >
-          Run invoices now
-        </button>
+        <div className="page-header-actions">
+          <button type="button" className="button button-primary" onClick={() => navigate("/subscriptions/new")}>Add subscription</button>
+          <button
+            type="button"
+            className="button button-secondary"
+            onClick={() => setConfirmState({
+              title: "Run invoices now",
+              description: "Generate invoices for all subscriptions whose invoice date has been reached? This uses the same invoice-date logic as the scheduled billing run.",
+              action: async () => {
+                await runDueInvoicesNow();
+                setConfirmState(null);
+              },
+            })}
+          >
+            Run invoices now
+          </button>
+        </div>
       </header>
       {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
@@ -538,42 +519,89 @@ export function SubscriptionsPage() {
           {`Complete the company billing profile before starting subscriptions: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
         </HelperText>
       ) : null}
-      <div className="grid-two">
-        <section className="card">
-          <div className="inline-fields" style={{ marginBottom: "1rem", alignItems: "end" }}>
-            <label className="form-label" style={{ flex: "1 1 18rem" }}>
-              Search
-              <input
-                className="text-input"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search customer, company, plan, status, or notes"
-              />
-            </label>
-            <label className="form-label" style={{ minWidth: "12rem" }}>
-              Status
-              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "paused" | "scheduled" | "cancelled")}>
-                <option value="all">All statuses</option>
-                <option value="active">Active</option>
-                <option value="paused">Paused</option>
-                <option value="scheduled">Scheduled to end</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </label>
-            <label className="form-label" style={{ minWidth: "12rem" }}>
-              Billing
-              <select value={billingFilter} onChange={(event) => setBillingFilter(event.target.value as "all" | "due" | "recurring" | "one-time" | "mixed")}>
-                <option value="all">All billing</option>
-                <option value="due">Due now</option>
-                <option value="recurring">Recurring</option>
-                <option value="one-time">One-time</option>
-                <option value="mixed">Mixed</option>
-              </select>
-            </label>
-          </div>
-          {searchQuery || statusFilter !== "all" || billingFilter !== "all" ? (
-            <HelperText>{`${filteredItems.length} matching subscription${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
-          ) : null}
+      <section className="card">
+        <div className="inline-fields pwa-filter-bar subscription-filter-bar" style={{ marginBottom: "1rem", alignItems: "end" }}>
+          <label className="form-label subscription-filter-search">
+            Search
+            <input
+              aria-label="Search subscriptions"
+              className="text-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search customer, company, plan, status, or notes"
+            />
+          </label>
+          <label className="form-label subscription-filter-select">
+            Status
+            <select aria-label="Filter subscriptions by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "paused" | "scheduled" | "cancelled")}>
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="scheduled">Scheduled to end</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+          <label className="form-label subscription-filter-select">
+            Billing
+            <select aria-label="Filter subscriptions by billing type" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value as "all" | "due" | "recurring" | "one-time" | "mixed")}>
+              <option value="all">All billing</option>
+              <option value="due">Due now</option>
+              <option value="recurring">Recurring</option>
+              <option value="one-time">One-time</option>
+              <option value="mixed">Mixed</option>
+            </select>
+          </label>
+        </div>
+        {searchQuery || statusFilter !== "all" || billingFilter !== "all" ? (
+          <HelperText>{`${filteredItems.length} matching subscription${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
+        ) : null}
+        <div className="subscription-mobile-list">
+          {pagination.pagedItems.map((item) => {
+            const rowActions = getSubscriptionActions(item);
+
+            return (
+              <article key={item.id} className="subscription-mobile-card">
+                <div className="subscription-mobile-card-header">
+                  <div className="subscription-mobile-identity">
+                    <strong>{item.customerName}</strong>
+                    <div className="eyebrow">{item.companyName}</div>
+                  </div>
+                  <div className="subscription-mobile-actions">
+                    <RowActionMenu items={rowActions} label="More" />
+                  </div>
+                </div>
+                <div className="subscription-mobile-summary">
+                  <div className="subscription-mobile-amount">{formatCurrency(item.effectiveBillingAmount, item.currency)}</div>
+                  <div className="subscription-mobile-cadence">{getSubscriptionBillingLabel(item)}</div>
+                </div>
+                <div className="subscription-mobile-card-topline">
+                  <span className={`subscription-mobile-status subscription-mobile-status-${item.status.toLowerCase()}`}>
+                    {item.status}
+                  </span>
+                  <span className="subscription-mobile-inline-note">{`Next invoice ${formatSubscriptionDate(item.nextBillingUtc)}`}</span>
+                  {item.cancelAtPeriodEnd && item.currentPeriodEndUtc ? (
+                    <span className="subscription-mobile-inline-note">{`Ends ${formatSubscriptionDate(item.currentPeriodEndUtc)}`}</span>
+                  ) : null}
+                </div>
+                <div className="subscription-mobile-meta">
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Billing</span>
+                    <span className="subscription-mobile-meta-value">{getSubscriptionBillingMeta(item)}</span>
+                  </div>
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Period</span>
+                    <span className="subscription-mobile-meta-value">{getSubscriptionPeriodLabel(item)}</span>
+                  </div>
+                  <div className="subscription-mobile-meta-row">
+                    <span className="subscription-mobile-meta-label">Items</span>
+                    <span className="subscription-mobile-meta-value">{`${item.items.length} item${item.items.length === 1 ? "" : "s"} | ${getSubscriptionItemsPreview(item)}`}</span>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        <div className="subscription-table-shell">
           <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
             <div ref={topInnerRef} />
           </div>
@@ -595,386 +623,214 @@ export function SubscriptionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {pagination.pagedItems.map((item) => (
-                  <Fragment key={item.id}>
-                    <tr key={item.id}>
-                      <td className="sticky-cell sticky-cell-left table-primary-cell">
-                        <div className="table-primary-cell-stack">
-                          <div className="stack">
-                            <div>{item.customerName}</div>
-                            <div className="eyebrow">{item.companyName}</div>
-                            {item.status === "Paused" ? (
-                              <div className="table-meta">
-                                <span className="table-meta-item">
-                                  <span className="table-meta-dot table-meta-dot-inactive" aria-hidden="true" />
-                                  Paused
-                                </span>
-                              </div>
-                            ) : null}
+                {pagination.pagedItems.map((item) => {
+                  const rowActions = getSubscriptionActions(item);
+
+                  return (
+                    <Fragment key={item.id}>
+                      <tr>
+                        <td className="sticky-cell sticky-cell-left table-primary-cell">
+                          <div className="table-primary-cell-stack">
+                            <div className="stack">
+                              <div>{item.customerName}</div>
+                              <div className="eyebrow">{item.companyName}</div>
+                              {item.status === "Paused" ? (
+                                <div className="table-meta">
+                                  <span className="table-meta-item">
+                                    <span className="table-meta-dot table-meta-dot-inactive" aria-hidden="true" />
+                                    Paused
+                                  </span>
+                                </div>
+                              ) : null}
+                            </div>
+                            <RowActionMenu items={rowActions} />
                           </div>
-                          <RowActionMenu
-                            items={[
-                              {
-                                label: expandedId === item.id ? "Hide details" : "View details",
-                                onClick: () => setExpandedId((current) => current === item.id ? null : item.id),
-                              },
-                              {
-                                label: "Preview invoice",
-                                onClick: () => setConfirmState({
-                                  title: "Preview next invoice",
-                                  description: `Generate a preview of the next invoice for ${item.customerName} without saving it?`,
-                                  action: async () => {
-                                    try {
-                                      await downloadSubscriptionPreview(item.id);
-                                      setMessage(`Preview invoice downloaded for ${item.customerName}. No invoice record was saved.`);
-                                      setError("");
-                                      setConfirmState(null);
-                                    } catch (previewError) {
-                                      setMessage("");
-                                      setConfirmState(null);
-                                      setError(previewError instanceof Error ? previewError.message : "Unable to generate preview invoice.");
-                                    }
-                                  },
-                                }),
-                              },
-                              {
-                                label: "Generate invoice now",
-                                disabled: getGenerateInvoiceAvailability(item).disabled,
-                                title: getGenerateInvoiceAvailability(item).title,
-                                onClick: () => setConfirmState({
-                                  title: "Generate invoice now",
-                                  description: `Create the next real subscription invoice now for ${item.customerName}? This saves an invoice record for the current invoice date.`,
-                                  action: async () => {
-                                    try {
-                                      await api.post(`/subscriptions/${item.id}/generate-invoice`);
-                                      setMessage(`Invoice generated for ${item.customerName}.`);
-                                      setError("");
-                                      setConfirmState(null);
-                                      await load();
-                                    } catch (generationError) {
-                                      setMessage("");
-                                      setConfirmState(null);
-                                      setError(generationError instanceof Error ? generationError.message : "Unable to generate invoice.");
-                                    }
-                                  },
-                                }),
-                              },
-                              ...(canPauseSubscription(item) ? [{
-                                label: "Pause subscription",
-                                onClick: () => setConfirmState({
-                                  title: "Pause subscription",
-                                  description: `Pause ${item.customerName}'s subscription?`,
-                                  action: async () => {
-                                    await act(item.id, "pause");
-                                    setConfirmState(null);
-                                  },
-                                }),
-                              }] : []),
-                              ...(canResumeSubscription(item) ? [{
-                                label: "Resume subscription",
-                                onClick: () => setConfirmState({
-                                  title: "Resume subscription",
-                                  description: `Resume ${item.customerName}'s subscription?`,
-                                  action: async () => {
-                                    await act(item.id, "resume");
-                                    setConfirmState(null);
-                                  },
-                                }),
-                              }] : []),
-                              ...(canCancelSubscription(item) ? [{
-                                label: "Cancel subscription",
-                                tone: "danger" as const,
-                                onClick: () => setCancelSchedule({
-                                  id: item.id,
-                                  date: toDateInputValue(new Date()),
-                                  reason: "",
-                                }),
-                              }] : []),
-                            ]}
-                          />
-                        </div>
-                      </td>
-                      <td>
-                        <div>{item.status}</div>
-                        {item.cancelAtPeriodEnd && item.currentPeriodEndUtc ? (
-                          <div className="eyebrow">{`Scheduled to end on ${new Date(item.currentPeriodEndUtc).toLocaleDateString()}`}</div>
-                        ) : null}
-                      </td>
-                      <td>
-                        <div>{item.hasMixedBillingIntervals ? "Mixed billing" : item.intervalUnit === "None" ? "One-time" : `${item.intervalCount} ${item.intervalUnit}`}</div>
-                        <div className="eyebrow">{`${formatCurrency(item.effectiveBillingAmount, item.currency)}${item.hasMixedBillingIntervals ? ` | ${item.items.length} schedules` : ` | ${formatCurrency(item.unitPrice, item.currency)} x ${item.quantity}`}`}</div>
-                      </td>
-                      <td>
-                        <div>{item.nextBillingUtc ? new Date(item.nextBillingUtc).toLocaleDateString() : "-"}</div>
-                        <div className="eyebrow">
-                          {item.currentPeriodStartUtc && item.currentPeriodEndUtc
-                            ? `${new Date(item.currentPeriodStartUtc).toLocaleDateString()} to ${new Date(item.currentPeriodEndUtc).toLocaleDateString()}`
-                            : item.endedAtUtc
-                              ? `Ended ${new Date(item.endedAtUtc).toLocaleDateString()}`
-                              : "No active period"}
-                        </div>
-                      </td>
-                      <td>
-                        <div>{item.items.length} item{item.items.length === 1 ? "" : "s"}</div>
-                        <div className="eyebrow">{item.items.map((child) => child.productPlanName).join(", ")}</div>
-                      </td>
-                    </tr>
-                  </Fragment>
-                ))}
+                        </td>
+                        <td>
+                          <div>{item.status}</div>
+                          {item.cancelAtPeriodEnd && item.currentPeriodEndUtc ? (
+                            <div className="eyebrow">{`Scheduled to end on ${formatSubscriptionDate(item.currentPeriodEndUtc)}`}</div>
+                          ) : null}
+                        </td>
+                        <td>
+                          <div>{getSubscriptionBillingLabel(item)}</div>
+                          <div className="eyebrow">{`${formatCurrency(item.effectiveBillingAmount, item.currency)} | ${getSubscriptionBillingMeta(item)}`}</div>
+                        </td>
+                        <td>
+                          <div>{formatSubscriptionDate(item.nextBillingUtc)}</div>
+                          <div className="eyebrow">{getSubscriptionPeriodLabel(item)}</div>
+                        </td>
+                        <td>
+                          <div>{item.items.length} item{item.items.length === 1 ? "" : "s"}</div>
+                          <div className="eyebrow">{item.items.map((child) => child.productPlanName).join(", ")}</div>
+                        </td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
-            {items.length === 0 ? (
-              <div className="empty-state">
-                <h3>No subscriptions yet</h3>
-                <p className="muted">A subscription links one customer to a recurring plan and drives renewal invoices automatically.</p>
-                <div className="empty-state-actions">
-                  <button type="submit" className="button button-primary" form="subscription-create-form">Create first subscription</button>
-                  <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
-                </div>
-              </div>
-            ) : filteredItems.length === 0 ? (
-              <div className="empty-state">
-                <h3>No matching subscriptions</h3>
-                <p className="muted">Try a different search term or filter to find the subscription you want.</p>
-              </div>
-            ) : null}
           </div>
           <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
             <div ref={bottomInnerRef} />
           </div>
-          <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
-          {cancelSchedule ? (
-            <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
-              <p className="eyebrow">Cancel subscription</p>
-              <label className="form-label">
-                Effective date
-                <input
-                  className="text-input"
-                  type="date"
-                  value={cancelSchedule.date}
-                  onChange={(event) => setCancelSchedule((current) => current ? { ...current, date: event.target.value } : current)}
-                />
-              </label>
-              <label className="form-label">
-                Reason
-                <input
-                  className="text-input"
-                  value={cancelSchedule.reason}
-                  onChange={(event) => setCancelSchedule((current) => current ? { ...current, reason: event.target.value } : current)}
-                  placeholder="Why is this subscription being cancelled?"
-                />
-              </label>
-              <HelperText>Today cancels immediately. A future date stops renewal within the current billing period and does not prorate charges automatically.</HelperText>
-              <div className="button-stack">
-                <button type="button" className="button button-primary" onClick={() => setConfirmState({
-                  title: "Cancel subscription",
-                  description: cancelSchedule.date === toDateInputValue(new Date())
-                    ? "Cancel this subscription immediately?"
-                    : `Schedule this subscription to cancel on ${cancelSchedule.date}? This stops renewal on that date and does not prorate charges automatically.`,
-                  action: async () => {
-                    await submitScheduledCancel();
-                    setConfirmState(null);
-                  },
-                })}>Confirm cancellation</button>
-                <button type="button" className="button button-secondary" onClick={() => setCancelSchedule(null)}>Close</button>
-              </div>
-            </div>
-          ) : null}
-          {pricingEdit ? (
-            <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
-              <p className="eyebrow">Update future billing</p>
-              <HelperText>Changes here affect the next invoice onward. The current period and historical invoices stay unchanged.</HelperText>
-              <div className="inline-fields">
-                <label className="form-label">
-                  Unit price
-                  <input className="text-input" value={pricingEdit.unitPrice} onChange={(event) => setPricingEdit((current) => current ? { ...current, unitPrice: event.target.value } : current)} />
-                </label>
-                <label className="form-label">
-                  Currency
-                  <input className="text-input" value={pricingEdit.currency} maxLength={3} onChange={(event) => setPricingEdit((current) => current ? { ...current, currency: event.target.value.toUpperCase() } : current)} />
-                </label>
-              </div>
-              <div className="inline-fields">
-                <label className="form-label">
-                  Interval
-                  <select value={pricingEdit.intervalUnit} onChange={(event) => setPricingEdit((current) => current ? { ...current, intervalUnit: event.target.value as "None" | "Month" | "Quarter" | "Year" } : current)}>
-                    <option value="None">One-time</option>
-                    <option value="Month">Month</option>
-                    <option value="Quarter">Quarter</option>
-                    <option value="Year">Year</option>
-                  </select>
-                </label>
-                <label className="form-label">
-                  Interval count
-                  <input className="text-input" value={pricingEdit.intervalCount} onChange={(event) => setPricingEdit((current) => current ? { ...current, intervalCount: event.target.value } : current)} />
-                </label>
-              </div>
-              <div className="inline-fields">
-                <label className="form-label">
-                  Quantity
-                  <input className="text-input" value={pricingEdit.quantity} onChange={(event) => setPricingEdit((current) => current ? { ...current, quantity: event.target.value } : current)} />
-                </label>
-                <label className="form-label">
-                  Reason
-                  <input className="text-input" value={pricingEdit.reason} onChange={(event) => setPricingEdit((current) => current ? { ...current, reason: event.target.value } : current)} />
-                </label>
-              </div>
-              <div className="button-stack">
-                <button type="button" className="button button-primary" onClick={() => setConfirmState({
-                  title: "Update subscription pricing",
-                  description: "Apply this billing snapshot to future renewals only?",
-                  action: async () => {
-                    await submitPricingUpdate();
-                    setConfirmState(null);
-                  },
-                })}>Save future billing</button>
-                <button type="button" className="button button-secondary" onClick={() => setPricingEdit(null)}>Close</button>
-              </div>
-            </div>
-          ) : null}
-          {migrationEdit ? (
-            <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
-              <p className="eyebrow">Migrate subscription item</p>
-              <HelperText>Use this when the wrong plan was attached. This changes future billing for the selected item only and keeps historical invoices intact.</HelperText>
-              <div className="inline-fields">
-                <label className="form-label">
-                  Current plan
-                  <input className="text-input" value={migrationEdit.currentPlanName} readOnly />
-                </label>
-                <label className="form-label">
-                  Target plan
-                  <select
-                    value={migrationEdit.targetProductPlanId}
-                    onChange={(event) => setMigrationEdit((current) => current ? { ...current, targetProductPlanId: event.target.value } : current)}
-                  >
-                    {migrationPlans.map((plan) => (
-                      <option key={plan.id} value={plan.id}>{`${plan.planName} | ${plan.billingLabel} | ${formatCurrency(plan.unitAmount, plan.currency)}`}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <label className="form-label">
-                Reason
-                <input className="text-input" value={migrationEdit.reason} onChange={(event) => setMigrationEdit((current) => current ? { ...current, reason: event.target.value } : current)} />
-              </label>
-              {migrationPlans.length === 0 ? (
-                <HelperText tone="error">No alternative active plans are available for this company.</HelperText>
-              ) : (
-                <HelperText>If the old invoice was created by mistake, void it separately before generating a new one from the migrated item.</HelperText>
-              )}
-              <div className="button-stack">
-                <button
-                  type="button"
-                  className="button button-primary"
-                  disabled={!migrationEdit.targetProductPlanId}
-                  onClick={() => setConfirmState({
-                    title: "Migrate subscription item",
-                    description: "Move this item to the selected plan for future billing only?",
-                    action: async () => {
-                      await submitItemMigration();
-                      setConfirmState(null);
-                    },
-                  })}
-                >
-                  Save migration
-                </button>
-                <button type="button" className="button button-secondary" onClick={() => { setMigrationEdit(null); setMigrationPlans([]); }}>Close</button>
-              </div>
-            </div>
-          ) : null}
-        </section>
-        <section className="card">
-          <div className="card-section-header">
-            <div>
-              <p className="eyebrow">Create subscription</p>
-              <h3 className="section-title">Start customer billing</h3>
-              <p className="muted form-intro">Pick the customer and plans to start billing. One-time items are billed on the first invoice only.</p>
+        </div>
+        {items.length === 0 ? (
+          <div className="empty-state">
+            <h3>No subscriptions yet</h3>
+            <p className="muted">A subscription links one customer to a recurring plan and drives renewal invoices automatically.</p>
+            <div className="empty-state-actions">
+              <button type="button" className="button button-primary" onClick={() => navigate("/subscriptions/new")}>Create first subscription</button>
+              <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
             </div>
           </div>
-          <form id="subscription-create-form" className="form-stack" onSubmit={createSubscription}>
+        ) : filteredItems.length === 0 ? (
+          <div className="empty-state">
+            <h3>No matching subscriptions</h3>
+            <p className="muted">Try a different search term or filter to find the subscription you want.</p>
+          </div>
+        ) : null}
+        <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
+        {cancelSchedule ? (
+          <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
+            <p className="eyebrow">Cancel subscription</p>
             <label className="form-label">
-              Company
-              <select value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
-                {companies.map((company) => (
-                  <option key={company.id} value={company.id}>{company.name}</option>
-                ))}
-              </select>
+              Effective date
+              <input
+                className="text-input"
+                type="date"
+                value={cancelSchedule.date}
+                onChange={(event) => setCancelSchedule((current) => current ? { ...current, date: event.target.value } : current)}
+              />
             </label>
             <label className="form-label">
-              Customer
-              <select value={form.customerId} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>{customer.name}</option>
-                ))}
-              </select>
+              Reason
+              <input
+                className="text-input"
+                value={cancelSchedule.reason}
+                onChange={(event) => setCancelSchedule((current) => current ? { ...current, reason: event.target.value } : current)}
+                placeholder="Why is this subscription being cancelled?"
+              />
             </label>
-            {hasDuplicateSubscriptionWarning ? (
-              <HelperText tone="error">
-                {duplicateSubscriptionMessage}
-              </HelperText>
-            ) : null}
+            <HelperText>Today cancels immediately. A future date stops renewal within the current billing period and does not prorate charges automatically.</HelperText>
+            <div className="button-stack">
+              <button type="button" className="button button-primary" onClick={() => setConfirmState({
+                title: "Cancel subscription",
+                description: cancelSchedule.date === toDateInputValue(new Date())
+                  ? "Cancel this subscription immediately?"
+                  : `Schedule this subscription to cancel on ${cancelSchedule.date}? This stops renewal on that date and does not prorate charges automatically.`,
+                action: async () => {
+                  await submitScheduledCancel();
+                  setConfirmState(null);
+                },
+              })}>Confirm cancellation</button>
+              <button type="button" className="button button-secondary" onClick={() => setCancelSchedule(null)}>Close</button>
+            </div>
+          </div>
+        ) : null}
+        {pricingEdit ? (
+          <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
+            <p className="eyebrow">Update future billing</p>
+            <HelperText>Changes here affect the next invoice onward. The current period and historical invoices stay unchanged.</HelperText>
+            <div className="inline-fields">
+              <label className="form-label">
+                Unit price
+                <input className="text-input" value={pricingEdit.unitPrice} onChange={(event) => setPricingEdit((current) => current ? { ...current, unitPrice: event.target.value } : current)} />
+              </label>
+              <label className="form-label">
+                Currency
+                <input className="text-input" value={pricingEdit.currency} maxLength={3} onChange={(event) => setPricingEdit((current) => current ? { ...current, currency: event.target.value.toUpperCase() } : current)} />
+              </label>
+            </div>
+            <div className="inline-fields">
+              <label className="form-label">
+                Interval
+                <select value={pricingEdit.intervalUnit} onChange={(event) => setPricingEdit((current) => current ? { ...current, intervalUnit: event.target.value as "None" | "Month" | "Quarter" | "Year" } : current)}>
+                  <option value="None">One-time</option>
+                  <option value="Month">Month</option>
+                  <option value="Quarter">Quarter</option>
+                  <option value="Year">Year</option>
+                </select>
+              </label>
+              <label className="form-label">
+                Interval count
+                <input className="text-input" value={pricingEdit.intervalCount} onChange={(event) => setPricingEdit((current) => current ? { ...current, intervalCount: event.target.value } : current)} />
+              </label>
+            </div>
+            <div className="inline-fields">
+              <label className="form-label">
+                Quantity
+                <input className="text-input" value={pricingEdit.quantity} onChange={(event) => setPricingEdit((current) => current ? { ...current, quantity: event.target.value } : current)} />
+              </label>
+              <label className="form-label">
+                Reason
+                <input className="text-input" value={pricingEdit.reason} onChange={(event) => setPricingEdit((current) => current ? { ...current, reason: event.target.value } : current)} />
+              </label>
+            </div>
+            <div className="button-stack">
+              <button type="button" className="button button-primary" onClick={() => setConfirmState({
+                title: "Update subscription pricing",
+                description: "Apply this billing snapshot to future renewals only?",
+                action: async () => {
+                  await submitPricingUpdate();
+                  setConfirmState(null);
+                },
+              })}>Save future billing</button>
+              <button type="button" className="button button-secondary" onClick={() => setPricingEdit(null)}>Close</button>
+            </div>
+          </div>
+        ) : null}
+        {migrationEdit ? (
+          <div ref={actionFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
+            <p className="eyebrow">Migrate subscription item</p>
+            <HelperText>Use this when the wrong plan was attached. This changes future billing for the selected item only and keeps historical invoices intact.</HelperText>
+            <div className="inline-fields">
+              <label className="form-label">
+                Current plan
+                <input className="text-input" value={migrationEdit.currentPlanName} readOnly />
+              </label>
+              <label className="form-label">
+                Target plan
+                <select
+                  value={migrationEdit.targetProductPlanId}
+                  onChange={(event) => setMigrationEdit((current) => current ? { ...current, targetProductPlanId: event.target.value } : current)}
+                >
+                  {migrationPlans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>{`${plan.planName} | ${plan.billingLabel} | ${formatCurrency(plan.unitAmount, plan.currency)}`}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <label className="form-label">
-              Plan
-              <select value={form.productPlanId} onChange={(event) => setForm((current) => ({ ...current, productPlanId: event.target.value }))}>
-                {plans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>{plan.planName} - {formatCurrency(plan.unitAmount, plan.currency)}</option>
-                ))}
-              </select>
+              Reason
+              <input className="text-input" value={migrationEdit.reason} onChange={(event) => setMigrationEdit((current) => current ? { ...current, reason: event.target.value } : current)} />
             </label>
-            <label className="form-label">
-              Trial days
-              <input className="text-input" value={form.trialDays} onChange={(event) => setForm((current) => ({ ...current, trialDays: event.target.value }))} />
-            </label>
-            {trialDays > 0 ? (
-              <HelperText>{`${trialDays}-day trial${trialPreviewEnd ? ` | First invoice date ${trialPreviewEnd.toISOString().slice(0, 10)}` : ""}`}</HelperText>
+            {migrationPlans.length === 0 ? (
+              <HelperText tone="error">No alternative active plans are available for this company.</HelperText>
             ) : (
-              <HelperText>No trial on this subscription</HelperText>
+              <HelperText>If the old invoice was created by mistake, void it separately before generating a new one from the migrated item.</HelperText>
             )}
-            {selectedPlan ? (
-              <HelperText>{`Price: ${formatCurrency(selectedPlan.unitAmount, selectedPlan.currency)} | Billing: ${selectedPlan.billingLabel} | Auto Renew: ${selectedPlan.billingType === "Recurring" ? "Yes" : "No"} | Trial applies to all items in this subscription`}</HelperText>
-            ) : null}
-            <label className="form-label">
-              Quantity
-              <input className="text-input" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} />
-            </label>
-            <button type="button" className="button button-secondary" onClick={addDraftItem}>Add item</button>
-            {form.items.length > 0 ? (
-              <div className="stack">
-                {form.items.map((item) => {
-                  const plan = plans.find((planOption) => planOption.id === item.productPlanId);
-                  return (
-                    <div key={item.productPlanId} className="dashboard-list-item">
-                      <div>
-                        <strong>{plan?.planName ?? item.productPlanId}</strong>
-                        <p className="muted">{`${formatCurrency(plan?.unitAmount ?? 0, plan?.currency ?? "MYR")} x ${item.quantity} | ${plan?.billingLabel ?? "Billing unavailable"}`}</p>
-                      </div>
-                      <button type="button" className="button button-secondary" onClick={() => removeDraftItem(item.productPlanId)}>Remove</button>
-                    </div>
-                  );
+            <div className="button-stack">
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={!migrationEdit.targetProductPlanId}
+                onClick={() => setConfirmState({
+                  title: "Migrate subscription item",
+                  description: "Move this item to the selected plan for future billing only?",
+                  action: async () => {
+                    await submitItemMigration();
+                    setConfirmState(null);
+                  },
                 })}
-              </div>
-            ) : (
-              <HelperText>Add one or more plans. Mixed recurring and one-time items are allowed.</HelperText>
-            )}
-            <label className="form-label">
-              Start date
-              <input className="text-input" type="date" min={earliestSubscriptionStartDate} value={form.startDateUtc} onChange={(event) => setForm((current) => ({ ...current, startDateUtc: event.target.value }))} />
-            </label>
-            <HelperText>You can backdate the start date by up to 3 months.</HelperText>
-            <label className="form-label">
-              Notes
-              <input className="text-input" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
-            </label>
-            {error ? <HelperText tone="error">{error}</HelperText> : null}
-            {billingReadiness && !billingReadiness.isReady ? (
-              <HelperText tone="error">
-                {`Before creating a subscription, complete: ${missingBillingItems.map((item) => item.title).join(", ")}.`}
-              </HelperText>
-            ) : null}
-            <button type="submit" className="button button-primary" disabled={form.items.length === 0 || billingReadiness === null}>Create subscription</button>
-          </form>
-        </section>
-      </div>
+              >
+                Save migration
+              </button>
+              <button type="button" className="button button-secondary" onClick={() => { setMigrationEdit(null); setMigrationPlans([]); }}>Close</button>
+            </div>
+          </div>
+        ) : null}
+      </section>
       <ConfirmModal
         open={confirmState !== null}
         title={confirmState?.title ?? ""}

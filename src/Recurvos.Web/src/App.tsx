@@ -5,6 +5,8 @@ import { AppShell } from "./components/AppShell";
 import { getAuth } from "./lib/auth";
 import { isAppSiteHost } from "./lib/siteUrls";
 import { CompaniesPage } from "./pages/CompaniesPage";
+import { CompanyFormPage } from "./pages/CompanyFormPage";
+import { CustomerFormPage } from "./pages/CustomerFormPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { FinancePage } from "./pages/FinancePage";
@@ -29,11 +31,14 @@ import { PlatformWhatsAppSessionsPage } from "./pages/PlatformWhatsAppSessionsPa
 import { PublicPaymentConfirmationPage } from "./pages/PublicPaymentConfirmationPage";
 import { PublicPaymentSuccessPage } from "./pages/PublicPaymentSuccessPage";
 import { ProductDetailsPage } from "./pages/ProductDetailsPage";
+import { ProductFormPage } from "./pages/ProductFormPage";
 import { ProductPlansPage } from "./pages/ProductPlansPage";
+import { ProductPlanFormPage } from "./pages/ProductPlanFormPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { PricingPage } from "./pages/PricingPage";
 import { QuickStartPage } from "./pages/QuickStartPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { NewSubscriptionPage } from "./pages/NewSubscriptionPage";
 import { SubscriberPackageBillingPage } from "./pages/SubscriberPackageBillingPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SubscriptionsPage } from "./pages/SubscriptionsPage";
@@ -154,12 +159,21 @@ function AppRoutes() {
           <Route path="/platform/settings" element={<PlatformRoute><PlatformSettingsPage /></PlatformRoute>} />
           <Route path="/platform/whatsapp-sessions" element={<PlatformRoute><PlatformWhatsAppSessionsPage /></PlatformRoute>} />
           <Route path="/companies" element={<TenantRoute><CompaniesPage /></TenantRoute>} />
+          <Route path="/companies/new" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
+          <Route path="/companies/:id/edit" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
           <Route path="/customers" element={<TenantRoute><CustomersPage /></TenantRoute>} />
+          <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
+          <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
           <Route path="/products" element={<TenantRoute><ProductsPage /></TenantRoute>} />
+          <Route path="/products/new" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
+          <Route path="/products/:id/edit" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
           <Route path="/products/:id" element={<TenantRoute><ProductDetailsPage /></TenantRoute>} />
           <Route path="/plans" element={<TenantRoute><ProductPlansPage /></TenantRoute>} />
+          <Route path="/plans/new" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
+          <Route path="/plans/:id/edit" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
           <Route path="/prices" element={<Navigate to="/plans" replace />} />
           <Route path="/subscriptions" element={<TenantRoute><SubscriptionsPage /></TenantRoute>} />
+          <Route path="/subscriptions/new" element={<TenantRoute><NewSubscriptionPage /></TenantRoute>} />
           <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
           <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
           <Route path="/finance" element={<TenantRoute><FinancePage /></TenantRoute>} />

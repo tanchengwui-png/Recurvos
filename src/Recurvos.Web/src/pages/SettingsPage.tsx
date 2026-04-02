@@ -513,6 +513,32 @@ export function SettingsPage() {
           </select>
         </div>
       </header>
+      <section id="install-help" className="card settings-install-help">
+        <div className="settings-panel-header">
+          <div>
+            <p className="eyebrow">Home screen</p>
+            <h4>Add Recurvos to your home screen</h4>
+            <p className="muted">Use the browser install option when available, or save Recurvos from Safari on iPhone for faster access.</p>
+          </div>
+        </div>
+        <div className="settings-install-help-grid">
+          <div className="settings-install-help-step">
+            <span className="settings-stat-label">Chrome or Edge</span>
+            <strong>Use the install button</strong>
+            <p className="muted">When Recurvos is ready to install, use the in-app prompt or the browser install action in the address bar menu.</p>
+          </div>
+          <div className="settings-install-help-step">
+            <span className="settings-stat-label">iPhone Safari</span>
+            <strong>Use Share, then Add to Home Screen</strong>
+            <p className="muted">Open the Share menu in Safari, choose Add to Home Screen, then confirm the shortcut name.</p>
+          </div>
+          <div className="settings-install-help-step">
+            <span className="settings-stat-label">Already installed</span>
+            <strong>Open it like an app</strong>
+            <p className="muted">Once installed, Recurvos opens without the browser chrome and the reminder card stops appearing.</p>
+          </div>
+        </div>
+      </section>
       {billingReadiness && !billingReadiness.isReady ? (
         <HelperText>
           {`Required before billing starts: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
@@ -664,7 +690,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save document numbering.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save document numbering.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -737,7 +765,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save document numbering.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save document numbering.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -810,7 +840,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save document numbering.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save document numbering.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -880,7 +912,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save document delivery settings.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save document delivery settings.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -1464,7 +1498,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save WhatsApp settings.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save WhatsApp settings.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -1537,7 +1573,9 @@ export function SettingsPage() {
                             await load();
                             await loadReminderHistory();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save payment reminders.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save payment reminders.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}

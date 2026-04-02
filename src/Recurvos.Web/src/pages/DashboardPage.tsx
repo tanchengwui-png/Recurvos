@@ -130,6 +130,19 @@ export function DashboardPage() {
   const enabledSetupSteps = setupSteps.filter((step) => ("enabled" in step ? step.enabled : true));
   const checklistSteps = [...readinessSteps, ...enabledSetupSteps.filter((step) => !["companies", "logo"].includes(step.key))];
   const completedSetupSteps = enabledSetupSteps.filter((step) => step.done).length;
+  const pendingChecklistSteps = checklistSteps.filter((step) => !step.done);
+  const completedChecklistSteps = checklistSteps.filter((step) => step.done);
+  const nextSetupStep = pendingChecklistSteps[0] ?? null;
+  const supportingSetupSteps = pendingChecklistSteps.slice(1, 4);
+  const selectedCompanyLabel = selectedCompanyId
+    ? companies.find((company) => company.id === selectedCompanyId)?.name ?? "Selected company"
+    : "All companies";
+  const quickRangeLabel = ({
+    today: "Today",
+    thisMonth: "This Month",
+    last30: "Last 30 Days",
+    next7: "Next 7 Days",
+  } satisfies Record<QuickRange, string>)[quickRange];
 
   function applyQuickRange(range: QuickRange) {
     setQuickRange(range);
@@ -139,7 +152,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page dashboard-page">
       <header className="page-header">
         <div className="dashboard-header-copy">
           <p className="eyebrow">Overview</p>
@@ -147,6 +160,20 @@ export function DashboardPage() {
           <p className="muted">How much you have collected, what renews next, what is overdue, and what needs action today.</p>
         </div>
       </header>
+      <section className="dashboard-hero-strip" aria-label="Dashboard scope">
+        <div className="dashboard-hero-chip">
+          <span>Scope</span>
+          <strong>{selectedCompanyLabel}</strong>
+        </div>
+        <div className="dashboard-hero-chip">
+          <span>Window</span>
+          <strong>{quickRangeLabel}</strong>
+        </div>
+        <div className="dashboard-hero-chip dashboard-hero-chip-accent">
+          <span>Focus</span>
+          <strong>{reportsEnabled ? "Collections and renewals" : "Setup required"}</strong>
+        </div>
+      </section>
 
       <section className="card subtle-card dashboard-filters dashboard-controls-card">
         <div className="dashboard-filters-heading">
@@ -156,8 +183,8 @@ export function DashboardPage() {
           </div>
           <p className="muted">Choose one company and one time window.</p>
         </div>
-        <div className="dashboard-filter-grid">
-          <label className="form-label">
+        <div className="dashboard-filter-grid dashboard-filter-grid-mobile">
+          <label className="form-label dashboard-filter-company">
             Company
             <select value={selectedCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)}>
               <option value="">All companies</option>
@@ -166,11 +193,11 @@ export function DashboardPage() {
               ))}
             </select>
           </label>
-          <label className="form-label">
+          <label className="form-label dashboard-filter-date">
             Start date
             <input className="text-input" type="date" value={startDateUtc} onChange={(event) => setStartDateUtc(event.target.value)} />
           </label>
-          <label className="form-label">
+          <label className="form-label dashboard-filter-date">
             End date
             <input className="text-input" type="date" value={endDateUtc} onChange={(event) => setEndDateUtc(event.target.value)} />
           </label>
@@ -211,7 +238,7 @@ export function DashboardPage() {
                 <div>
                   <p className="eyebrow">Get set up</p>
                   <h3 className="section-title">{`${completedSetupSteps} of ${enabledSetupSteps.length} operational steps completed`}</h3>
-                  <p className="muted">Follow the normal Recurvos billing flow from company profile to first payment collection.</p>
+                  <p className="muted">Finish the next few setup actions to move from company profile to first payment collection.</p>
                 </div>
                 <div className="dashboard-quick-filters">
                   <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
@@ -227,20 +254,59 @@ export function DashboardPage() {
                   </button>
                 </div>
               </div>
-              <div className="setup-checklist">
-                {checklistSteps.map((step) => (
-                  <button key={step.key} type="button" className="setup-step" onClick={() => navigate(step.href)}>
-                    <div>
-                      <strong>{step.title}</strong>
-                      <p className="muted">{step.description}</p>
-                    </div>
-                    <div className="setup-step-meta">
-                      <span className={`status-pill ${step.done ? "status-pill-active" : "status-pill-inactive"}`}>{step.done ? "Done" : "Next"}</span>
-                      <span className="inline-link">{step.action}</span>
-                    </div>
-                  </button>
-                ))}
+              <div className="dashboard-setup-progress">
+                <div className="dashboard-setup-progress-stat">
+                  <strong>{`${completedChecklistSteps.length}/${checklistSteps.length}`}</strong>
+                  <span>setup tasks completed</span>
+                </div>
+                <div className="dashboard-setup-progress-bar" aria-hidden="true">
+                  <span style={{ width: `${checklistSteps.length > 0 ? (completedChecklistSteps.length / checklistSteps.length) * 100 : 0}%` }} />
+                </div>
               </div>
+              {nextSetupStep ? (
+                <button type="button" className="setup-step setup-step-featured" onClick={() => navigate(nextSetupStep.href)}>
+                  <div>
+                    <p className="eyebrow">Next best step</p>
+                    <strong>{nextSetupStep.title}</strong>
+                    <p className="muted">{nextSetupStep.description}</p>
+                  </div>
+                  <div className="setup-step-meta">
+                    <span className="status-pill status-pill-inactive">Next</span>
+                    <span className="inline-link">{nextSetupStep.action}</span>
+                  </div>
+                </button>
+              ) : (
+                <div className="dashboard-setup-complete">
+                  <strong>Core setup is complete.</strong>
+                  <p className="muted">You can move directly into invoicing, subscriptions, and payment tracking.</p>
+                </div>
+              )}
+              {supportingSetupSteps.length > 0 ? (
+                <div className="setup-checklist">
+                  {supportingSetupSteps.map((step) => (
+                    <button key={step.key} type="button" className="setup-step" onClick={() => navigate(step.href)}>
+                      <div>
+                        <strong>{step.title}</strong>
+                        <p className="muted">{step.description}</p>
+                      </div>
+                      <div className="setup-step-meta">
+                        <span className="status-pill status-pill-inactive">Next</span>
+                        <span className="inline-link">{step.action}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {completedChecklistSteps.length > 0 ? (
+                <div className="dashboard-setup-completed">
+                  <p className="eyebrow">Already done</p>
+                  <div className="dashboard-setup-completed-list">
+                    {completedChecklistSteps.slice(0, 3).map((step) => (
+                      <span key={step.key} className="status-pill status-pill-active">{step.title}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -255,15 +321,22 @@ export function DashboardPage() {
 
           <div className="dashboard-grid-two">
             <DashboardChartCard title="Revenue trend">
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={revenueTrend}>
-                  <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
-                  <XAxis dataKey="label" stroke="#8ea0b8" />
-                  <YAxis stroke="#8ea0b8" tickFormatter={(value) => `RM${value}`} />
-                  <Tooltip formatter={(value) => formatTooltipCurrency(value)} />
-                  <Line type="monotone" dataKey="collectedRevenue" stroke="#f97316" strokeWidth={3} dot={{ r: 4 }} />
-                </LineChart>
-              </ResponsiveContainer>
+              <div className="dashboard-chart-shell dashboard-chart-shell-lg">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={revenueTrend} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
+                    <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
+                    <XAxis dataKey="label" stroke="#8ea0b8" tickLine={false} axisLine={false} tickMargin={10} />
+                    <YAxis stroke="#8ea0b8" tickFormatter={(value) => `RM${value}`} tickLine={false} axisLine={false} width={46} />
+                    <Tooltip
+                      formatter={(value) => formatTooltipCurrency(value)}
+                      contentStyle={{ background: "rgba(8, 17, 31, 0.94)", border: "1px solid rgba(148, 163, 184, 0.18)", borderRadius: "14px", boxShadow: "0 14px 32px rgba(2, 8, 23, 0.32)" }}
+                      labelStyle={{ color: "#e2e8f0", fontWeight: 600, marginBottom: "0.35rem" }}
+                      itemStyle={{ color: "#f8fafc" }}
+                    />
+                    <Line type="monotone" dataKey="collectedRevenue" stroke="#f97316" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 5 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </DashboardChartCard>
             <StatusSummaryCard summary={statusSummary} />
           </div>
@@ -271,80 +344,134 @@ export function DashboardPage() {
           <div className="dashboard-grid-two">
             <DashboardTableCard title="Upcoming renewals">
               {upcomingRenewals && upcomingRenewals.items.length > 0 ? (
-                <div className="table-scroll">
-                  <table className="catalog-table">
-                    <thead>
-                      <tr>
-                        <th>Company</th>
-                        <th>Customer</th>
-                        <th>Plan</th>
-                        <th>Amount</th>
-                        <th>Renewal Date</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {upcomingRenewals.items.map((item) => (
-                        <tr key={item.subscriptionId} className="dashboard-row-link" onClick={() => navigate("/subscriptions")}>
-                          <td>{item.company}</td>
-                          <td>{item.customer}</td>
-                          <td>{item.plan}</td>
-                          <td>{formatCurrency(item.amount, "MYR")}</td>
-                          <td>{new Date(item.renewalDateUtc).toLocaleDateString()}</td>
-                          <td><span className="status-pill status-pill-active">{item.status}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div className="subscription-mobile-list dashboard-mobile-list">
+                    {upcomingRenewals.items.map((item) => (
+                      <article key={item.subscriptionId} className="subscription-mobile-card dashboard-mobile-card" onClick={() => navigate("/subscriptions")}>
+                        <div className="subscription-mobile-card-header">
+                          <div className="subscription-mobile-identity">
+                            <strong>{item.customer}</strong>
+                            <div className="eyebrow">{item.company}</div>
+                          </div>
+                        </div>
+                        <div className="subscription-mobile-summary">
+                          <div className="subscription-mobile-amount">{formatCurrency(item.amount, "MYR")}</div>
+                          <div className="subscription-mobile-cadence">{item.plan}</div>
+                        </div>
+                        <div className="subscription-mobile-card-topline">
+                          <span className="subscription-mobile-status subscription-mobile-status-active">{item.status}</span>
+                          <span className="subscription-mobile-inline-note">{new Date(item.renewalDateUtc).toLocaleDateString()}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="subscription-table-shell dashboard-table-shell">
+                    <div className="table-scroll dashboard-table-scroll">
+                      <table className="catalog-table">
+                        <thead>
+                          <tr>
+                            <th>Company</th>
+                            <th>Customer</th>
+                            <th>Plan</th>
+                            <th>Amount</th>
+                            <th>Renewal Date</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {upcomingRenewals.items.map((item) => (
+                            <tr key={item.subscriptionId} className="dashboard-row-link" onClick={() => navigate("/subscriptions")}>
+                              <td>{item.company}</td>
+                              <td>{item.customer}</td>
+                              <td>{item.plan}</td>
+                              <td>{formatCurrency(item.amount, "MYR")}</td>
+                              <td>{new Date(item.renewalDateUtc).toLocaleDateString()}</td>
+                              <td><span className="status-pill status-pill-active">{item.status}</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
               ) : <p className="muted">No renewals coming up.</p>}
             </DashboardTableCard>
             <DashboardTableCard title="Overdue invoices">
               {overdueInvoices && overdueInvoices.items.length > 0 ? (
-                <div className="table-scroll">
-                  <table className="catalog-table">
-                    <thead>
-                      <tr>
-                        <th>Invoice No</th>
-                        <th>Company</th>
-                        <th>Customer</th>
-                        <th>Due Date</th>
-                        <th>Amount</th>
-                        <th>Days Overdue</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {overdueInvoices.items.map((item) => (
-                        <tr key={item.invoiceId} className="dashboard-row-link" onClick={() => navigate("/invoices")}>
-                          <td>{item.invoiceNumber}</td>
-                          <td>{item.company}</td>
-                          <td>{item.customer}</td>
-                          <td>{new Date(item.dueDateUtc).toLocaleDateString()}</td>
-                          <td>{formatCurrency(item.amount, "MYR")}</td>
-                          <td>{item.daysOverdue}</td>
-                          <td><span className="status-pill status-pill-inactive">{item.status}</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div className="subscription-mobile-list dashboard-mobile-list">
+                    {overdueInvoices.items.map((item) => (
+                      <article key={item.invoiceId} className="subscription-mobile-card dashboard-mobile-card" onClick={() => navigate("/invoices")}>
+                        <div className="subscription-mobile-card-header">
+                          <div className="subscription-mobile-identity">
+                            <strong>{item.invoiceNumber}</strong>
+                            <div className="eyebrow">{`${item.company} | ${item.customer}`}</div>
+                          </div>
+                        </div>
+                        <div className="subscription-mobile-summary">
+                          <div className="subscription-mobile-amount">{formatCurrency(item.amount, "MYR")}</div>
+                          <div className="subscription-mobile-cadence">{`${item.daysOverdue} day(s) overdue`}</div>
+                        </div>
+                        <div className="subscription-mobile-card-topline">
+                          <span className="subscription-mobile-status subscription-mobile-status-cancelled">{item.status}</span>
+                          <span className="subscription-mobile-inline-note">{new Date(item.dueDateUtc).toLocaleDateString()}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="subscription-table-shell dashboard-table-shell">
+                    <div className="table-scroll dashboard-table-scroll">
+                      <table className="catalog-table">
+                        <thead>
+                          <tr>
+                            <th>Invoice No</th>
+                            <th>Company</th>
+                            <th>Customer</th>
+                            <th>Due Date</th>
+                            <th>Amount</th>
+                            <th>Days Overdue</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {overdueInvoices.items.map((item) => (
+                            <tr key={item.invoiceId} className="dashboard-row-link" onClick={() => navigate("/invoices")}>
+                              <td>{item.invoiceNumber}</td>
+                              <td>{item.company}</td>
+                              <td>{item.customer}</td>
+                              <td>{new Date(item.dueDateUtc).toLocaleDateString()}</td>
+                              <td>{formatCurrency(item.amount, "MYR")}</td>
+                              <td>{item.daysOverdue}</td>
+                              <td><span className="status-pill status-pill-inactive">{item.status}</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
               ) : <p className="muted">No overdue invoices.</p>}
             </DashboardTableCard>
           </div>
 
           <div className="dashboard-grid-mixed">
             <DashboardChartCard title="Subscription growth">
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={subscriptionGrowth}>
-                  <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
-                  <XAxis dataKey="label" stroke="#8ea0b8" />
-                  <YAxis stroke="#8ea0b8" />
-                  <Tooltip />
-                  <Bar dataKey="newSubscriptions" fill="#f97316" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="canceledSubscriptions" fill="#475569" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="dashboard-chart-shell">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={subscriptionGrowth} margin={{ top: 8, right: 8, left: -14, bottom: 0 }} barGap={8}>
+                    <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
+                    <XAxis dataKey="label" stroke="#8ea0b8" tickLine={false} axisLine={false} tickMargin={10} />
+                    <YAxis stroke="#8ea0b8" tickLine={false} axisLine={false} width={30} />
+                    <Tooltip
+                      contentStyle={{ background: "rgba(8, 17, 31, 0.94)", border: "1px solid rgba(148, 163, 184, 0.18)", borderRadius: "14px", boxShadow: "0 14px 32px rgba(2, 8, 23, 0.32)" }}
+                      labelStyle={{ color: "#e2e8f0", fontWeight: 600, marginBottom: "0.35rem" }}
+                      itemStyle={{ color: "#f8fafc" }}
+                    />
+                    <Bar dataKey="newSubscriptions" fill="#f97316" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="canceledSubscriptions" fill="#475569" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </DashboardChartCard>
 
             <DashboardTableCard title="Recent payments">
@@ -406,15 +533,22 @@ export function DashboardPage() {
 
             <DashboardChartCard title="Revenue by company">
               {revenueByCompany.length > 1 || !selectedCompanyId ? (
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={revenueByCompany}>
-                    <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
-                    <XAxis dataKey="company" stroke="#8ea0b8" hide={revenueByCompany.length > 5} />
-                    <YAxis stroke="#8ea0b8" tickFormatter={(value) => `RM${value}`} />
-                    <Tooltip formatter={(value) => formatTooltipCurrency(value)} />
-                    <Bar dataKey="collectedRevenue" fill="#fb7185" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div className="dashboard-chart-shell">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={revenueByCompany} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
+                      <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
+                      <XAxis dataKey="company" stroke="#8ea0b8" hide={revenueByCompany.length > 5} tickLine={false} axisLine={false} tickMargin={10} />
+                      <YAxis stroke="#8ea0b8" tickFormatter={(value) => `RM${value}`} tickLine={false} axisLine={false} width={46} />
+                      <Tooltip
+                        formatter={(value) => formatTooltipCurrency(value)}
+                        contentStyle={{ background: "rgba(8, 17, 31, 0.94)", border: "1px solid rgba(148, 163, 184, 0.18)", borderRadius: "14px", boxShadow: "0 14px 32px rgba(2, 8, 23, 0.32)" }}
+                        labelStyle={{ color: "#e2e8f0", fontWeight: 600, marginBottom: "0.35rem" }}
+                        itemStyle={{ color: "#f8fafc" }}
+                      />
+                      <Bar dataKey="collectedRevenue" fill="#fb7185" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               ) : <p className="muted">Revenue by company appears when multiple companies are in scope.</p>}
             </DashboardChartCard>
           </div>

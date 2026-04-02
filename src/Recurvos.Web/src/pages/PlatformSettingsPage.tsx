@@ -1312,9 +1312,10 @@ export function PlatformSettingsPage() {
                                 setError("");
                                 setConfirmState(null);
                               } catch (actionError) {
-                                setError(actionError instanceof Error ? actionError.message : "Unable to retry WhatsApp queue item.");
+                                const nextError = actionError instanceof Error ? actionError.message : "Unable to retry WhatsApp queue item.";
+                                setError(nextError);
                                 setMessage("");
-                                setConfirmState(null);
+                                throw new Error(nextError);
                               }
                             },
                           })}
@@ -1342,9 +1343,10 @@ export function PlatformSettingsPage() {
                                 setError("");
                                 setConfirmState(null);
                               } catch (actionError) {
-                                setError(actionError instanceof Error ? actionError.message : "Unable to cancel WhatsApp queue item.");
+                                const nextError = actionError instanceof Error ? actionError.message : "Unable to cancel WhatsApp queue item.";
+                                setError(nextError);
                                 setMessage("");
-                                setConfirmState(null);
+                                throw new Error(nextError);
                               }
                             },
                           })}
@@ -1385,9 +1387,10 @@ export function PlatformSettingsPage() {
                     setError("");
                     setConfirmState(null);
                   } catch (saveError) {
-                    setError(saveError instanceof Error ? saveError.message : "Unable to save platform WhatsApp settings.");
+                    const nextError = saveError instanceof Error ? saveError.message : "Unable to save platform WhatsApp settings.";
+                    setError(nextError);
                     setMessage("");
-                    setConfirmState(null);
+                    throw new Error(nextError);
                   }
                 },
               })}
