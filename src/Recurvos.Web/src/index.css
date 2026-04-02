@@ -1000,6 +1000,11 @@ th {
   padding: 1.35rem 1.4rem;
 }
 
+.dashboard-panel-table {
+  min-width: 0;
+  overflow: hidden;
+}
+
 .dashboard-chart-shell {
   height: 260px;
 }
@@ -2248,9 +2253,16 @@ body.app-pwa-standalone .finance-hero-card {
 
 .dashboard-table-scroll {
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow-x: auto;
   border-radius: 18px;
+}
+
+.dashboard-table-shell {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .dashboard-table-scroll .catalog-table {
