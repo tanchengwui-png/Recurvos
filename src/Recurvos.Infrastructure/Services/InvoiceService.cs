@@ -1140,6 +1140,12 @@ public sealed class InvoiceService(
                             $"Reminder: {schedule.Invoice.InvoiceNumber}",
                             body,
                             cc: await ResolveSubscriberCustomerEmailCcAsync(schedule.CompanyId, cancellationToken),
+                            logContext: new EmailLogContext(
+                                CompanyId: schedule.CompanyId,
+                                NotificationType: "Reminder",
+                                InvoiceId: schedule.Invoice.Id,
+                                InvoiceNumber: schedule.Invoice.InvoiceNumber,
+                                CustomerName: schedule.Invoice.Customer!.Name),
                             cancellationToken: cancellationToken);
                         emailedInvoiceIds.Add(schedule.Invoice.Id);
                         sentAny = true;
@@ -1604,6 +1610,12 @@ public sealed class InvoiceService(
             body,
             [new EmailAttachment(pdfFileName, pdfContent, "application/pdf")],
             await ResolveSubscriberCustomerEmailCcAsync(invoice.CompanyId, cancellationToken),
+            new EmailLogContext(
+                CompanyId: invoice.CompanyId,
+                NotificationType: "Invoice",
+                InvoiceId: invoice.Id,
+                InvoiceNumber: invoice.InvoiceNumber,
+                CustomerName: customer.Name),
             cancellationToken);
     }
 
@@ -2152,6 +2164,7 @@ public sealed class InvoiceService(
                 ShowCompanyAddressOnInvoice = true,
                 ShowCompanyAddressOnReceipt = true
             };
+        await CompanyInvoiceSettingsCreation.ApplySubscriberPackageDefaultsAsync(dbContext, settings, cancellationToken);
         return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 

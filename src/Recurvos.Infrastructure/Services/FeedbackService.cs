@@ -255,7 +255,10 @@ public sealed class FeedbackService(
 
         try
         {
-            await emailSender.SendAsync(recipientEmail, $"New subscriber feedback: {item.Subject}", body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(recipientEmail, $"New subscriber feedback: {item.Subject}", body, logContext: new EmailLogContext(
+                CompanyId: item.CompanyId,
+                NotificationType: "Feedback",
+                CustomerName: item.SubmittedByName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -288,7 +291,10 @@ public sealed class FeedbackService(
 
         try
         {
-            await emailSender.SendAsync(item.SubmittedByEmail, $"Feedback update: {item.Subject}", body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(item.SubmittedByEmail, $"Feedback update: {item.Subject}", body, logContext: new EmailLogContext(
+                CompanyId: item.CompanyId,
+                NotificationType: "FeedbackUpdate",
+                CustomerName: item.SubmittedByName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {

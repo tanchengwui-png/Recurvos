@@ -157,6 +157,25 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         return expanded.ToList();
     }
 
+    internal static IReadOnlyCollection<string> ResolvePackageFeatureKeysForConfiguration(string packageCode, IReadOnlyCollection<string>? featureTexts = null)
+    {
+        if (string.IsNullOrWhiteSpace(packageCode))
+        {
+            return Array.Empty<string>();
+        }
+
+        var resolvedFeatureTexts = featureTexts is { Count: > 0 }
+            ? featureTexts
+            : GetDefaultFeatureTexts(packageCode);
+
+        var mappedFeatureKeys = resolvedFeatureTexts
+            .Select(text => FeatureTextMap.TryGetValue(text.Trim(), out var featureKey) ? featureKey : null)
+            .Where(featureKey => !string.IsNullOrWhiteSpace(featureKey))
+            .Cast<string>();
+
+        return ExpandDependencies(mappedFeatureKeys).Where(AllFeatureKeys.Contains).ToList();
+    }
+
     private async Task<IReadOnlyCollection<string>> ResolvePackageFeatureKeysAsync(string packageCode, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(packageCode))
@@ -174,12 +193,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
             featureTexts = GetDefaultFeatureTexts(packageCode).ToList();
         }
 
-        var mappedFeatureKeys = featureTexts
-            .Select(text => FeatureTextMap.TryGetValue(text.Trim(), out var featureKey) ? featureKey : null)
-            .Where(featureKey => !string.IsNullOrWhiteSpace(featureKey))
-            .Cast<string>();
-
-        return ExpandDependencies(mappedFeatureKeys).Where(AllFeatureKeys.Contains).ToList();
+        return ResolvePackageFeatureKeysForConfiguration(packageCode, featureTexts);
     }
 
     private async Task<IReadOnlyCollection<FeatureRequirementDto>> ResolveFeatureRequirementsAsync(CancellationToken cancellationToken)

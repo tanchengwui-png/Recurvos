@@ -91,7 +91,7 @@ function getPageLabel(pathname: string, isPlatformOwner: boolean) {
   if (pathname.startsWith("/subscriptions")) return "Subscriptions";
   if (pathname.startsWith("/invoices")) return "Invoices";
   if (pathname.startsWith("/payments")) return "Payments";
-  if (pathname.startsWith("/whatsapp-messages")) return "WhatsApp Messages";
+  if (pathname.startsWith("/whatsapp-messages")) return "Notification History";
   if (pathname.startsWith("/finance")) return "Finance";
   if (pathname.startsWith("/feedback")) return "Feedback";
   if (pathname.startsWith("/package-billing")) return "My Plan";
@@ -254,7 +254,7 @@ export function AppShell() {
         ["Feedback", "/feedback"],
         ["My Plan", "/package-billing"],
         ["Settings", "/settings"],
-        ["WhatsApp", "/whatsapp-messages"],
+        ["Notification History", "/whatsapp-messages"],
       ] as const);
   const showFloatingQuickStart = Boolean(auth && !auth.isPlatformOwner && location.pathname !== "/help/quick-start");
   const resolvedPackageStatus = (packageBilling?.packageStatus ?? featureAccess?.packageStatus ?? "").toLowerCase();

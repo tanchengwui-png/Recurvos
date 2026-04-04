@@ -766,6 +766,12 @@ export type PlatformUser = {
 
 export type EmailDispatchLog = {
   id: string;
+  notificationType?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  customerName?: string | null;
+  messageBody?: string | null;
+  status: string;
   originalRecipient: string;
   effectiveRecipient: string;
   subject: string;

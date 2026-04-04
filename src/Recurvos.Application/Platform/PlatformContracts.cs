@@ -29,6 +29,12 @@ public sealed record PlatformDashboardSummaryDto(
     int CompaniesUsingWhatsAppThisMonth);
 public sealed record EmailDispatchLogDto(
     Guid Id,
+    string? NotificationType,
+    Guid? InvoiceId,
+    string? InvoiceNumber,
+    string? CustomerName,
+    string? MessageBody,
+    string Status,
     string OriginalRecipient,
     string EffectiveRecipient,
     string Subject,

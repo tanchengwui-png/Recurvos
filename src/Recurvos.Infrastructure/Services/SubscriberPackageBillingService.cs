@@ -1108,6 +1108,12 @@ public sealed class SubscriberPackageBillingService(
             $"Invoice {invoice.InvoiceNumber}",
             body,
             attachments: [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", pdfContent, "application/pdf")],
+            logContext: new EmailLogContext(
+                CompanyId: issuerCompany.Id,
+                NotificationType: "PlatformInvoice",
+                InvoiceId: invoice.Id,
+                InvoiceNumber: invoice.InvoiceNumber,
+                CustomerName: billingCustomer.Name),
             cancellationToken: cancellationToken);
     }
 

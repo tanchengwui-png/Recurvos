@@ -23,6 +23,12 @@ public sealed class PlatformOwnerNotificationService(
             return;
         }
 
+        var platformCompanyId = await ResolvePlatformCompanyIdAsync(cancellationToken);
+        if (!platformCompanyId.HasValue)
+        {
+            return;
+        }
+
         var actionUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/subscribers";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "New signup",
@@ -41,7 +47,10 @@ public sealed class PlatformOwnerNotificationService(
 
         try
         {
-            await emailSender.SendAsync(recipientEmail.Trim(), $"New signup: {company.Name}", body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(recipientEmail.Trim(), $"New signup: {company.Name}", body, logContext: new EmailLogContext(
+                CompanyId: platformCompanyId.Value,
+                NotificationType: "PlatformSignup",
+                CustomerName: user.FullName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -52,6 +61,12 @@ public sealed class PlatformOwnerNotificationService(
     {
         var recipientEmail = await ResolveRecipientEmailAsync(cancellationToken);
         if (string.IsNullOrWhiteSpace(recipientEmail))
+        {
+            return;
+        }
+
+        var platformCompanyId = await ResolvePlatformCompanyIdAsync(cancellationToken);
+        if (!platformCompanyId.HasValue)
         {
             return;
         }
@@ -93,7 +108,12 @@ public sealed class PlatformOwnerNotificationService(
 
         try
         {
-            await emailSender.SendAsync(recipientEmail.Trim(), $"New payment: {payment.Invoice.InvoiceNumber}", body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(recipientEmail.Trim(), $"New payment: {payment.Invoice.InvoiceNumber}", body, logContext: new EmailLogContext(
+                CompanyId: platformCompanyId.Value,
+                NotificationType: "PlatformPayment",
+                InvoiceId: payment.InvoiceId,
+                InvoiceNumber: payment.Invoice.InvoiceNumber,
+                CustomerName: customerName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -105,6 +125,14 @@ public sealed class PlatformOwnerNotificationService(
         return await dbContext.Companies
             .Where(x => x.IsPlatformAccount)
             .Select(x => x.InvoiceSettings != null ? x.InvoiceSettings.FeedbackNotificationEmail : null)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<Guid?> ResolvePlatformCompanyIdAsync(CancellationToken cancellationToken)
+    {
+        return await dbContext.Companies
+            .Where(x => x.IsPlatformAccount)
+            .Select(x => (Guid?)x.Id)
             .FirstOrDefaultAsync(cancellationToken);
     }
 }

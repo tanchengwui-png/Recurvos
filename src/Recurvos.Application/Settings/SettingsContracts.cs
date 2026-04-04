@@ -75,6 +75,24 @@ public sealed record SubscriberWhatsAppMessagePageDto(
     int PageSize,
     int TotalCount);
 
+public sealed record SubscriberEmailDispatchLogDto(
+    Guid Id,
+    string? NotificationType,
+    Guid? InvoiceId,
+    string? InvoiceNumber,
+    string? CustomerName,
+    string? MessageBody,
+    string Status,
+    string OriginalRecipient,
+    string EffectiveRecipient,
+    string Subject,
+    string DeliveryMode,
+    bool WasRedirected,
+    string? RedirectReason,
+    bool Succeeded,
+    string? ErrorMessage,
+    DateTime CreatedAtUtc);
+
 public sealed class UpdateCompanyInvoiceSettingsRequest
 {
     [Required, MaxLength(20)]
@@ -540,6 +558,7 @@ public interface ISettingsService
     Task<ReminderHistoryPageDto> GetReminderHistoryAsync(Guid? companyId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>> GetCompanyWhatsAppQueueItemsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<SubscriberWhatsAppMessagePageDto> GetCompanyWhatsAppMessagesAsync(Guid? companyId, string? status, string? source, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<SubscriberEmailDispatchLogDto>> GetCompanyEmailLogsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> UpdateCompanyInvoiceSettingsAsync(Guid? companyId, UpdateCompanyInvoiceSettingsRequest request, CancellationToken cancellationToken = default);
     Task<PlatformWhatsAppSettingsDto> GetPlatformWhatsAppSettingsAsync(CancellationToken cancellationToken = default);

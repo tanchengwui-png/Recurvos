@@ -309,4 +309,8 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default) =>
         Ok(await settingsService.GetCompanyWhatsAppMessagesAsync(companyId, status, source, page, pageSize, cancellationToken));
+
+    [HttpGet("email-logs")]
+    public async Task<ActionResult<IReadOnlyCollection<SubscriberEmailDispatchLogDto>>> GetEmailLogs([FromQuery] Guid? companyId, CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetCompanyEmailLogsAsync(companyId, cancellationToken));
 }

@@ -90,6 +90,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.NotificationType)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.InvoiceNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.CustomerName)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.Status)
+            .HasMaxLength(30)
+            .IsRequired();
+
+        modelBuilder.Entity<EmailDispatchLog>()
             .Property(x => x.OriginalRecipient)
             .HasMaxLength(200)
             .IsRequired();

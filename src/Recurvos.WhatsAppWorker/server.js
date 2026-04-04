@@ -99,6 +99,32 @@ function clearStaleChromiumLocks(tenantId) {
   }
 }
 
+function getSessionProfilePath(tenantId) {
+  return path.join(sessionRoot, `session-${tenantId}`);
+}
+
+function removeSessionFiles(tenantId) {
+  try {
+    fs.rmSync(getSessionProfilePath(tenantId), { recursive: true, force: true });
+  } catch {
+    // Ignore cleanup failures so disconnect/reset flow can continue.
+  }
+}
+
+function removeAllSessionFiles() {
+  try {
+    for (const entry of fs.readdirSync(sessionRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith("session-")) {
+        continue;
+      }
+
+      fs.rmSync(path.join(sessionRoot, entry.name), { recursive: true, force: true });
+    }
+  } catch {
+    // Ignore cleanup failures so reset flow can continue.
+  }
+}
+
 function createClient(tenantId, session) {
   const puppeteerConfig = {
     headless: true,
@@ -299,6 +325,7 @@ app.post("/api/sessions/:tenantId/disconnect", async (req, res) => {
       await session.client.destroy().catch(() => {});
     }
   } finally {
+    removeSessionFiles(req.params.tenantId);
     touch(session, {
       status: "not_connected",
       phoneNumber: null,
@@ -309,6 +336,29 @@ app.post("/api/sessions/:tenantId/disconnect", async (req, res) => {
   }
 
   res.json(toSessionResponse(session));
+});
+
+app.post("/api/sessions/clear-all", async (_req, res) => {
+  for (const session of sessions.values()) {
+    try {
+      if (session.client) {
+        await session.client.logout().catch(() => {});
+        await session.client.destroy().catch(() => {});
+      }
+    } finally {
+      touch(session, {
+        status: "not_connected",
+        phoneNumber: null,
+        qrCodeDataUrl: null,
+        lastError: null,
+        client: null,
+      });
+    }
+  }
+
+  sessions.clear();
+  removeAllSessionFiles();
+  res.json({ success: true });
 });
 
 app.post("/api/messages/send", async (req, res) => {

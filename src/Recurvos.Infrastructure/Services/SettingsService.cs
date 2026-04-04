@@ -228,6 +228,35 @@ public sealed class SettingsService(
         return new SubscriberWhatsAppMessagePageDto(items, safePage, safePageSize, totalCount);
     }
 
+    public async Task<IReadOnlyCollection<SubscriberEmailDispatchLogDto>> GetCompanyEmailLogsAsync(Guid? companyId, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+
+        return await dbContext.EmailDispatchLogs
+            .AsNoTracking()
+            .Where(x => x.CompanyId == resolvedCompanyId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(200)
+            .Select(x => new SubscriberEmailDispatchLogDto(
+                x.Id,
+                x.NotificationType,
+                x.InvoiceId,
+                x.InvoiceNumber,
+                x.CustomerName,
+                x.MessageBody,
+                x.Status,
+                x.OriginalRecipient,
+                x.EffectiveRecipient,
+                x.Subject,
+                x.DeliveryMode,
+                x.WasRedirected,
+                x.RedirectReason,
+                x.Succeeded,
+                x.ErrorMessage,
+                x.CreatedAtUtc))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default)
     {
         var settings = await EnsureInvoiceSettingsAsync(await GetOwnedCompanyIdAsync(companyId, cancellationToken), cancellationToken);
@@ -1001,6 +1030,7 @@ public sealed class SettingsService(
             UploadImageMaxDimension = 1600,
             UploadImageQuality = 80
         };
+        await CompanyInvoiceSettingsCreation.ApplySubscriberPackageDefaultsAsync(dbContext, settings, cancellationToken);
         return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 

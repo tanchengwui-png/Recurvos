@@ -375,7 +375,10 @@ public sealed class AuthService(
         _pendingRawToken = null;
         try
         {
-            await emailSender.SendAsync(user.Email, subject, body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(user.Email, subject, body, logContext: new EmailLogContext(
+                CompanyId: company.Id,
+                NotificationType: "Verification",
+                CustomerName: user.FullName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -412,7 +415,10 @@ public sealed class AuthService(
         _pendingPasswordResetToken = null;
         try
         {
-            await emailSender.SendAsync(user.Email, subject, body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(user.Email, subject, body, logContext: new EmailLogContext(
+                CompanyId: company.Id,
+                NotificationType: "PasswordReset",
+                CustomerName: user.FullName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {

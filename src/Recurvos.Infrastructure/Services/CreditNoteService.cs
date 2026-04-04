@@ -283,6 +283,12 @@ public sealed class CreditNoteService(
             $"Credit note {creditNote.CreditNoteNumber} for {invoice.InvoiceNumber}",
             body,
             [new EmailAttachment($"{creditNote.CreditNoteNumber}.pdf", pdfContent, "application/pdf")],
+            logContext: new EmailLogContext(
+                CompanyId: company.Id,
+                NotificationType: "CreditNote",
+                InvoiceId: invoice.Id,
+                InvoiceNumber: invoice.InvoiceNumber,
+                CustomerName: invoice.Customer.Name),
             cancellationToken: cancellationToken);
     }
 
@@ -321,6 +327,7 @@ public sealed class CreditNoteService(
             UploadImageQuality = 80
         };
 
+        await CompanyInvoiceSettingsCreation.ApplySubscriberPackageDefaultsAsync(dbContext, settings, cancellationToken);
         return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 }

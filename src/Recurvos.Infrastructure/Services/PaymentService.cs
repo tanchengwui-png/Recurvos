@@ -207,6 +207,12 @@ public sealed class PaymentService(
             body,
             [new EmailAttachment(receiptFile.FileName, receiptFile.Content, receiptFile.ContentType)],
             await ResolveSubscriberCustomerEmailCcAsync(payment.CompanyId, cancellationToken),
+            new EmailLogContext(
+                CompanyId: payment.CompanyId,
+                NotificationType: "Receipt",
+                InvoiceId: payment.InvoiceId,
+                InvoiceNumber: payment.Invoice.InvoiceNumber,
+                CustomerName: payment.Invoice.Customer.Name),
             cancellationToken);
 
         payment.ReceiptEmailedAtUtc = DateTime.UtcNow;
@@ -251,6 +257,12 @@ public sealed class PaymentService(
                 body,
                 [new EmailAttachment(file.FileName, file.Content, file.ContentType)],
                 await ResolveSubscriberCustomerEmailCcAsync(payment.CompanyId, cancellationToken),
+                new EmailLogContext(
+                    CompanyId: payment.CompanyId,
+                    NotificationType: "Receipt",
+                    InvoiceId: payment.InvoiceId,
+                    InvoiceNumber: payment.Invoice.InvoiceNumber,
+                    CustomerName: payment.Invoice.Customer.Name),
                 cancellationToken);
 
             payment.ReceiptEmailedAtUtc = DateTime.UtcNow;
@@ -743,6 +755,7 @@ public sealed class PaymentService(
                 ShowCompanyAddressOnInvoice = true,
                 ShowCompanyAddressOnReceipt = true
             };
+            await CompanyInvoiceSettingsCreation.ApplySubscriberPackageDefaultsAsync(dbContext, settings, cancellationToken);
             settings = await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
         }
 
