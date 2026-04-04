@@ -5,8 +5,10 @@ import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { Button } from "../components/ui/Button";
 import { HelperText } from "../components/ui/HelperText";
+import { useDragToScroll } from "../hooks/useDragToScroll";
 import { fetchProductPlans } from "../hooks/useProductPlans";
 import { fetchProducts } from "../hooks/useProducts";
+import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { CompanyInvoiceSettings, Product, ProductPlan } from "../types";
@@ -15,6 +17,7 @@ export function ProductPlansPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const [products, setProducts] = useState<Product[]>([]);
   const [plans, setPlans] = useState<ProductPlan[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -44,6 +47,15 @@ export function ProductPlansPage() {
   const rangeStart = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const rangeEnd = totalCount === 0 ? 0 : Math.min(totalCount, currentPage * pageSize);
   const selectedPlan = expandedId ? plans.find((item) => item.id === expandedId) ?? null : null;
+  const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([
+    plans.length,
+    expandedId,
+    currentPage,
+    pageSize,
+    selectedProductId,
+    billingFilter,
+    statusFilter,
+  ]);
 
   async function load() {
     const [productsResult, plansResult, invoiceSettingsResult] = await Promise.all([
@@ -306,7 +318,16 @@ export function ProductPlansPage() {
           })}
         </div>
         <div className="subscription-table-shell">
-          <div className="table-scroll table-scroll-bounded">
+          <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
+            <div ref={topInnerRef} />
+          </div>
+          <div
+            ref={(node) => {
+              tableScrollRef.current = node;
+              contentScrollRef.current = node;
+            }}
+            className="table-scroll table-scroll-bounded table-scroll-draggable"
+          >
             <table className="catalog-table subscription-table plans-table">
               <thead>
                 <tr>
@@ -365,6 +386,9 @@ export function ProductPlansPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
+            <div ref={bottomInnerRef} />
           </div>
         </div>
         {plans.length === 0 ? (
