@@ -1520,7 +1520,7 @@ export function SettingsPage() {
                       <h4>Payment reminder schedule</h4>
                     </div>
                   </div>
-                  <HelperText>These rules are based on the invoice due date and only apply to unpaid invoices.</HelperText>
+                  <HelperText>These rules are based on the invoice due date and only apply to unpaid invoices. Use `0` for the due date, negative values before the due date, and positive values after the due date.</HelperText>
                   <div className="settings-reminder-list">
                     {rules.map((rule, index) => (
                       <div className="settings-reminder-row" key={rule.id}>
@@ -1530,7 +1530,7 @@ export function SettingsPage() {
                         </label>
                         <div className="settings-reminder-row-actions">
                           <label className="form-label">
-                            Send after due date (days)
+                            Send relative to due date (days)
                             <input className="text-input" value={String(rule.offsetDays)} onChange={(event) => setRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, offsetDays: Number(event.target.value) } : item))} />
                           </label>
                           <button

@@ -1189,10 +1189,10 @@ public sealed class InvoiceService(
 
                         if (monthlyUsage < monthlyLimit)
                         {
-                            var queued = await TryQueueInvoiceWhatsAppAsync(
+                            var queued = await TryQueuePaymentReminderWhatsAppAsync(
+                                schedule,
                                 schedule.Invoice,
                                 schedule.Invoice.Customer,
-                                schedule.Id,
                                 subscriberWhatsAppTemplateCache.GetValueOrDefault(schedule.CompanyId),
                                 cancellationToken);
 
@@ -1458,7 +1458,36 @@ public sealed class InvoiceService(
             return;
         }
 
-        await TryQueueInvoiceWhatsAppAsync(invoice, customer, null, subscriberSettings?.WhatsAppTemplate, cancellationToken);
+        await TryQueueInvoiceWhatsAppAsync(invoice, customer, null, subscriberSettings?.WhatsAppTemplate, null, cancellationToken);
+    }
+
+    private async Task<bool> TryQueuePaymentReminderWhatsAppAsync(
+        ReminderSchedule schedule,
+        Invoice invoice,
+        Customer customer,
+        string? customTemplate,
+        CancellationToken cancellationToken)
+    {
+        var queued = await TryQueueInvoiceWhatsAppAsync(
+            invoice,
+            customer,
+            schedule.Id,
+            customTemplate,
+            BuildReminderWhatsAppReference(invoice.InvoiceNumber, schedule.OffsetDays),
+            cancellationToken);
+
+        if (queued)
+        {
+            await auditService.WriteAsync(
+                "invoice.whatsapp-reminder-queued",
+                nameof(Invoice),
+                invoice.Id.ToString(),
+                invoice.CompanyId,
+                $"{invoice.InvoiceNumber}:offset={schedule.OffsetDays}",
+                cancellationToken);
+        }
+
+        return queued;
     }
 
     private async Task<bool> TryQueueInvoiceWhatsAppAsync(
@@ -1466,6 +1495,7 @@ public sealed class InvoiceService(
         Customer customer,
         Guid? reminderScheduleId,
         string? customTemplate,
+        string? reference,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(customer.PhoneNumber))
@@ -1516,7 +1546,7 @@ public sealed class InvoiceService(
                 paymentConfirmationLink,
                 customTemplate),
             Template = customTemplate,
-            Reference = invoice.InvoiceNumber,
+            Reference = string.IsNullOrWhiteSpace(reference) ? invoice.InvoiceNumber : reference,
             Status = "Pending",
             NotBeforeUtc = DateTime.UtcNow.AddSeconds(delaySeconds),
             NextAttemptAtUtc = DateTime.UtcNow.AddSeconds(delaySeconds)
@@ -1524,6 +1554,12 @@ public sealed class InvoiceService(
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private static string BuildReminderWhatsAppReference(string invoiceNumber, int offsetDays)
+    {
+        var offsetLabel = offsetDays.ToString("+0;-0;0", System.Globalization.CultureInfo.InvariantCulture);
+        return $"{invoiceNumber}:reminder:{offsetLabel}";
     }
 
     private async Task<int> GetReservedWhatsAppUsageAsync(Guid companyId, CancellationToken cancellationToken)

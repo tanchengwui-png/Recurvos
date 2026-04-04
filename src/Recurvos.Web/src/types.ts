@@ -439,6 +439,32 @@ export type SubscriberWhatsAppQueueItem = {
   errorMessage?: string | null;
 };
 
+export type SubscriberWhatsAppMessageItem = {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  recipientPhoneNumber: string;
+  source: "invoice" | "reminder";
+  reminderName?: string | null;
+  reminderOffsetDays?: number | null;
+  status: string;
+  message: string;
+  attemptCount: number;
+  createdAtUtc: string;
+  lastAttemptAtUtc?: string | null;
+  nextAttemptAtUtc?: string | null;
+  externalMessageId?: string | null;
+  errorMessage?: string | null;
+};
+
+export type SubscriberWhatsAppMessagePage = {
+  items: SubscriberWhatsAppMessageItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+};
+
 export type CompanyInvoiceSettings = {
   companyId: string;
   prefix: string;

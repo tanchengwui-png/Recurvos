@@ -299,4 +299,14 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
     [HttpGet("whatsapp-queue")]
     public async Task<ActionResult<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>>> GetWhatsAppQueue([FromQuery] Guid? companyId, CancellationToken cancellationToken = default) =>
         Ok(await settingsService.GetCompanyWhatsAppQueueItemsAsync(companyId, cancellationToken));
+
+    [HttpGet("whatsapp-messages")]
+    public async Task<ActionResult<SubscriberWhatsAppMessagePageDto>> GetWhatsAppMessages(
+        [FromQuery] Guid? companyId,
+        [FromQuery] string? status = null,
+        [FromQuery] string? source = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetCompanyWhatsAppMessagesAsync(companyId, status, source, page, pageSize, cancellationToken));
 }

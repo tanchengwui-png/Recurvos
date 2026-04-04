@@ -1615,6 +1615,46 @@ body.app-pwa-standalone .finance-hero-card {
   flex-wrap: wrap;
 }
 
+.whatsapp-message-overview {
+  padding: 1rem 1.25rem;
+}
+
+.whatsapp-message-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.whatsapp-message-stat {
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.whatsapp-message-stat strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.4rem;
+}
+
+.whatsapp-message-error-cell {
+  max-width: 18rem;
+  white-space: normal;
+}
+
+.whatsapp-message-body {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  color: #e2e8f0;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .subscription-table-shell {
   display: block;
 }
@@ -6870,6 +6910,10 @@ select:focus,
 
   .subscription-table-shell {
     display: none;
+  }
+
+  .whatsapp-message-overview-grid {
+    grid-template-columns: 1fr;
   }
 
   .payments-mobile-list {

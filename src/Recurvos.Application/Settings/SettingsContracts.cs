@@ -7,7 +7,7 @@ public sealed class DunningRuleRequest
     [Required, MaxLength(100)]
     public string Name { get; set; } = string.Empty;
 
-    [Range(0, 60)]
+    [Range(-60, 60)]
     public int OffsetDays { get; set; }
 
     public bool IsActive { get; set; } = true;
@@ -50,6 +50,30 @@ public sealed record SubscriberWhatsAppQueueItemDto(
     DateTime? LastAttemptAtUtc,
     DateTime? NextAttemptAtUtc,
     string? ErrorMessage);
+
+public sealed record SubscriberWhatsAppMessageItemDto(
+    Guid Id,
+    Guid InvoiceId,
+    string InvoiceNumber,
+    string CustomerName,
+    string RecipientPhoneNumber,
+    string Source,
+    string? ReminderName,
+    int? ReminderOffsetDays,
+    string Status,
+    string Message,
+    int AttemptCount,
+    DateTime CreatedAtUtc,
+    DateTime? LastAttemptAtUtc,
+    DateTime? NextAttemptAtUtc,
+    string? ExternalMessageId,
+    string? ErrorMessage);
+
+public sealed record SubscriberWhatsAppMessagePageDto(
+    IReadOnlyCollection<SubscriberWhatsAppMessageItemDto> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
 
 public sealed class UpdateCompanyInvoiceSettingsRequest
 {
@@ -515,6 +539,7 @@ public interface ISettingsService
     Task<IReadOnlyCollection<DunningRuleDto>> UpdateDunningRulesAsync(Guid? companyId, UpdateDunningRulesRequest request, CancellationToken cancellationToken = default);
     Task<ReminderHistoryPageDto> GetReminderHistoryAsync(Guid? companyId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>> GetCompanyWhatsAppQueueItemsAsync(Guid? companyId, CancellationToken cancellationToken = default);
+    Task<SubscriberWhatsAppMessagePageDto> GetCompanyWhatsAppMessagesAsync(Guid? companyId, string? status, string? source, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> UpdateCompanyInvoiceSettingsAsync(Guid? companyId, UpdateCompanyInvoiceSettingsRequest request, CancellationToken cancellationToken = default);
     Task<PlatformWhatsAppSettingsDto> GetPlatformWhatsAppSettingsAsync(CancellationToken cancellationToken = default);
