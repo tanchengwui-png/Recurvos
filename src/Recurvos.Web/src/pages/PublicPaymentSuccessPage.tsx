@@ -11,6 +11,7 @@ export function PublicPaymentSuccessPage() {
   const [subtitle, setSubtitle] = useState("We are checking the latest payment result from the payment gateway.");
   const [message, setMessage] = useState("Checking your payment status...");
   const [error, setError] = useState("");
+  const [tips, setTips] = useState<string[]>([]);
 
   useEffect(() => {
     const rawSearch = window.location.search.startsWith("?")
@@ -35,6 +36,12 @@ export function PublicPaymentSuccessPage() {
       params.get("billplz[paid]") ??
       params.get("paid");
 
+    const recoveryTips = [
+      "Wait a moment for the payment gateway to finish syncing and then refresh this page once.",
+      "If the payment is still unclear, return to the invoice link from the business and check the latest status there.",
+      "Do not pay again unless the business confirms this attempt was not received.",
+    ];
+
     window.history.replaceState({}, document.title, window.location.pathname);
 
     if (!paymentId && !invoiceId && !paid && !combinedQuery) {
@@ -42,25 +49,28 @@ export function PublicPaymentSuccessPage() {
       setSubtitle("We could not read a valid return from the payment gateway.");
       setMessage("");
       setError("This payment return link is invalid.");
+      setTips([]);
       return;
     }
 
-    if (!paymentId && !invoiceId) {
-      setTitle("Payment status");
-      setSubtitle("We could not read a valid payment reference from the gateway return.");
+    if (!paymentId) {
+      setTitle("Payment received, verification pending");
+      setSubtitle("The gateway returned without a payment reference we can safely verify from this page.");
       setMessage("");
-      setError("We could not read the payment reference from the gateway return.");
+      setError("We could not safely verify this payment from the return link alone.");
+      setTips(recoveryTips);
       return;
     }
 
     const externalPaymentId = paymentId;
-    const invoiceLookupId = invoiceId;
+    setTips([]);
 
     if (paid === "false" || stripeStatus === "cancelled") {
       setTitle("Payment not completed");
       setSubtitle("The payment gateway returned without a completed payment.");
       setMessage("");
       setError("Your payment was not completed. Please return to the invoice and try again.");
+      setTips([]);
       return;
     }
 
@@ -68,10 +78,7 @@ export function PublicPaymentSuccessPage() {
     const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
     async function fetchStatus() {
-      const search = externalPaymentId
-        ? `externalPaymentId=${encodeURIComponent(externalPaymentId)}`
-        : `invoiceId=${encodeURIComponent(invoiceLookupId ?? "")}`;
-      const response = await fetch(buildApiUrl(`/public/payments/status?${search}`));
+      const response = await fetch(buildApiUrl(`/public/payments/status?externalPaymentId=${encodeURIComponent(externalPaymentId)}`));
       if (response.status === 404) {
         return null;
       }
@@ -118,6 +125,7 @@ export function PublicPaymentSuccessPage() {
             setTitle("Payment confirmed");
             setSubtitle("Your payment has been confirmed successfully.");
             setError("");
+            setTips([]);
             setMessage(`Payment confirmed for invoice ${status.invoiceNumber}. You may now close this page.`);
             return;
           }
@@ -129,6 +137,7 @@ export function PublicPaymentSuccessPage() {
             setError(status?.invoiceNumber
               ? `Payment was not completed for invoice ${status.invoiceNumber}. Please return to the invoice and try again.`
               : "Payment was not completed. Please return to the invoice and try again.");
+            setTips([]);
             setMessage("");
             return;
           }
@@ -162,6 +171,7 @@ export function PublicPaymentSuccessPage() {
             ? "The payment was received, but final verification is still in progress."
             : "The payment gateway has not confirmed a successful payment yet.");
           setError("");
+          setTips(hasPositiveGatewayReturn || hasPositiveStripeReturn ? recoveryTips : []);
           setMessage(hasPositiveGatewayReturn || hasPositiveStripeReturn
             ? "Payment received. Verification is still in progress. You may close this page and check again shortly."
             : "We are still waiting for the final payment result. Please return to the invoice and try again if the payment did not go through.");
@@ -174,6 +184,7 @@ export function PublicPaymentSuccessPage() {
         setTitle("Payment status unavailable");
         setSubtitle("We could not verify the latest payment result right now.");
         setMessage("");
+        setTips(recoveryTips);
         setError(confirmError instanceof Error ? confirmError.message : "We couldn't verify your payment right now. Please check again shortly.");
       }
     }
@@ -193,6 +204,16 @@ export function PublicPaymentSuccessPage() {
     >
       {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      {tips.length > 0 ? (
+        <div className="public-payment-guidance">
+          {tips.map((tip) => (
+            <div key={tip} className="public-payment-guidance-item">
+              <span className="badge">Next</span>
+              <p>{tip}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </AuthLayout>
   );
 }

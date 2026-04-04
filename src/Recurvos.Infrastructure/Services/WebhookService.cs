@@ -23,25 +23,22 @@ public sealed class WebhookService(AppDbContext dbContext, IEnumerable<IPaymentG
             ?? throw new InvalidOperationException("Payment not found for webhook.");
         var parsed = await gateway.ParseWebhookAsync(payload, headers, payment.CompanyId, cancellationToken);
 
-        var alreadyProcessed = await dbContext.WebhookEvents.AnyAsync(x => x.CompanyId == payment.CompanyId && x.GatewayName == gateway.Name && x.ExternalEventId == parsed.ExternalEventId, cancellationToken);
-        if (alreadyProcessed)
+        var webhookEvent = await GetOrCreatePendingWebhookEventAsync(
+            payment.CompanyId,
+            gateway.Name,
+            parsed.ExternalEventId,
+            parsed.EventType,
+            parsed.RawPayload,
+            JsonSerializer.Serialize(headers),
+            cancellationToken);
+        if (webhookEvent.Processed)
         {
             return false;
         }
-
-        dbContext.WebhookEvents.Add(new WebhookEvent
-        {
-            CompanyId = payment.CompanyId,
-            GatewayName = gateway.Name,
-            ExternalEventId = parsed.ExternalEventId,
-            EventType = parsed.EventType,
-            Payload = parsed.RawPayload,
-            Headers = JsonSerializer.Serialize(headers),
-            Processed = true,
-            ProcessedAtUtc = DateTime.UtcNow
-        });
-        await dbContext.SaveChangesAsync(cancellationToken);
         await paymentService.MarkPaymentAsync(parsed.ExternalPaymentId, parsed.PaymentSucceeded, parsed.RawPayload, cancellationToken);
+        webhookEvent.Processed = true;
+        webhookEvent.ProcessedAtUtc = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }
 
@@ -53,25 +50,66 @@ public sealed class WebhookService(AppDbContext dbContext, IEnumerable<IPaymentG
             ?? throw new InvalidOperationException("Payment not found for confirmation.");
         var parsed = await gateway.VerifyPaymentAsync(externalPaymentId, payment.CompanyId, cancellationToken);
 
-        var alreadyProcessed = await dbContext.WebhookEvents.AnyAsync(x => x.CompanyId == payment.CompanyId && x.GatewayName == gateway.Name && x.ExternalEventId == parsed.ExternalEventId, cancellationToken);
-        if (alreadyProcessed)
+        var webhookEvent = await GetOrCreatePendingWebhookEventAsync(
+            payment.CompanyId,
+            gateway.Name,
+            parsed.ExternalEventId,
+            parsed.EventType,
+            string.IsNullOrWhiteSpace(rawPayload) ? parsed.RawPayload : rawPayload,
+            "{}",
+            cancellationToken);
+        if (webhookEvent.Processed)
         {
             return false;
         }
-
-        dbContext.WebhookEvents.Add(new WebhookEvent
-        {
-            CompanyId = payment.CompanyId,
-            GatewayName = gateway.Name,
-            ExternalEventId = parsed.ExternalEventId,
-            EventType = parsed.EventType,
-            Payload = string.IsNullOrWhiteSpace(rawPayload) ? parsed.RawPayload : rawPayload,
-            Headers = "{}",
-            Processed = true,
-            ProcessedAtUtc = DateTime.UtcNow
-        });
-        await dbContext.SaveChangesAsync(cancellationToken);
         await paymentService.MarkPaymentAsync(parsed.ExternalPaymentId, parsed.PaymentSucceeded, parsed.RawPayload, cancellationToken);
+        webhookEvent.Processed = true;
+        webhookEvent.ProcessedAtUtc = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
         return true;
+    }
+
+    private async Task<WebhookEvent> GetOrCreatePendingWebhookEventAsync(
+        Guid companyId,
+        string gatewayName,
+        string externalEventId,
+        string eventType,
+        string payload,
+        string headers,
+        CancellationToken cancellationToken)
+    {
+        var existing = await dbContext.WebhookEvents
+            .FirstOrDefaultAsync(
+                x => x.CompanyId == companyId
+                    && x.GatewayName == gatewayName
+                    && x.ExternalEventId == externalEventId,
+                cancellationToken);
+        if (existing is not null)
+        {
+            if (!existing.Processed)
+            {
+                existing.EventType = eventType;
+                existing.Payload = payload;
+                existing.Headers = headers;
+            }
+
+            return existing;
+        }
+
+        var webhookEvent = new WebhookEvent
+        {
+            CompanyId = companyId,
+            GatewayName = gatewayName,
+            ExternalEventId = externalEventId,
+            EventType = eventType,
+            Payload = payload,
+            Headers = headers,
+            Processed = false,
+            ProcessedAtUtc = null
+        };
+
+        dbContext.WebhookEvents.Add(webhookEvent);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return webhookEvent;
     }
 }

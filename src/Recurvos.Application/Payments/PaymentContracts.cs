@@ -68,7 +68,7 @@ public interface IPaymentService
 {
     Task<IReadOnlyCollection<PaymentDto>> GetAsync(CancellationToken cancellationToken = default);
     Task<PaymentDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string? externalPaymentId, Guid? invoiceId, CancellationToken cancellationToken = default);
+    Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string externalPaymentId, CancellationToken cancellationToken = default);
     Task<PaymentDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadProofAsync(Guid id, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid id, CancellationToken cancellationToken = default);

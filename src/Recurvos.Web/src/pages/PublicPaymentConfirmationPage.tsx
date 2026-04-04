@@ -28,6 +28,11 @@ export function PublicPaymentConfirmationPage() {
     notes: "",
     proofFile: null as File | null,
   });
+  const dueDateLabel = invoice
+    ? new Date(invoice.dueDateUtc).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" })
+    : "";
+  const amountLabel = invoice ? formatCurrency(invoice.balanceAmount, invoice.currency) : "";
+  const proofSizeLabel = invoice ? formatUploadSizeLabel(invoice.proofUploadMaxBytes) : "";
 
   useEffect(() => {
     if (!token) {
@@ -103,11 +108,27 @@ export function PublicPaymentConfirmationPage() {
       {!loading && invoice && !success ? (
         <form className="form-stack" onSubmit={onSubmit}>
           <div className="public-payment-summary">
-            <div className="card subtle-card public-payment-summary-card">
-              <p className="eyebrow">Invoice</p>
-              <strong>{invoice.invoiceNumber}</strong>
-              <p className="muted">{invoice.customerName}</p>
-              <p className="muted">{`Outstanding balance: ${formatCurrency(invoice.balanceAmount, invoice.currency)}`}</p>
+            <div className="card subtle-card public-payment-summary-card public-payment-summary-hero">
+              <div>
+                <p className="eyebrow">Invoice</p>
+                <strong>{invoice.invoiceNumber}</strong>
+                <p className="muted">{invoice.customerName}</p>
+              </div>
+              <div className="public-payment-summary-metrics">
+                <div className="public-payment-summary-metric">
+                  <span>Outstanding</span>
+                  <strong>{amountLabel}</strong>
+                </div>
+                <div className="public-payment-summary-metric">
+                  <span>Due date</span>
+                  <strong>{dueDateLabel}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="public-payment-inline-note">
+              <p>
+                Submit the full outstanding balance of <strong>{amountLabel}</strong>. Use the real payment date. Add proof if you have it.
+              </p>
             </div>
             {invoice.paymentLinkUrl ? (
               <HelperText>
@@ -117,19 +138,13 @@ export function PublicPaymentConfirmationPage() {
               </HelperText>
             ) : null}
           </div>
-          <div className="settings-payment-summary-grid public-payment-tab-grid">
-            <button type="button" className={`settings-mini-tab-card ${activeTab === "details" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("details")}>
-              <span className="settings-stat-label">Step 1</span>
-              <strong>Payment details</strong>
-            </button>
-            <button type="button" className={`settings-mini-tab-card ${activeTab === "proof" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveTab("proof")}>
-              <span className="settings-stat-label">Step 2</span>
-              <strong>{form.proofFile ? "Proof selected" : "Proof upload"}</strong>
-            </button>
-          </div>
           <div className="settings-subtab-strip" role="tablist" aria-label="Payment confirmation steps">
-            <button type="button" className={`settings-subtab-button ${activeTab === "details" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveTab("details")}>Details</button>
-            <button type="button" className={`settings-subtab-button ${activeTab === "proof" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveTab("proof")}>Proof</button>
+            <button type="button" className={`settings-subtab-button ${activeTab === "details" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveTab("details")}>
+              1. Details
+            </button>
+            <button type="button" className={`settings-subtab-button ${activeTab === "proof" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveTab("proof")}>
+              2. Proof {form.proofFile ? "(selected)" : "(optional)"}
+            </button>
           </div>
           {activeTab === "details" ? (
             <div className="card subtle-card public-payment-panel">
@@ -217,8 +232,7 @@ export function PublicPaymentConfirmationPage() {
                   }}
                 />
               </label>
-              <HelperText>{invoice ? `Proof is optional. PNG, JPG, JPEG, and WEBP images up to ${formatUploadSizeLabel(invoice.proofUploadMaxBytes)} are allowed.${invoice.autoCompressUploads ? " Large images are compressed automatically before upload." : ""}` : "Proof is optional."}</HelperText>
-              {invoice ? <HelperText>{`Payment confirmation is for the full outstanding balance of ${formatCurrency(invoice.balanceAmount, invoice.currency)}.`}</HelperText> : null}
+              <HelperText>{invoice ? `Optional. PNG, JPG, JPEG, and WEBP up to ${proofSizeLabel} are allowed.${invoice.autoCompressUploads ? " Large images are compressed automatically." : ""}` : "Proof is optional."}</HelperText>
               {form.proofFile ? <HelperText>{`Selected file: ${form.proofFile.name}`}</HelperText> : null}
             </div>
           ) : null}

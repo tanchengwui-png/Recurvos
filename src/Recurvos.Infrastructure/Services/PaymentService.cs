@@ -51,27 +51,17 @@ public sealed class PaymentService(
         return Map(payment, historyMap.GetValueOrDefault(payment.Id, Array.Empty<PaymentHistoryDto>()));
     }
 
-    public async Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string? externalPaymentId, Guid? invoiceId, CancellationToken cancellationToken = default)
+    public async Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string externalPaymentId, CancellationToken cancellationToken = default)
     {
-        var query = dbContext.Payments
+        if (string.IsNullOrWhiteSpace(externalPaymentId))
+        {
+            throw new InvalidOperationException("Public payment lookup requires a payment reference.");
+        }
+
+        var payment = await dbContext.Payments
             .Include(x => x.Invoice)
-            .AsQueryable();
-
-        Payment? payment = null;
-        if (!string.IsNullOrWhiteSpace(externalPaymentId))
-        {
-            payment = await query
-                .OrderByDescending(x => x.CreatedAtUtc)
-                .FirstOrDefaultAsync(x => x.ExternalPaymentId == externalPaymentId, cancellationToken);
-        }
-
-        if (payment is null && invoiceId.HasValue)
-        {
-            payment = await query
-                .Where(x => x.InvoiceId == invoiceId.Value)
-                .OrderByDescending(x => x.CreatedAtUtc)
-                .FirstOrDefaultAsync(cancellationToken);
-        }
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(x => x.ExternalPaymentId == externalPaymentId, cancellationToken);
 
         if (payment?.Invoice is null)
         {

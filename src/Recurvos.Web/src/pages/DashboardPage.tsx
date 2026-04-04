@@ -130,10 +130,7 @@ export function DashboardPage() {
   const enabledSetupSteps = setupSteps.filter((step) => ("enabled" in step ? step.enabled : true));
   const checklistSteps = [...readinessSteps, ...enabledSetupSteps.filter((step) => !["companies", "logo"].includes(step.key))];
   const completedSetupSteps = enabledSetupSteps.filter((step) => step.done).length;
-  const pendingChecklistSteps = checklistSteps.filter((step) => !step.done);
   const completedChecklistSteps = checklistSteps.filter((step) => step.done);
-  const nextSetupStep = pendingChecklistSteps[0] ?? null;
-  const supportingSetupSteps = pendingChecklistSteps.slice(1, 4);
   const selectedCompanyLabel = selectedCompanyId
     ? companies.find((company) => company.id === selectedCompanyId)?.name ?? "Selected company"
     : "All companies";
@@ -143,6 +140,96 @@ export function DashboardPage() {
     last30: "Last 30 Days",
     next7: "Next 7 Days",
   } satisfies Record<QuickRange, string>)[quickRange];
+  const dashboardSetupMove = useMemo(() => {
+    if ((billingReadiness?.items ?? []).some((item) => item.required && !item.done)) {
+      const blocker = billingReadiness!.items.find((item) => item.required && !item.done)!;
+      return {
+        key: blocker.key,
+        title: blocker.title,
+        description: blocker.description,
+        href: blocker.actionPath,
+        action: "Fix now",
+      };
+    }
+
+    if (!(featureAccess?.featureKeys.includes("customer_management") ?? false)) {
+      return {
+        key: "feature-customer-management",
+        title: "Unlock customer records",
+        description: "Your package needs customer management before you can start billing real customers.",
+        href: "/package-billing",
+        action: "Review package",
+      };
+    }
+
+    if (!((featureAccess?.featureKeys.includes("manual_invoices") ?? false) || (featureAccess?.featureKeys.includes("recurring_invoices") ?? false))) {
+      return {
+        key: "feature-billing",
+        title: "Unlock billing actions",
+        description: "Upgrade to a package that includes invoice creation or recurring billing.",
+        href: "/package-billing",
+        action: "Review package",
+      };
+    }
+
+    if (setupStats.products === 0) {
+      return {
+        key: "create-product",
+        title: "Create the first product",
+        description: "Start with the thing you already sell today.",
+        href: "/products",
+        action: "Open products",
+      };
+    }
+
+    if (setupStats.plans === 0) {
+      return {
+        key: "create-plan",
+        title: "Price it with one clear plan",
+        description: "Monthly or yearly is enough to start.",
+        href: "/plans",
+        action: "Open plans",
+      };
+    }
+
+    if (setupStats.customers === 0) {
+      return {
+        key: "create-customer",
+        title: "Add the first paying customer",
+        description: "Use a real customer, not a placeholder, so you can go live quickly.",
+        href: "/customers",
+        action: "Open customers",
+      };
+    }
+
+    if (setupStats.invoices === 0 && setupStats.subscriptions === 0) {
+      return {
+        key: "create-invoice",
+        title: "Send the first bill",
+        description: "Use a manual invoice first if you want the fastest route to collected cash.",
+        href: "/invoices",
+        action: "Open invoices",
+      };
+    }
+
+    if (setupStats.payments === 0) {
+      return {
+        key: "collect-payment",
+        title: "Chase the first payment",
+        description: "Generate a payment link or record the payment as soon as it lands.",
+        href: (featureAccess?.featureKeys.includes("payment_tracking") ?? false) ? "/payments" : "/settings",
+        action: (featureAccess?.featureKeys.includes("payment_tracking") ?? false) ? "Open payments" : "Open settings",
+      };
+    }
+
+    return {
+      key: "scale-collections",
+      title: "Tighten collections and renewals",
+      description: "You are live. Focus on overdue invoices, renewals, and repeat billing.",
+      href: "/invoices",
+        action: "Review invoices",
+      };
+  }, [billingReadiness, featureAccess?.featureKeys, setupStats.customers, setupStats.invoices, setupStats.payments, setupStats.plans, setupStats.products, setupStats.subscriptions]);
 
   function applyQuickRange(range: QuickRange) {
     setQuickRange(range);
@@ -263,16 +350,16 @@ export function DashboardPage() {
                   <span style={{ width: `${checklistSteps.length > 0 ? (completedChecklistSteps.length / checklistSteps.length) * 100 : 0}%` }} />
                 </div>
               </div>
-              {nextSetupStep ? (
-                <button type="button" className="setup-step setup-step-featured" onClick={() => navigate(nextSetupStep.href)}>
+              {dashboardSetupMove ? (
+                <button type="button" className="setup-step setup-step-featured" onClick={() => navigate(dashboardSetupMove.href)}>
                   <div>
-                    <p className="eyebrow">Next best step</p>
-                    <strong>{nextSetupStep.title}</strong>
-                    <p className="muted">{nextSetupStep.description}</p>
+                    <p className="eyebrow">Next move</p>
+                    <strong>{dashboardSetupMove.title}</strong>
+                    <p className="muted">{dashboardSetupMove.description}</p>
                   </div>
                   <div className="setup-step-meta">
                     <span className="status-pill status-pill-inactive">Next</span>
-                    <span className="inline-link">{nextSetupStep.action}</span>
+                    <span className="inline-link">{dashboardSetupMove.action}</span>
                   </div>
                 </button>
               ) : (
@@ -281,22 +368,6 @@ export function DashboardPage() {
                   <p className="muted">You can move directly into invoicing, subscriptions, and payment tracking.</p>
                 </div>
               )}
-              {supportingSetupSteps.length > 0 ? (
-                <div className="setup-checklist">
-                  {supportingSetupSteps.map((step) => (
-                    <button key={step.key} type="button" className="setup-step" onClick={() => navigate(step.href)}>
-                      <div>
-                        <strong>{step.title}</strong>
-                        <p className="muted">{step.description}</p>
-                      </div>
-                      <div className="setup-step-meta">
-                        <span className="status-pill status-pill-inactive">Next</span>
-                        <span className="inline-link">{step.action}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
               {completedChecklistSteps.length > 0 ? (
                 <div className="dashboard-setup-completed">
                   <p className="eyebrow">Already done</p>
@@ -307,6 +378,10 @@ export function DashboardPage() {
                   </div>
                 </div>
               ) : null}
+              <div className="dashboard-setup-footer">
+                <p className="muted">Need the full guided checklist?</p>
+                <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Open Quick Start</button>
+              </div>
             </section>
           ) : null}
 
