@@ -17,7 +17,7 @@ public sealed class ProductListQuery
 public sealed class ProductUpsertRequest
 {
     [Required]
-    public Guid CompanyId { get; set; }
+    public Guid? CompanyId { get; set; }
 
     [Required, MaxLength(150)]
     public string Name { get; set; } = string.Empty;

@@ -10,11 +10,13 @@ public static class InvoicePdfTemplate
     {
         QuestPDF.Settings.License = LicenseType.Community;
         var currency = InvoiceTemplateSupport.NormalizeCurrency(model.Currency);
+        var paymentGatewayLink = !string.IsNullOrWhiteSpace(model.PaymentGatewayLink) ? model.PaymentGatewayLink : model.PaymentLink;
         var hasPaymentDetails =
             !string.IsNullOrWhiteSpace(model.BankName) ||
             !string.IsNullOrWhiteSpace(model.BankAccountName) ||
             !string.IsNullOrWhiteSpace(model.BankAccount) ||
-            !string.IsNullOrWhiteSpace(model.PaymentLink);
+            !string.IsNullOrWhiteSpace(paymentGatewayLink) ||
+            !string.IsNullOrWhiteSpace(model.PaymentConfirmationLink);
         var hasPaymentQr = !string.IsNullOrWhiteSpace(model.PaymentQrDataUrl);
 
         return Document.Create(container =>
@@ -61,15 +63,26 @@ public static class InvoicePdfTemplate
                             }
                         });
 
-                        row.ConstantItem(228).Element(container => SectionCard(container, card =>
+                        row.ConstantItem(248).Element(container => SectionCard(container, card =>
                         {
                             card.Column(right =>
                             {
                                 right.Spacing(10);
-                                right.Item().AlignRight().Text("INVOICE").FontSize(28).SemiBold().FontColor("#0F172A");
-                                MetaRow(right, "Invoice No", model.InvoiceNumber);
+                                right.Item().AlignRight().Text(model.DocumentTitle).FontSize(26).SemiBold().FontColor("#0F172A");
+                                MetaRow(right, model.DocumentNumberLabel, model.InvoiceNumber);
                                 MetaRow(right, "Invoice Date", model.InvoiceDateUtc.ToString("dd MMM yyyy"));
-                                MetaRow(right, "Due Date", model.DueDateUtc.ToString("dd MMM yyyy"));
+                                if (model.ShowDueDate)
+                                {
+                                    MetaRow(right, "Due Date", model.DueDateUtc.ToString("dd MMM yyyy"));
+                                }
+                                if (!string.IsNullOrWhiteSpace(model.SecondaryDocumentLabel) && !string.IsNullOrWhiteSpace(model.SecondaryDocumentValue))
+                                {
+                                    MetaRow(right, model.SecondaryDocumentLabel!, model.SecondaryDocumentValue!);
+                                }
+                                if (model.PeriodStartUtc.HasValue && model.PeriodEndUtc.HasValue)
+                                {
+                                    MetaRow(right, model.PeriodLabel ?? "Billing Period", $"{model.PeriodStartUtc.Value:dd MMM yyyy} - {model.PeriodEndUtc.Value:dd MMM yyyy}");
+                                }
                                 MetaRow(right, "Currency", currency);
                             });
                         }));
@@ -88,7 +101,7 @@ public static class InvoicePdfTemplate
                             });
                         }));
 
-                        row.ConstantItem(228).Element(container => SectionCard(container, card =>
+                        row.ConstantItem(248).Element(container => SectionCard(container, card =>
                         {
                             card.Column(summary =>
                             {
@@ -152,13 +165,17 @@ public static class InvoicePdfTemplate
                                 {
                                     if (hasPaymentDetails)
                                     {
-                                        row.RelativeItem().Column(details =>
+                                        row.RelativeItem().PaddingRight(hasPaymentQr ? 14 : 0).Column(details =>
                                         {
                                             details.Spacing(8);
                                             AddPaymentDetail(details, "Bank", model.BankName);
                                             AddPaymentDetail(details, "Account Name", model.BankAccountName);
                                             AddPaymentDetail(details, "Account No", model.BankAccount);
-                                            AddPaymentDetail(details, "Pay Online", model.PaymentLink);
+                                            AddPaymentDetail(details, "Pay Online", paymentGatewayLink);
+                                            AddPaymentDetail(details, "After Payment", string.IsNullOrWhiteSpace(model.PaymentConfirmationLink)
+                                                ? null
+                                                : "Once payment is completed, click the confirmation link below to upload your proof of payment.");
+                                            AddPaymentDetail(details, "Payment Confirmation", model.PaymentConfirmationLink, "Open payment confirmation page", true);
                                         });
                                     }
                                     else
@@ -168,13 +185,16 @@ public static class InvoicePdfTemplate
 
                                     if (hasPaymentQr)
                                     {
-                                        row.ConstantItem(108).Height(108).Border(1).BorderColor("#D7E0EA").Padding(6).AlignCenter().AlignMiddle().Element(container =>
+                                        row.ConstantItem(92).PaddingTop(4).Element(container =>
                                         {
-                                            var qrBytes = ExtractDataUrlBytes(model.PaymentQrDataUrl!);
-                                            if (qrBytes is { Length: > 0 })
+                                            container.Border(1).BorderColor("#D7E0EA").Background("#FCFDFE").Padding(5).AlignCenter().AlignMiddle().Height(92).Element(inner =>
                                             {
-                                                container.Image(qrBytes).FitArea();
-                                            }
+                                                var qrBytes = ExtractDataUrlBytes(model.PaymentQrDataUrl!);
+                                                if (qrBytes is { Length: > 0 })
+                                                {
+                                                    inner.Image(qrBytes).FitArea();
+                                                }
+                                            });
                                         });
                                     }
                                 });
@@ -205,10 +225,11 @@ public static class InvoicePdfTemplate
 
     private static void MetaRow(ColumnDescriptor column, string label, string value)
     {
+        var valueFontSize = value.Length > 24 ? 9f : 10f;
         column.Item().Row(row =>
         {
-            row.ConstantItem(86).AlignLeft().Text(label).FontSize(9).FontColor("#64748B");
-            row.RelativeItem().AlignRight().Text(value).SemiBold().FontColor("#0F172A");
+            row.ConstantItem(72).AlignLeft().Text(label).FontSize(9).FontColor("#64748B");
+            row.RelativeItem().AlignRight().Text(value).FontSize(valueFontSize).SemiBold().FontColor("#0F172A");
         });
     }
 
@@ -220,7 +241,12 @@ public static class InvoicePdfTemplate
         }
     }
 
-    private static void AddPaymentDetail(ColumnDescriptor column, string label, string? value)
+    private static void AddPaymentDetail(
+        ColumnDescriptor column,
+        string label,
+        string? value,
+        string? displayValue = null,
+        bool isHyperlink = false)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -229,8 +255,17 @@ public static class InvoicePdfTemplate
 
         column.Item().Row(row =>
         {
-            row.ConstantItem(92).Text(label).FontSize(9).FontColor("#64748B");
-            row.RelativeItem().Text(value).FontColor("#0F172A");
+            row.ConstantItem(102).Text(label).FontSize(9).FontColor("#64748B");
+            if (isHyperlink)
+            {
+                row.RelativeItem().Text(text =>
+                {
+                    text.Hyperlink(displayValue ?? value, value).FontColor(Colors.Blue.Darken2).Underline();
+                });
+                return;
+            }
+
+            row.RelativeItem().Text(displayValue ?? value).FontColor("#0F172A");
         });
     }
 

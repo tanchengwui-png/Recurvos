@@ -50,7 +50,7 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <AuthLayout title="Reset password" subtitle="Choose a new password for your Recurvo account.">
+    <AuthLayout title="Reset password" subtitle="Choose a new password for your Recurvos account.">
       {success ? (
         <div className="form-stack">
           <div className="selected-package-banner">

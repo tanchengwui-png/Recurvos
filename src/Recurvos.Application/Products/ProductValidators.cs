@@ -9,6 +9,11 @@ public static class ProductValidators
     public static IReadOnlyCollection<string> Validate(ProductUpsertRequest request)
     {
         var errors = new List<string>();
+        if (!request.CompanyId.HasValue || request.CompanyId == Guid.Empty)
+        {
+            errors.Add("Company is required.");
+        }
+
         if (string.IsNullOrWhiteSpace(request.Name))
         {
             errors.Add("Product name is required.");

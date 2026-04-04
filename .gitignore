@@ -9,4 +9,5 @@ logs/
 *.binlog
 build-*.log
 *.png
+DEPLOY-CHEATSHEET.txt
 src/Recurvos.WhatsAppWorker/.wwebjs_cache/

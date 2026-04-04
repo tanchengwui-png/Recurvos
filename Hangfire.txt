@@ -1,0 +1,21 @@
+• 1. Open PowerShell window #1.
+  2. Run this exact command:
+
+  ssh -p 6262 -L 17001:localhost:7001 server@115.187.22.70
+
+  3. Type password when asked:
+     iZ0U1DoNuzyZevj30T
+  4. Leave this window open.
+     This is your tunnel.
+  5. Open PowerShell window #2.
+  6. Set API URL:
+
+  $API = "http://localhost:17001"
+
+  7. Login and get token:
+
+  $body = @{ email = "tanchengwui+growth@hotmail.com"; password = "Passw0rd!" } | ConvertTo-Json
+  $token = (Invoke-RestMethod "$API/api/auth/login" -Method Post -ContentType "application/json" -Body
+  $body).accessToken
+
+  16. When finished, close PowerShell window #1 to stop tunnel.

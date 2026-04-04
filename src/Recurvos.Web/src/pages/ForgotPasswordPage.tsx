@@ -39,7 +39,6 @@ export function ForgotPasswordPage() {
             <p className="eyebrow">Check your email</p>
             <strong>{email}</strong>
             <p className="muted">If an account exists for this email, a password reset link has been sent.</p>
-            <p className="muted">In development, check the latest file in <code>C:\Recurvos\storage\emails</code> if SMTP is not configured.</p>
           </div>
           <div className="button-stack">
             <Button type="button" onClick={() => navigate("/login")}>

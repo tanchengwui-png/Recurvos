@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Recurvos.Application.Abstractions;
+using Recurvos.Application.Common;
 using Recurvos.Application.CreditNotes;
 using Recurvos.Application.Features;
 using Recurvos.Application.Invoices;
@@ -31,13 +32,16 @@ public sealed class InvoiceService(
     IFeatureEntitlementService featureEntitlementService,
     IPackageLimitService packageLimitService,
     IBillingReadinessService billingReadinessService,
+    IPaymentConfirmationService paymentConfirmationService,
+    IPaymentService paymentService,
+    PlatformOwnerNotificationService platformOwnerNotificationService,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : IInvoiceService
 {
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
     private const int PublicPaymentConfirmationTokenLifetimeDays = 30;
-    private readonly IPaymentGateway _gateway = gateways.First(x => x.Name == "Billplz");
+    private readonly IReadOnlyDictionary<string, IPaymentGateway> _gateways = gateways.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
     private static readonly HashSet<string> AllowedPaymentProofExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png",
@@ -78,10 +82,13 @@ public sealed class InvoiceService(
     }
 
     public async Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsAsync(Guid id, CancellationToken cancellationToken = default)
+        => await GetWhatsAppLinkOptionsForCompanyAsync(GetCompanyId(), id, cancellationToken);
+
+    public async Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsForCompanyAsync(Guid companyId, Guid id, CancellationToken cancellationToken = default)
     {
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
-            .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (invoice is null)
         {
             return null;
@@ -178,6 +185,8 @@ public sealed class InvoiceService(
                 CompanyId = companyId,
                 Invoice = invoice,
                 DunningRuleId = rule.Id,
+                ReminderName = rule.Name,
+                OffsetDays = rule.OffsetDays,
                 ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
             });
         }
@@ -253,7 +262,9 @@ public sealed class InvoiceService(
             company.RegistrationNumber,
             company.Email,
             invoiceSettings?.ShowCompanyAddressOnReceipt == true ? company.Address : null,
+            await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
             request.CustomerName.Trim(),
+            null,
             receiptNumber,
             invoiceNumber,
             request.Description.Trim(),
@@ -309,6 +320,11 @@ public sealed class InvoiceService(
             return false;
         }
 
+        if (invoice.Status == InvoiceStatus.Voided)
+        {
+            throw new InvalidOperationException("Voided invoices cannot be sent.");
+        }
+
         await billingReadinessService.EnsureReadyAsync(invoice.CompanyId, "invoice sending", cancellationToken);
 
         await SendInvoiceEmailAsync(invoice, invoice.Customer, cancellationToken);
@@ -348,6 +364,13 @@ public sealed class InvoiceService(
             PaidAtUtc = DateTime.UtcNow
         });
         await dbContext.SaveChangesAsync(cancellationToken);
+        var paymentId = await dbContext.Payments
+            .Where(x => x.InvoiceId == invoice.Id && x.Status == PaymentStatus.Succeeded)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Select(x => x.Id)
+            .FirstAsync(cancellationToken);
+        await platformOwnerNotificationService.TryNotifyNewPaymentAsync(paymentId, cancellationToken);
+        await paymentService.TryAutoSendReceiptIfEligibleAsync(paymentId, cancellationToken);
         await auditService.WriteAsync("invoice.paid", nameof(Invoice), invoice.Id.ToString(), $"amount={outstanding:0.00}", cancellationToken);
         return await GetByIdAsync(id, cancellationToken);
     }
@@ -398,6 +421,8 @@ public sealed class InvoiceService(
         dbContext.Payments.Add(payment);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
+        await paymentService.TryAutoSendReceiptIfEligibleAsync(payment.Id, cancellationToken);
         await auditService.WriteAsync(
             "invoice.payment-recorded",
             nameof(Invoice),
@@ -439,13 +464,74 @@ public sealed class InvoiceService(
         }
 
         payment.Status = PaymentStatus.Reversed;
-        payment.ReceiptPdfPath = null;
 
         RecalculateInvoiceAmounts(invoice, payments);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("payment.reversed", nameof(Payment), payment.Id.ToString(), reason, cancellationToken);
         await auditService.WriteAsync("invoice.payment-reversed", nameof(Invoice), invoice.Id.ToString(), $"{payment.Id}:{reason}", cancellationToken);
+        return await GetByIdAsync(id, cancellationToken);
+    }
+
+    public async Task<InvoiceDto?> RefundLatestManualPaymentAsync(Guid id, RecordRefundRequest request, CancellationToken cancellationToken = default)
+    {
+        var invoice = await dbContext.Invoices
+            .Include(x => x.Customer)
+            .Include(x => x.LineItems)
+            .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == id, cancellationToken);
+        if (invoice is null)
+        {
+            return null;
+        }
+
+        var payments = await dbContext.Payments
+            .Include(x => x.Attempts)
+            .Include(x => x.Refunds)
+            .Include(x => x.Disputes)
+            .Where(x => x.CompanyId == invoice.CompanyId && x.InvoiceId == invoice.Id)
+            .OrderByDescending(x => x.PaidAtUtc ?? x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        var payment = payments.FirstOrDefault(IsRefundableManualPayment);
+        if (payment is null)
+        {
+            throw new InvalidOperationException("No refundable manual payment was found for this invoice.");
+        }
+
+        var reason = request.Reason.Trim();
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new InvalidOperationException("A reason is required to refund a payment.");
+        }
+
+        var alreadyRefunded = payment.Refunds.Where(x => x.Status == RefundStatus.Succeeded).Sum(x => x.Amount);
+        var refundableAmount = Math.Max(0, payment.Amount - alreadyRefunded);
+        if (request.Amount <= 0)
+        {
+            throw new InvalidOperationException("Refund amount must be greater than zero.");
+        }
+
+        if (request.Amount > refundableAmount)
+        {
+            throw new InvalidOperationException($"Refund amount cannot exceed the remaining refundable amount of {payment.Currency} {refundableAmount:0.00}.");
+        }
+
+        var refund = new Refund
+        {
+            CompanyId = invoice.CompanyId,
+            PaymentId = payment.Id,
+            InvoiceId = invoice.Id,
+            Amount = request.Amount,
+            Currency = payment.Currency,
+            Reason = reason,
+            ExternalRefundId = string.IsNullOrWhiteSpace(request.ExternalRefundId) ? null : request.ExternalRefundId.Trim(),
+            Status = RefundStatus.Succeeded,
+            CreatedByUserId = currentUserService.UserId
+        };
+
+        dbContext.Refunds.Add(refund);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("refund.recorded", nameof(Refund), refund.Id.ToString(), $"payment={payment.Id}", cancellationToken);
         return await GetByIdAsync(id, cancellationToken);
     }
 
@@ -526,7 +612,9 @@ public sealed class InvoiceService(
                 company.RegistrationNumber,
                 company.Email,
                 invoiceSettings?.ShowCompanyAddressOnReceipt == true ? company.Address : null,
+                await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
                 invoice.Customer.Name,
+                invoice.Customer.BillingAddress,
                 receiptNumber,
                 invoice.InvoiceNumber,
                 description,
@@ -539,7 +627,7 @@ public sealed class InvoiceService(
 
             var receiptRoot = Path.Combine(StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory), invoice.CompanyId.ToString("N"), "receipts");
             Directory.CreateDirectory(receiptRoot);
-            var receiptPath = Path.Combine(receiptRoot, $"{invoice.InvoiceNumber}-receipt.pdf");
+            var receiptPath = Path.Combine(receiptRoot, $"{receiptNumber}.pdf");
             await File.WriteAllBytesAsync(receiptPath, receiptBytes, cancellationToken);
             payment.ReceiptPdfPath = receiptPath.Replace("\\", "/");
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -551,7 +639,8 @@ public sealed class InvoiceService(
             return null;
         }
 
-        return (await File.ReadAllBytesAsync(filePath, cancellationToken), $"{invoice.InvoiceNumber}-receipt.pdf", "application/pdf");
+        var fileName = Path.GetFileName(filePath);
+        return (await File.ReadAllBytesAsync(filePath, cancellationToken), string.IsNullOrWhiteSpace(fileName) ? $"{invoice.InvoiceNumber}-receipt.pdf" : fileName, "application/pdf");
     }
 
     public Task<int> CountDueInvoicesForCurrentCompanyAsync(CancellationToken cancellationToken = default)
@@ -580,6 +669,8 @@ public sealed class InvoiceService(
             .Where(x => x.Status != SubscriptionStatus.Cancelled
                 && x.Status != SubscriptionStatus.Paused
                 && x.Items.Any(i =>
+                    (i.BillingType == BillingType.OneTime && !i.EndedAtUtc.HasValue && i.CurrentPeriodStartUtc != null && i.CurrentPeriodStartUtc <= DateTime.UtcNow)
+                    || 
                     (i.NextBillingUtc != null && i.NextBillingUtc <= DateTime.UtcNow && !i.EndedAtUtc.HasValue)
                     || (i.CurrentPeriodEndUtc != null && i.CurrentPeriodEndUtc <= DateTime.UtcNow && !i.AutoRenew && !i.EndedAtUtc.HasValue)));
 
@@ -601,127 +692,160 @@ public sealed class InvoiceService(
                 continue;
             }
 
-            var itemsEndingWithoutRenewal = subscription.Items
-                .Where(item => SubscriptionService.ShouldEndWithoutRenewal(item, DateTime.UtcNow))
-                .ToList();
-
-            foreach (var item in itemsEndingWithoutRenewal)
-            {
-                item.EndedAtUtc = item.CurrentPeriodEndUtc ?? DateTime.UtcNow;
-            }
-
-            SubscriptionService.SyncAggregateSnapshot(subscription);
-
-            var dueItems = subscription.Items
-                .Where(item => SubscriptionService.IsItemDue(item, DateTime.UtcNow))
-                .ToList();
-
-            if (dueItems.Count == 0)
-            {
-                continue;
-            }
-
             var company = await dbContext.Companies.FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
             var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(subscription.CompanyId, cancellationToken);
-            var eligibleDueItems = await GetEligibleDueItemsAsync(dueItems, cancellationToken);
 
-            if (eligibleDueItems.Count == 0)
+            while (true)
             {
-                continue;
-            }
+                var nowUtc = DateTime.UtcNow;
+                var itemsEndingWithoutRenewal = subscription.Items
+                    .Where(item => SubscriptionService.ShouldEndWithoutRenewal(item, nowUtc))
+                    .ToList();
 
-            var lineItems = eligibleDueItems.Select(dueItem => new InvoiceLineItem
-            {
-                CompanyId = subscription.CompanyId,
-                SubscriptionItemId = dueItem.Id,
-                Description = dueItem.ProductPlan?.PlanName ?? "Subscription",
-                Quantity = dueItem.Quantity,
-                UnitAmount = dueItem.UnitAmount,
-                TotalAmount = dueItem.Quantity * dueItem.UnitAmount
-            }).ToList();
-            var total = lineItems.Sum(x => x.TotalAmount);
-            var taxProfile = ResolveTaxProfile(invoiceSettings);
-            var taxAmount = CalculateTaxAmount(total, taxProfile);
-            var grandTotal = total + taxAmount;
-            var periodStartUtc = eligibleDueItems.Where(x => x.CurrentPeriodStartUtc.HasValue).Min(x => x.CurrentPeriodStartUtc);
-            var periodEndUtc = eligibleDueItems.Where(x => x.CurrentPeriodEndUtc.HasValue).Max(x => x.CurrentPeriodEndUtc);
-            var invoiceNumber = await GenerateInvoiceNumberAsync(subscription.CompanyId, cancellationToken);
-
-            var invoice = new Invoice
-            {
-                CompanyId = subscription.CompanyId,
-                CustomerId = subscription.CustomerId,
-                SubscriptionId = subscription.Id,
-                InvoiceNumber = invoiceNumber,
-                Status = InvoiceStatus.Open,
-                IssueDateUtc = DateTime.UtcNow,
-                DueDateUtc = DateTime.UtcNow.AddDays(invoiceSettings?.PaymentDueDays ?? 7),
-                PeriodStartUtc = periodStartUtc,
-                PeriodEndUtc = periodEndUtc,
-                SourceType = InvoiceSourceType.Subscription,
-                Subtotal = total,
-                TaxAmount = taxAmount,
-                IsTaxEnabled = taxProfile.IsEnabled,
-                TaxName = taxProfile.IsEnabled ? taxProfile.Name : null,
-                TaxRate = taxProfile.IsEnabled ? taxProfile.Rate : null,
-                TaxRegistrationNo = taxProfile.IsEnabled ? taxProfile.RegistrationNo : null,
-                Total = grandTotal,
-                AmountDue = grandTotal,
-                AmountPaid = 0,
-                Currency = eligibleDueItems.First().Currency,
-                LineItems = lineItems
-            };
-
-            var pdf = LocalInvoiceStorage.CreatePdf(
-                company.Name,
-                company.RegistrationNumber,
-                company.Email,
-                company.Phone,
-                company.Address,
-                invoiceSettings?.ShowCompanyAddressOnInvoice ?? true,
-                await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
-                invoiceSettings?.BankName,
-                invoiceSettings?.BankAccountName,
-                invoiceSettings?.BankAccount,
-                invoiceSettings?.PaymentLink,
-                await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
-                taxProfile.IsEnabled,
-                taxProfile.Name,
-                taxProfile.Rate,
-                taxProfile.RegistrationNo,
-                subscription.Customer?.Name ?? string.Empty,
-                subscription.Customer?.Email,
-                subscription.Customer?.BillingAddress,
-                invoiceNumber,
-                invoice.IssueDateUtc,
-                invoice.DueDateUtc,
-                periodStartUtc,
-                periodEndUtc,
-                lineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
-                total,
-                invoice.Currency);
-            invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(invoice.CompanyId, invoiceNumber, pdf, cancellationToken);
-
-            dbContext.Invoices.Add(invoice);
-            createdInvoices.Add(invoice);
-            if (rulesByCompany.TryGetValue(subscription.CompanyId, out var rules))
-            {
-                foreach (var rule in rules)
+                foreach (var item in itemsEndingWithoutRenewal)
                 {
-                    dbContext.ReminderSchedules.Add(new ReminderSchedule
-                    {
-                        CompanyId = subscription.CompanyId,
-                        Invoice = invoice,
-                        DunningRuleId = rule.Id,
-                        ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
-                    });
+                    item.EndedAtUtc = item.CurrentPeriodEndUtc ?? nowUtc;
                 }
+
+                SubscriptionService.SyncAggregateSnapshot(subscription);
+
+                var dueItems = subscription.Items
+                    .Where(item => SubscriptionService.IsItemDue(item, nowUtc)
+                        || SubscriptionService.IsOneTimeItemReadyForBilling(item, nowUtc))
+                    .ToList();
+
+                if (dueItems.Count == 0)
+                {
+                    break;
+                }
+
+                var eligibleDueItems = await GetEligibleDueItemsAsync(dueItems, cancellationToken);
+
+                if (eligibleDueItems.Count == 0)
+                {
+                    break;
+                }
+
+                var dueItemCycles = eligibleDueItems
+                    .Select(dueItem => new
+                    {
+                        Item = dueItem,
+                        InvoicePeriod = ResolveInvoicePeriod(dueItem)
+                    })
+                    .ToList();
+
+                var lineItems = dueItemCycles.Select(entry => new InvoiceLineItem
+                {
+                    CompanyId = subscription.CompanyId,
+                    SubscriptionItemId = entry.Item.Id,
+                    Description = BuildSubscriptionLineDescription(entry.Item),
+                    Quantity = entry.Item.Quantity,
+                    UnitAmount = entry.Item.UnitAmount,
+                    TotalAmount = entry.Item.Quantity * entry.Item.UnitAmount
+                }).ToList();
+                var total = lineItems.Sum(x => x.TotalAmount);
+                var taxProfile = ResolveTaxProfile(invoiceSettings);
+                var taxAmount = CalculateTaxAmount(total, taxProfile);
+                var grandTotal = total + taxAmount;
+                var periodStartUtc = dueItemCycles.Where(x => x.InvoicePeriod.PeriodStartUtc.HasValue).Min(x => x.InvoicePeriod.PeriodStartUtc);
+                var periodEndUtc = dueItemCycles.Where(x => x.InvoicePeriod.PeriodEndUtc.HasValue).Max(x => x.InvoicePeriod.PeriodEndUtc);
+                var invoiceNumber = await GenerateInvoiceNumberAsync(subscription.CompanyId, cancellationToken);
+                var issueDateUtc = periodStartUtc ?? nowUtc;
+                var dueDateUtc = issueDateUtc.AddDays(invoiceSettings?.PaymentDueDays ?? 7);
+
+                var invoice = new Invoice
+                {
+                    CompanyId = subscription.CompanyId,
+                    CustomerId = subscription.CustomerId,
+                    SubscriptionId = subscription.Id,
+                    InvoiceNumber = invoiceNumber,
+                    Status = InvoiceStatus.Open,
+                    IssueDateUtc = issueDateUtc,
+                    DueDateUtc = dueDateUtc,
+                    PeriodStartUtc = periodStartUtc,
+                    PeriodEndUtc = periodEndUtc,
+                    SourceType = InvoiceSourceType.Subscription,
+                    Subtotal = total,
+                    TaxAmount = taxAmount,
+                    IsTaxEnabled = taxProfile.IsEnabled,
+                    TaxName = taxProfile.IsEnabled ? taxProfile.Name : null,
+                    TaxRate = taxProfile.IsEnabled ? taxProfile.Rate : null,
+                    TaxRegistrationNo = taxProfile.IsEnabled ? taxProfile.RegistrationNo : null,
+                    Total = grandTotal,
+                    AmountDue = grandTotal,
+                    AmountPaid = 0,
+                    Currency = eligibleDueItems.First().Currency,
+                    LineItems = lineItems
+                };
+
+                var pdf = LocalInvoiceStorage.CreatePdf(
+                    company.Name,
+                    company.RegistrationNumber,
+                    company.Email,
+                    company.Phone,
+                    company.Address,
+                    invoiceSettings?.ShowCompanyAddressOnInvoice ?? true,
+                    await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
+                    invoiceSettings?.BankName,
+                    invoiceSettings?.BankAccountName,
+                    invoiceSettings?.BankAccount,
+                    null,
+                    await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
+                    taxProfile.IsEnabled,
+                    taxProfile.Name,
+                    taxProfile.Rate,
+                    taxProfile.RegistrationNo,
+                    subscription.Customer?.Name ?? string.Empty,
+                    subscription.Customer?.Email,
+                    subscription.Customer?.BillingAddress,
+                    invoiceNumber,
+                    invoice.IssueDateUtc,
+                    invoice.DueDateUtc,
+                    periodStartUtc,
+                    periodEndUtc,
+                    lineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
+                    total,
+                    invoice.Currency);
+                invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(invoice.CompanyId, invoiceNumber, pdf, cancellationToken);
+
+                dbContext.Invoices.Add(invoice);
+                createdInvoices.Add(invoice);
+                if (rulesByCompany.TryGetValue(subscription.CompanyId, out var rules))
+                {
+                    foreach (var rule in rules)
+                    {
+                        dbContext.ReminderSchedules.Add(new ReminderSchedule
+                        {
+                            CompanyId = subscription.CompanyId,
+                            Invoice = invoice,
+                            DunningRuleId = rule.Id,
+                            ReminderName = rule.Name,
+                            OffsetDays = rule.OffsetDays,
+                            ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
+                        });
+                    }
+                }
+
+                await dbContext.SaveChangesAsync(cancellationToken);
+
+                foreach (var recurringItem in dueItemCycles.Where(x => x.Item.BillingType == BillingType.Recurring))
+                {
+                    AdvanceRecurringItemAfterInvoice(recurringItem.Item, recurringItem.InvoicePeriod.PeriodStartUtc, recurringItem.InvoicePeriod.PeriodEndUtc);
+                }
+
+                foreach (var oneTimeItem in eligibleDueItems.Where(x => x.BillingType == BillingType.OneTime))
+                {
+                    oneTimeItem.AutoRenew = false;
+                    oneTimeItem.NextBillingUtc = null;
+                    oneTimeItem.EndedAtUtc = invoice.IssueDateUtc;
+                }
+
+                SubscriptionService.SyncAggregateSnapshot(subscription);
+                await dbContext.SaveChangesAsync(cancellationToken);
+
+                created++;
             }
-
-            created++;
         }
-
-        await dbContext.SaveChangesAsync(cancellationToken);
         foreach (var createdInvoice in createdInvoices.Where(x => x.Id != Guid.Empty))
         {
             await auditService.WriteAsync("invoice.created", nameof(Invoice), createdInvoice.Id.ToString(), createdInvoice.CompanyId, createdInvoice.InvoiceNumber, cancellationToken);
@@ -761,6 +885,8 @@ public sealed class InvoiceService(
                 && x.Status != SubscriptionStatus.Cancelled
                 && x.Status != SubscriptionStatus.Paused
                 && x.Items.Any(i =>
+                    (i.BillingType == BillingType.OneTime && !i.EndedAtUtc.HasValue && i.CurrentPeriodStartUtc != null && i.CurrentPeriodStartUtc <= DateTime.UtcNow)
+                    ||
                     (i.NextBillingUtc != null && i.NextBillingUtc <= DateTime.UtcNow && !i.EndedAtUtc.HasValue)
                     || (i.CurrentPeriodEndUtc != null && i.CurrentPeriodEndUtc <= DateTime.UtcNow && !i.AutoRenew && !i.EndedAtUtc.HasValue)))
             .ToListAsync(cancellationToken);
@@ -768,19 +894,59 @@ public sealed class InvoiceService(
         var count = 0;
         foreach (var subscription in subscriptions)
         {
-            var dueItems = subscription.Items
-                .Where(item => SubscriptionService.IsItemDue(item, DateTime.UtcNow))
-                .ToList();
-
-            if (dueItems.Count == 0)
+            while (true)
             {
-                continue;
-            }
+                var nowUtc = DateTime.UtcNow;
+                var itemsEndingWithoutRenewal = subscription.Items
+                    .Where(item => SubscriptionService.ShouldEndWithoutRenewal(item, nowUtc))
+                    .ToList();
 
-            var eligibleDueItems = await GetEligibleDueItemsAsync(dueItems, cancellationToken);
-            if (eligibleDueItems.Count > 0)
-            {
+                foreach (var item in itemsEndingWithoutRenewal)
+                {
+                    item.EndedAtUtc = item.CurrentPeriodEndUtc ?? nowUtc;
+                }
+
+                SubscriptionService.SyncAggregateSnapshot(subscription);
+
+                var dueItems = subscription.Items
+                    .Where(item => SubscriptionService.IsItemDue(item, nowUtc)
+                        || SubscriptionService.IsOneTimeItemReadyForBilling(item, nowUtc))
+                    .ToList();
+
+                if (dueItems.Count == 0)
+                {
+                    break;
+                }
+
+                var eligibleDueItems = await GetEligibleDueItemsAsync(dueItems, cancellationToken);
+                if (eligibleDueItems.Count == 0)
+                {
+                    break;
+                }
+
                 count++;
+
+                var dueItemCycles = eligibleDueItems
+                    .Select(dueItem => new
+                    {
+                        Item = dueItem,
+                        InvoicePeriod = ResolveInvoicePeriod(dueItem)
+                    })
+                    .ToList();
+
+                foreach (var recurringItem in dueItemCycles.Where(x => x.Item.BillingType == BillingType.Recurring))
+                {
+                    AdvanceRecurringItemAfterInvoice(recurringItem.Item, recurringItem.InvoicePeriod.PeriodStartUtc, recurringItem.InvoicePeriod.PeriodEndUtc);
+                }
+
+                foreach (var oneTimeItem in eligibleDueItems.Where(x => x.BillingType == BillingType.OneTime))
+                {
+                    oneTimeItem.AutoRenew = false;
+                    oneTimeItem.NextBillingUtc = null;
+                    oneTimeItem.EndedAtUtc = oneTimeItem.CurrentPeriodStartUtc ?? nowUtc;
+                }
+
+                SubscriptionService.SyncAggregateSnapshot(subscription);
             }
         }
 
@@ -827,14 +993,17 @@ public sealed class InvoiceService(
         var eligibleDueItems = new List<SubscriptionItem>();
         foreach (var dueItem in dueItems)
         {
+            var invoicePeriod = ResolveInvoicePeriod(dueItem);
             var cycleAlreadyInvoiced = await dbContext.InvoiceLineItems
                 .Include(x => x.Invoice)
                 .AnyAsync(x =>
                     x.SubscriptionItemId == dueItem.Id
                     && x.Invoice != null
                     && x.Invoice.Status != InvoiceStatus.Voided
-                    && x.Invoice.PeriodStartUtc == dueItem.CurrentPeriodStartUtc
-                    && x.Invoice.PeriodEndUtc == dueItem.CurrentPeriodEndUtc,
+                    && (dueItem.BillingType == BillingType.OneTime
+                        ? true
+                        : x.Invoice.PeriodStartUtc == invoicePeriod.PeriodStartUtc
+                          && x.Invoice.PeriodEndUtc == invoicePeriod.PeriodEndUtc),
                     cancellationToken);
 
             if (!cycleAlreadyInvoiced)
@@ -846,6 +1015,67 @@ public sealed class InvoiceService(
         return eligibleDueItems;
     }
 
+    private static (DateTime? PeriodStartUtc, DateTime? PeriodEndUtc) ResolveInvoicePeriod(SubscriptionItem item)
+    {
+        if (item.BillingType == BillingType.OneTime)
+        {
+            return (item.CurrentPeriodStartUtc, item.CurrentPeriodEndUtc);
+        }
+
+        var periodStartUtc = item.NextBillingUtc ?? item.CurrentPeriodStartUtc;
+        if (!periodStartUtc.HasValue)
+        {
+            return (null, null);
+        }
+
+        var periodEndUtc = BillingCalculator.ComputePeriodEnd(periodStartUtc.Value, item.IntervalUnit, item.IntervalCount);
+        return (periodStartUtc, periodEndUtc);
+    }
+
+    private static string BuildSubscriptionLineDescription(SubscriptionItem item)
+    {
+        var planName = item.ProductPlan?.PlanName ?? "Subscription";
+        var billingLabel = item.BillingType == BillingType.OneTime
+            ? "One-time"
+            : $"{item.IntervalCount} {item.IntervalUnit}";
+
+        return $"{planName} ({billingLabel})";
+    }
+
+    private static void AdvanceRecurringItemAfterInvoice(SubscriptionItem item, DateTime? periodStartUtc, DateTime? periodEndUtc)
+    {
+        if (item.BillingType != BillingType.Recurring || !periodStartUtc.HasValue || !periodEndUtc.HasValue)
+        {
+            return;
+        }
+
+        item.CurrentPeriodStartUtc = periodStartUtc;
+        item.CurrentPeriodEndUtc = periodEndUtc;
+        item.NextBillingUtc = item.AutoRenew
+            ? BillingCalculator.ComputeNextBillingUtc(periodEndUtc.Value)
+            : null;
+    }
+
+    private static DateTime? ResolveNextManualInvoiceEligibilityUtc(SubscriptionItem item)
+    {
+        if (item.EndedAtUtc.HasValue)
+        {
+            return null;
+        }
+
+        if (item.BillingType == BillingType.OneTime)
+        {
+            return item.CurrentPeriodStartUtc;
+        }
+
+        return item.NextBillingUtc ?? item.CurrentPeriodStartUtc;
+    }
+
+    private static string BuildFutureInvoiceGenerationMessage(DateTime eligibleAtUtc)
+    {
+        return $"This invoice cannot be generated yet. The next service period starts on {eligibleAtUtc:dd/MM/yyyy}.";
+    }
+
     public async Task<int> SendRemindersAsync(CancellationToken cancellationToken = default)
     {
         var dueSchedules = await dbContext.ReminderSchedules
@@ -855,147 +1085,146 @@ public sealed class InvoiceService(
             .ToListAsync(cancellationToken);
 
         var emailReminderCache = new Dictionary<Guid, bool>();
-        CompanyInvoiceSettings? platformWhatsAppSettings = null;
         var subscriberWhatsAppEnabledCache = new Dictionary<Guid, bool>();
         var subscriberWhatsAppTemplateCache = new Dictionary<Guid, string?>();
         var whatsAppLimitCache = new Dictionary<Guid, int>();
         var whatsAppUsageCache = new Dictionary<Guid, int>();
+        var emailedInvoiceIds = new HashSet<Guid>();
+        var whatsAppInvoiceIds = new HashSet<Guid>();
         foreach (var schedule in dueSchedules.Where(x =>
             x.Invoice?.Customer is not null
             && x.Invoice.Status != InvoiceStatus.Voided
             && x.Invoice.AmountDue > 0))
         {
+            var claimed = await dbContext.ReminderSchedules
+                .Where(x => x.Id == schedule.Id && x.SentAtUtc == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.SentAtUtc, DateTime.UtcNow), cancellationToken);
+
+            if (claimed == 0)
+            {
+                continue;
+            }
+
             var sentAny = false;
-            if (!emailReminderCache.TryGetValue(schedule.CompanyId, out var emailRemindersEnabled))
+
+            try
             {
-                emailRemindersEnabled = await featureEntitlementService.CompanyHasFeatureAsync(schedule.CompanyId, PlatformFeatureKeys.EmailReminders, cancellationToken);
-                emailReminderCache[schedule.CompanyId] = emailRemindersEnabled;
-            }
-
-            if (emailRemindersEnabled)
-            {
-                var company = await dbContext.Companies.FirstAsync(x => x.Id == schedule.CompanyId, cancellationToken);
-                var paymentLink = await ResolveInvoiceActionLinkAsync(schedule.Invoice!, cancellationToken);
-
-                var body = EmailTemplateRenderer.RenderInvoiceEmail(
-                    company.Name,
-                    schedule.Invoice!.Customer!.Name,
-                    schedule.Invoice.InvoiceNumber,
-                    $"{schedule.Invoice.Currency} {schedule.Invoice.AmountDue:0.00}",
-                    schedule.Invoice.DueDateUtc.ToString("dd MMM yyyy"),
-                    paymentLink,
-                    isReminder: true);
-
-                await emailSender.SendAsync(
-                    schedule.Invoice.Customer.Email,
-                    $"Reminder: {schedule.Invoice.InvoiceNumber}",
-                    body,
-                    cancellationToken: cancellationToken);
-                sentAny = true;
-            }
-
-            if (platformWhatsAppSettings is null)
-            {
-                platformWhatsAppSettings = await dbContext.Companies
-                    .Where(x => x.IsPlatformAccount)
-                    .Select(x => x.InvoiceSettings)
-                    .FirstOrDefaultAsync(cancellationToken);
-            }
-
-            if (!subscriberWhatsAppEnabledCache.TryGetValue(schedule.CompanyId, out var subscriberWhatsAppEnabled))
-            {
-                var subscriberSettings = await dbContext.CompanyInvoiceSettings
-                    .Where(x => x.CompanyId == schedule.CompanyId)
-                    .Select(x => new { x.WhatsAppEnabled, x.WhatsAppTemplate })
-                    .FirstOrDefaultAsync(cancellationToken);
-                subscriberWhatsAppEnabled = subscriberSettings?.WhatsAppEnabled ?? false;
-                subscriberWhatsAppEnabledCache[schedule.CompanyId] = subscriberWhatsAppEnabled;
-                subscriberWhatsAppTemplateCache[schedule.CompanyId] = subscriberSettings?.WhatsAppTemplate;
-            }
-
-            var whatsappNotificationsEnabled = await featureEntitlementService.CompanyHasFeatureAsync(schedule.CompanyId, PlatformFeatureKeys.WhatsAppNotifications, cancellationToken);
-
-            if (whatsappNotificationsEnabled
-                && platformWhatsAppSettings is not null
-                && platformWhatsAppSettings.WhatsAppEnabled
-                && subscriberWhatsAppEnabled
-                && PlatformWhatsAppIsReady(platformWhatsAppSettings)
-                && !string.IsNullOrWhiteSpace(schedule.Invoice!.Customer!.PhoneNumber))
-            {
-                if (!whatsAppLimitCache.TryGetValue(schedule.CompanyId, out var monthlyLimit))
+                if (!emailReminderCache.TryGetValue(schedule.CompanyId, out var emailRemindersEnabled))
                 {
-                    monthlyLimit = await packageLimitService.GetWhatsAppReminderMonthlyLimitAsync(schedule.CompanyId, cancellationToken);
-                    whatsAppLimitCache[schedule.CompanyId] = monthlyLimit;
+                    emailRemindersEnabled = await featureEntitlementService.CompanyHasFeatureAsync(schedule.CompanyId, PlatformFeatureKeys.EmailReminders, cancellationToken);
+                    emailReminderCache[schedule.CompanyId] = emailRemindersEnabled;
                 }
 
-                if (monthlyLimit > 0)
+                if (emailRemindersEnabled && schedule.Invoice is not null)
                 {
-                    if (!whatsAppUsageCache.TryGetValue(schedule.CompanyId, out var monthlyUsage))
+                    if (emailedInvoiceIds.Contains(schedule.Invoice.Id))
                     {
-                        var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                        monthlyUsage = await dbContext.WhatsAppNotifications
-                            .CountAsync(x => x.CompanyId == schedule.CompanyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc, cancellationToken);
-                        whatsAppUsageCache[schedule.CompanyId] = monthlyUsage;
+                        sentAny = true;
                     }
-
-                    if (monthlyUsage < monthlyLimit)
+                    else
                     {
                         var company = await dbContext.Companies.FirstAsync(x => x.Id == schedule.CompanyId, cancellationToken);
-                        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(schedule.Invoice, cancellationToken);
-                        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(schedule.Invoice, cancellationToken);
-                        var actionLink = paymentGatewayLink ?? paymentConfirmationLink ?? (await EnsureCompanyInvoiceSettingsAsync(schedule.CompanyId, cancellationToken))?.PaymentLink;
+                        var paymentLink = await ResolveInvoiceEmailActionLinkAsync(schedule.Invoice, cancellationToken);
 
-                        var result = await platformWhatsAppGateway.SendAsync(
-                            platformWhatsAppSettings.CompanyId,
-                            new PlatformWhatsAppConfiguration(
-                                platformWhatsAppSettings.WhatsAppEnabled,
-                                string.IsNullOrWhiteSpace(platformWhatsAppSettings.WhatsAppProvider) ? "generic_api" : platformWhatsAppSettings.WhatsAppProvider,
-                                platformWhatsAppSettings.WhatsAppApiUrl,
-                                platformWhatsAppSettings.WhatsAppAccessToken,
-                                platformWhatsAppSettings.WhatsAppSenderId,
-                                platformWhatsAppSettings.WhatsAppTemplate,
-                                platformWhatsAppSettings.WhatsAppSessionStatus,
-                                platformWhatsAppSettings.WhatsAppSessionPhone,
-                                platformWhatsAppSettings.WhatsAppSessionLastSyncedAtUtc),
-                            NormalizePhoneNumber(schedule.Invoice.Customer.PhoneNumber),
-                            BuildWhatsAppReminderMessage(
-                                company.Name,
-                                schedule.Invoice.Customer.Name,
-                                schedule.Invoice.InvoiceNumber,
-                                schedule.Invoice.AmountDue,
-                                schedule.Invoice.Currency,
-                                schedule.Invoice.DueDateUtc,
-                                actionLink,
-                                paymentGatewayLink,
-                                paymentConfirmationLink,
-                                subscriberWhatsAppTemplateCache.GetValueOrDefault(schedule.CompanyId)),
-                            platformWhatsAppSettings.WhatsAppTemplate,
+                        var body = EmailTemplateRenderer.RenderInvoiceEmail(
+                            company.Name,
+                            schedule.Invoice.Customer!.Name,
                             schedule.Invoice.InvoiceNumber,
-                            cancellationToken);
+                            $"{schedule.Invoice.Currency} {schedule.Invoice.AmountDue:0.00}",
+                            schedule.Invoice.DueDateUtc.ToString("dd MMM yyyy"),
+                            paymentLink,
+                            isReminder: true);
 
-                        dbContext.WhatsAppNotifications.Add(new WhatsAppNotification
-                        {
-                            CompanyId = schedule.CompanyId,
-                            InvoiceId = schedule.Invoice.Id,
-                            ReminderScheduleId = schedule.Id,
-                            RecipientPhoneNumber = NormalizePhoneNumber(schedule.Invoice.Customer.PhoneNumber),
-                            Status = result.Success ? "Sent" : "Failed",
-                            ExternalMessageId = result.ExternalMessageId,
-                            ErrorMessage = result.ErrorMessage,
-                        });
+                        await emailSender.SendAsync(
+                            schedule.Invoice.Customer.Email,
+                            $"Reminder: {schedule.Invoice.InvoiceNumber}",
+                            body,
+                            cc: await ResolveSubscriberCustomerEmailCcAsync(schedule.CompanyId, cancellationToken),
+                            logContext: new EmailLogContext(
+                                CompanyId: schedule.CompanyId,
+                                NotificationType: "Reminder",
+                                InvoiceId: schedule.Invoice.Id,
+                                InvoiceNumber: schedule.Invoice.InvoiceNumber,
+                                CustomerName: schedule.Invoice.Customer!.Name),
+                            cancellationToken: cancellationToken);
+                        emailedInvoiceIds.Add(schedule.Invoice.Id);
+                        sentAny = true;
+                    }
+                }
 
-                        if (result.Success)
+                if (!subscriberWhatsAppEnabledCache.TryGetValue(schedule.CompanyId, out var subscriberWhatsAppEnabled))
+                {
+                    var subscriberSettings = await dbContext.CompanyInvoiceSettings
+                        .Where(x => x.CompanyId == schedule.CompanyId)
+                        .Select(x => new { x.WhatsAppEnabled, x.WhatsAppTemplate })
+                        .FirstOrDefaultAsync(cancellationToken);
+                    subscriberWhatsAppEnabled = subscriberSettings?.WhatsAppEnabled ?? false;
+                    subscriberWhatsAppEnabledCache[schedule.CompanyId] = subscriberWhatsAppEnabled;
+                    subscriberWhatsAppTemplateCache[schedule.CompanyId] = subscriberSettings?.WhatsAppTemplate;
+                }
+
+                var whatsappNotificationsEnabled = await featureEntitlementService.CompanyHasFeatureAsync(schedule.CompanyId, PlatformFeatureKeys.WhatsAppNotifications, cancellationToken);
+
+                if (whatsappNotificationsEnabled
+                    && subscriberWhatsAppEnabled
+                    && schedule.Invoice is not null
+                    && !string.IsNullOrWhiteSpace(schedule.Invoice.Customer!.PhoneNumber))
+                {
+                    var monthlyLimit = 0;
+                    if (whatsAppInvoiceIds.Contains(schedule.Invoice.Id))
+                    {
+                        sentAny = true;
+                    }
+                    else if (!whatsAppLimitCache.TryGetValue(schedule.CompanyId, out var cachedMonthlyLimit))
+                    {
+                        monthlyLimit = await packageLimitService.GetWhatsAppReminderMonthlyLimitAsync(schedule.CompanyId, cancellationToken);
+                        whatsAppLimitCache[schedule.CompanyId] = monthlyLimit;
+                    }
+                    else
+                    {
+                        monthlyLimit = cachedMonthlyLimit;
+                    }
+
+                    if (monthlyLimit > 0)
+                    {
+                        if (!whatsAppUsageCache.TryGetValue(schedule.CompanyId, out var monthlyUsage))
                         {
-                            whatsAppUsageCache[schedule.CompanyId] = monthlyUsage + 1;
-                            sentAny = true;
+                            monthlyUsage = await GetReservedWhatsAppUsageAsync(schedule.CompanyId, cancellationToken);
+                            whatsAppUsageCache[schedule.CompanyId] = monthlyUsage;
+                        }
+
+                        if (monthlyUsage < monthlyLimit)
+                        {
+                            var queued = await TryQueuePaymentReminderWhatsAppAsync(
+                                schedule,
+                                schedule.Invoice,
+                                schedule.Invoice.Customer,
+                                subscriberWhatsAppTemplateCache.GetValueOrDefault(schedule.CompanyId),
+                                cancellationToken);
+
+                            if (queued)
+                            {
+                                whatsAppUsageCache[schedule.CompanyId] = monthlyUsage + 1;
+                                whatsAppInvoiceIds.Add(schedule.Invoice.Id);
+                                sentAny = true;
+                            }
                         }
                     }
                 }
             }
-
-            if (sentAny)
+            catch
             {
-                schedule.SentAtUtc = DateTime.UtcNow;
+                await dbContext.ReminderSchedules
+                    .Where(x => x.Id == schedule.Id)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.SentAtUtc, (DateTime?)null), cancellationToken);
+                throw;
+            }
+
+            if (!sentAny)
+            {
+                await dbContext.ReminderSchedules
+                    .Where(x => x.Id == schedule.Id)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(x => x.SentAtUtc, (DateTime?)null), cancellationToken);
             }
         }
 
@@ -1140,7 +1369,7 @@ public sealed class InvoiceService(
     {
         var amountText = $"{currency} {amountDue:0.00}";
         var template = string.IsNullOrWhiteSpace(customTemplate)
-            ? "Hi {CustomerName}, this is a payment reminder for invoice {InvoiceNumber} from {CompanyName}. Amount due: {AmountDue}. Due date: {DueDate}."
+            ? "Hi {CustomerName},\n\nThis is a friendly reminder from {CompanyName}.\nInvoice {InvoiceNumber} for {AmountDue} is due on {DueDate}.\nPayment confirmation link: {ActionLink}\n\nIf payment has already been made, please ignore this message. Thank you."
             : customTemplate;
 
         var message = template
@@ -1223,49 +1452,95 @@ public sealed class InvoiceService(
             return;
         }
 
-        var platformWhatsAppSettings = await dbContext.Companies
-            .Where(x => x.IsPlatformAccount)
-            .Select(x => x.InvoiceSettings)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (platformWhatsAppSettings is null || !PlatformWhatsAppIsReady(platformWhatsAppSettings))
-        {
-            return;
-        }
-
         var monthlyLimit = await packageLimitService.GetWhatsAppReminderMonthlyLimitAsync(invoice.CompanyId, cancellationToken);
         if (monthlyLimit <= 0)
         {
             return;
         }
 
-        var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var monthlyUsage = await dbContext.WhatsAppNotifications
-            .CountAsync(x => x.CompanyId == invoice.CompanyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc, cancellationToken);
+        var monthlyUsage = await GetReservedWhatsAppUsageAsync(invoice.CompanyId, cancellationToken);
         if (monthlyUsage >= monthlyLimit)
         {
             return;
         }
 
-        var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
-        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
-        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
-        var actionLink = paymentGatewayLink ?? paymentConfirmationLink ?? subscriberSettings?.PaymentLink;
+        await TryQueueInvoiceWhatsAppAsync(invoice, customer, null, subscriberSettings?.WhatsAppTemplate, null, cancellationToken);
+    }
+
+    private async Task<bool> TryQueuePaymentReminderWhatsAppAsync(
+        ReminderSchedule schedule,
+        Invoice invoice,
+        Customer customer,
+        string? customTemplate,
+        CancellationToken cancellationToken)
+    {
+        var queued = await TryQueueInvoiceWhatsAppAsync(
+            invoice,
+            customer,
+            schedule.Id,
+            customTemplate,
+            BuildReminderWhatsAppReference(invoice.InvoiceNumber, schedule.OffsetDays),
+            cancellationToken);
+
+        if (queued)
+        {
+            await auditService.WriteAsync(
+                "invoice.whatsapp-reminder-queued",
+                nameof(Invoice),
+                invoice.Id.ToString(),
+                invoice.CompanyId,
+                $"{invoice.InvoiceNumber}:offset={schedule.OffsetDays}",
+                cancellationToken);
+        }
+
+        return queued;
+    }
+
+    private async Task<bool> TryQueueInvoiceWhatsAppAsync(
+        Invoice invoice,
+        Customer customer,
+        Guid? reminderScheduleId,
+        string? customTemplate,
+        string? reference,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(customer.PhoneNumber))
+        {
+            return false;
+        }
 
         var normalizedPhone = NormalizePhoneNumber(customer.PhoneNumber);
-        var result = await platformWhatsAppGateway.SendAsync(
-            platformWhatsAppSettings.CompanyId,
-            new PlatformWhatsAppConfiguration(
-                platformWhatsAppSettings.WhatsAppEnabled,
-                string.IsNullOrWhiteSpace(platformWhatsAppSettings.WhatsAppProvider) ? "generic_api" : platformWhatsAppSettings.WhatsAppProvider,
-                platformWhatsAppSettings.WhatsAppApiUrl,
-                platformWhatsAppSettings.WhatsAppAccessToken,
-                platformWhatsAppSettings.WhatsAppSenderId,
-                platformWhatsAppSettings.WhatsAppTemplate,
-                platformWhatsAppSettings.WhatsAppSessionStatus,
-                platformWhatsAppSettings.WhatsAppSessionPhone,
-                platformWhatsAppSettings.WhatsAppSessionLastSyncedAtUtc),
-            normalizedPhone,
-            BuildWhatsAppReminderMessage(
+        if (string.IsNullOrWhiteSpace(normalizedPhone))
+        {
+            return false;
+        }
+
+        var existingQueued = await dbContext.WhatsAppOutboundQueues.AnyAsync(
+            x => x.CompanyId == invoice.CompanyId
+                && x.InvoiceId == invoice.Id
+                && x.ReminderScheduleId == reminderScheduleId
+                && (x.Status == "Pending" || x.Status == "Deferred" || x.Status == "Sending"),
+            cancellationToken);
+
+        if (existingQueued)
+        {
+            return true;
+        }
+
+        var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
+        var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
+        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
+        var paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        var actionLink = paymentGatewayLink ?? paymentConfirmationLink ?? invoiceSettings?.PaymentLink;
+        var delaySeconds = Random.Shared.Next(20, 91);
+
+        dbContext.WhatsAppOutboundQueues.Add(new WhatsAppOutboundQueue
+        {
+            CompanyId = invoice.CompanyId,
+            InvoiceId = invoice.Id,
+            ReminderScheduleId = reminderScheduleId,
+            RecipientPhoneNumber = normalizedPhone,
+            Message = BuildWhatsAppReminderMessage(
                 company.Name,
                 customer.Name,
                 invoice.InvoiceNumber,
@@ -1275,33 +1550,50 @@ public sealed class InvoiceService(
                 actionLink,
                 paymentGatewayLink,
                 paymentConfirmationLink,
-                subscriberSettings?.WhatsAppTemplate),
-            platformWhatsAppSettings.WhatsAppTemplate,
-            invoice.InvoiceNumber,
-            cancellationToken);
-
-        dbContext.WhatsAppNotifications.Add(new WhatsAppNotification
-        {
-            CompanyId = invoice.CompanyId,
-            InvoiceId = invoice.Id,
-            RecipientPhoneNumber = normalizedPhone,
-            Status = result.Success ? "Sent" : "Failed",
-            ExternalMessageId = result.ExternalMessageId,
-            ErrorMessage = result.ErrorMessage,
+                customTemplate),
+            Template = customTemplate,
+            Reference = string.IsNullOrWhiteSpace(reference) ? invoice.InvoiceNumber : reference,
+            Status = "Pending",
+            NotBeforeUtc = DateTime.UtcNow.AddSeconds(delaySeconds),
+            NextAttemptAtUtc = DateTime.UtcNow.AddSeconds(delaySeconds)
         });
-        await dbContext.SaveChangesAsync(cancellationToken);
 
-        if (result.Success)
-        {
-            await auditService.WriteAsync("invoice.whatsapp-auto-sent", nameof(Invoice), invoice.Id.ToString(), invoice.CompanyId, invoice.InvoiceNumber, cancellationToken);
-        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    private static string BuildReminderWhatsAppReference(string invoiceNumber, int offsetDays)
+    {
+        var offsetLabel = offsetDays.ToString("+0;-0;0", System.Globalization.CultureInfo.InvariantCulture);
+        return $"{invoiceNumber}:reminder:{offsetLabel}";
+    }
+
+    private async Task<int> GetReservedWhatsAppUsageAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var sentCount = await dbContext.WhatsAppNotifications
+            .CountAsync(x => x.CompanyId == companyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc, cancellationToken);
+        var queuedCount = await dbContext.WhatsAppOutboundQueues
+            .CountAsync(
+                x => x.CompanyId == companyId
+                    && (x.Status == "Pending" || x.Status == "Deferred" || x.Status == "Sending")
+                    && x.CreatedAtUtc >= monthStartUtc,
+                cancellationToken);
+
+        return sentCount + queuedCount;
     }
 
     private async Task SendInvoiceEmailAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
-        var link = await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
-        var pdfContent = await RegenerateInvoicePdfAsync(invoice, customer, cancellationToken);
+        var link = await ResolveInvoiceEmailActionLinkAsync(invoice, cancellationToken);
+        var pdfContent = await RegenerateInvoicePdfAsync(
+            invoice,
+            customer,
+            cancellationToken,
+            paymentConfirmationLinkOverride: link is not null && link.Contains("/payment-confirmation", StringComparison.OrdinalIgnoreCase)
+                ? link
+                : null);
         var pdfFileName = $"{invoice.InvoiceNumber}.pdf";
         var body = EmailTemplateRenderer.RenderInvoiceEmail(
             company.Name,
@@ -1317,14 +1609,54 @@ public sealed class InvoiceService(
             $"Invoice {invoice.InvoiceNumber}",
             body,
             [new EmailAttachment(pdfFileName, pdfContent, "application/pdf")],
+            await ResolveSubscriberCustomerEmailCcAsync(invoice.CompanyId, cancellationToken),
+            new EmailLogContext(
+                CompanyId: invoice.CompanyId,
+                NotificationType: "Invoice",
+                InvoiceId: invoice.Id,
+                InvoiceNumber: invoice.InvoiceNumber,
+                CustomerName: customer.Name),
             cancellationToken);
     }
 
-    private async Task<byte[]> RegenerateInvoicePdfAsync(Invoice invoice, Customer customer, CancellationToken cancellationToken)
+    private async Task<IReadOnlyCollection<string>?> ResolveSubscriberCustomerEmailCcAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var companyProjection = await dbContext.Companies
+            .Where(x => x.Id == companyId && !x.IsPlatformAccount)
+            .Select(x => new
+            {
+                x.SubscriberId,
+                CcSubscriberOnCustomerEmails = x.InvoiceSettings != null ? x.InvoiceSettings.CcSubscriberOnCustomerEmails : true
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (companyProjection is null || !companyProjection.CcSubscriberOnCustomerEmails || !companyProjection.SubscriberId.HasValue)
+        {
+            return null;
+        }
+
+        var subscriberEmail = await dbContext.Users
+            .Where(x => x.Id == companyProjection.SubscriberId.Value)
+            .Select(x => x.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrWhiteSpace(subscriberEmail) ? null : [subscriberEmail.Trim()];
+    }
+
+    private async Task<byte[]> RegenerateInvoicePdfAsync(
+        Invoice invoice,
+        Customer customer,
+        CancellationToken cancellationToken,
+        string? paymentConfirmationLinkOverride = null)
     {
         var company = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
-        var latestPaymentLink = await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
+        var paymentGatewayLink = await ResolveGatewayPaymentLinkAsync(invoice, cancellationToken);
+        var paymentConfirmationLink = paymentConfirmationLinkOverride;
+        if (string.IsNullOrWhiteSpace(paymentConfirmationLink))
+        {
+            paymentConfirmationLink = await ResolvePaymentConfirmationLinkAsync(invoice, cancellationToken);
+        }
 
         var pdf = LocalInvoiceStorage.CreatePdf(
             company.Name,
@@ -1337,7 +1669,7 @@ public sealed class InvoiceService(
             invoiceSettings?.BankName,
             invoiceSettings?.BankAccountName,
             invoiceSettings?.BankAccount,
-            latestPaymentLink ?? invoiceSettings?.PaymentLink,
+            paymentGatewayLink,
             await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
             invoice.IsTaxEnabled,
             invoice.TaxName,
@@ -1353,7 +1685,8 @@ public sealed class InvoiceService(
             invoice.PeriodEndUtc,
             invoice.LineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
             invoice.Subtotal,
-            invoice.Currency);
+            invoice.Currency,
+            paymentConfirmationLink);
 
         invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(invoice.CompanyId, invoice.InvoiceNumber, pdf, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1378,8 +1711,16 @@ public sealed class InvoiceService(
         return invoiceSettings?.PaymentLink;
     }
 
+    private async Task<string?> ResolveInvoiceEmailActionLinkAsync(Invoice invoice, CancellationToken cancellationToken)
+        => await ResolveInvoiceActionLinkAsync(invoice, cancellationToken);
+
     private async Task<string?> ResolveGatewayPaymentLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {
+        if (!await CanShowGatewayPaymentLinkAsync(invoice.CompanyId, cancellationToken))
+        {
+            return null;
+        }
+
         var paymentLink = await dbContext.Payments
             .Where(x => x.InvoiceId == invoice.Id && !string.IsNullOrWhiteSpace(x.PaymentLinkUrl))
             .OrderByDescending(x => x.CreatedAtUtc)
@@ -1391,8 +1732,7 @@ public sealed class InvoiceService(
             return paymentLink;
         }
 
-        if (invoice.AmountDue > 0
-            && await featureEntitlementService.CompanyHasFeatureAsync(invoice.CompanyId, PlatformFeatureKeys.PaymentLinkGeneration, cancellationToken))
+        if (invoice.AmountDue > 0)
         {
             return await TryCreateGatewayPaymentLinkAsync(invoice, cancellationToken);
         }
@@ -1402,8 +1742,7 @@ public sealed class InvoiceService(
 
     private async Task<string?> ResolvePaymentConfirmationLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {
-        if (invoice.AmountDue > 0
-            && await featureEntitlementService.CompanyHasFeatureAsync(invoice.CompanyId, PlatformFeatureKeys.PublicPaymentConfirmation, cancellationToken))
+        if (invoice.AmountDue > 0)
         {
             return await EnsurePaymentConfirmationLinkAsync(invoice, cancellationToken);
         }
@@ -1413,11 +1752,30 @@ public sealed class InvoiceService(
 
     private async Task<string> EnsurePaymentConfirmationLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {
-        var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
-        invoice.PaymentConfirmationTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
-        invoice.PaymentConfirmationTokenIssuedAtUtc = DateTime.UtcNow;
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payment-confirmation?token={Uri.EscapeDataString(rawToken)}";
+        var link = await paymentConfirmationService.GetOrCreateLinkAsync(invoice.Id, cancellationToken)
+            ?? throw new InvalidOperationException("Unable to create payment confirmation link.");
+        return link.Url;
+    }
+
+    private async Task<bool> CanShowGatewayPaymentLinkAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        if (!await featureEntitlementService.CompanyHasFeatureAsync(companyId, PlatformFeatureKeys.PaymentLinkGeneration, cancellationToken))
+        {
+            return false;
+        }
+
+        var settings = await EnsureCompanyInvoiceSettingsAsync(companyId, cancellationToken);
+        if (settings is null
+            || !string.Equals(settings.PaymentGatewayProvider, "billplz", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var signatureRequired = settings.SubscriberBillplzRequireSignatureVerification ?? true;
+        return !string.IsNullOrWhiteSpace(settings.SubscriberBillplzApiKey)
+            && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzCollectionId)
+            && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzBaseUrl)
+            && (!signatureRequired || !string.IsNullOrWhiteSpace(settings.SubscriberBillplzXSignatureKey));
     }
 
     private async Task<string?> TryCreateGatewayPaymentLinkAsync(Invoice invoice, CancellationToken cancellationToken)
@@ -1430,12 +1788,18 @@ public sealed class InvoiceService(
 
         var subscriberSettings = await dbContext.CompanyInvoiceSettings.FirstOrDefaultAsync(x => x.CompanyId == invoice.CompanyId, cancellationToken);
         if (subscriberSettings is null
-            || !string.Equals(subscriberSettings.PaymentGatewayProvider, "billplz", StringComparison.OrdinalIgnoreCase))
+            || string.IsNullOrWhiteSpace(subscriberSettings.PaymentGatewayProvider)
+            || string.Equals(subscriberSettings.PaymentGatewayProvider, "none", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        var result = await _gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
+        if (!_gateways.TryGetValue(subscriberSettings.PaymentGatewayProvider, out var gateway))
+        {
+            return null;
+        }
+
+        var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
         {
             CompanyId = invoice.CompanyId,
             GatewayConfigurationCompanyId = invoice.CompanyId,
@@ -1447,7 +1811,7 @@ public sealed class InvoiceService(
             CustomerEmail = customer.Email,
             CustomerMobile = customer.PhoneNumber,
             Description = $"Invoice {invoice.InvoiceNumber}",
-            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/billplz",
+            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/{gateway.Name.ToLowerInvariant()}",
             RedirectUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/payment-success/{invoice.Id:D}"
         }, cancellationToken);
 
@@ -1457,7 +1821,7 @@ public sealed class InvoiceService(
             InvoiceId = invoice.Id,
             Amount = invoice.AmountDue,
             Currency = invoice.Currency,
-            GatewayName = _gateway.Name,
+            GatewayName = gateway.Name,
             Status = PaymentStatus.Pending,
             ExternalPaymentId = result.ExternalPaymentId,
             PaymentLinkUrl = result.PaymentUrl
@@ -1506,7 +1870,7 @@ public sealed class InvoiceService(
             invoiceSettings?.BankName,
             invoiceSettings?.BankAccountName,
             invoiceSettings?.BankAccount,
-            invoiceSettings?.PaymentLink,
+            null,
             await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
             taxProfile.IsEnabled,
             taxProfile.Name,
@@ -1543,9 +1907,21 @@ public sealed class InvoiceService(
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(subscription.CompanyId, cancellationToken);
         var company = subscription.Company ?? await dbContext.Companies.FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
         var eligibleItems = new List<SubscriptionItem>();
-        foreach (var item in subscription.Items.Where(x => x.BillingType == BillingType.Recurring && !x.EndedAtUtc.HasValue))
+        var nowUtc = DateTime.UtcNow;
+        foreach (var item in subscription.Items.Where(x =>
+                     !x.EndedAtUtc.HasValue
+                     && (x.BillingType == BillingType.Recurring || x.BillingType == BillingType.OneTime)))
         {
-            if (!item.CurrentPeriodStartUtc.HasValue || !item.CurrentPeriodEndUtc.HasValue)
+            var invoicePeriod = ResolveInvoicePeriod(item);
+            if (!invoicePeriod.PeriodStartUtc.HasValue)
+            {
+                continue;
+            }
+
+            var isDueForInvoicing = !persist
+                || SubscriptionService.IsItemDue(item, nowUtc)
+                || SubscriptionService.IsOneTimeItemReadyForBilling(item, nowUtc);
+            if (!isDueForInvoicing)
             {
                 continue;
             }
@@ -1556,8 +1932,10 @@ public sealed class InvoiceService(
                     x.SubscriptionItemId == item.Id
                     && x.Invoice != null
                     && x.Invoice.Status != InvoiceStatus.Voided
-                    && x.Invoice.PeriodStartUtc == item.CurrentPeriodStartUtc
-                    && x.Invoice.PeriodEndUtc == item.CurrentPeriodEndUtc,
+                    && (item.BillingType == BillingType.OneTime
+                        ? true
+                        : x.Invoice.PeriodStartUtc == invoicePeriod.PeriodStartUtc
+                          && x.Invoice.PeriodEndUtc == invoicePeriod.PeriodEndUtc),
                     cancellationToken);
 
             if (!cycleAlreadyInvoiced)
@@ -1568,26 +1946,47 @@ public sealed class InvoiceService(
 
         if (eligibleItems.Count == 0)
         {
-            throw new InvalidOperationException("An invoice already exists for the current billing cycle.");
+            var nextEligibleUtc = persist
+                ? subscription.Items
+                    .Select(ResolveNextManualInvoiceEligibilityUtc)
+                    .Where(date => date.HasValue && date.Value > nowUtc)
+                    .OrderBy(date => date)
+                    .Select(date => date!.Value)
+                    .FirstOrDefault()
+                : (DateTime?)null;
+
+            throw new InvalidOperationException(persist
+                ? nextEligibleUtc.HasValue
+                    ? BuildFutureInvoiceGenerationMessage(nextEligibleUtc.Value)
+                    : "No subscription items are due for invoicing yet."
+                : "An invoice already exists for the current billing cycle.");
         }
 
-        var lineItems = eligibleItems.Select(item => new InvoiceLineItem
+        var eligibleItemCycles = eligibleItems
+            .Select(item => new
+            {
+                Item = item,
+                InvoicePeriod = ResolveInvoicePeriod(item)
+            })
+            .ToList();
+
+        var lineItems = eligibleItemCycles.Select(entry => new InvoiceLineItem
         {
             CompanyId = subscription.CompanyId,
-            SubscriptionItemId = item.Id,
-            Description = item.ProductPlan?.PlanName ?? "Subscription",
-            Quantity = item.Quantity,
-            UnitAmount = item.UnitAmount,
-            TotalAmount = item.Quantity * item.UnitAmount
+            SubscriptionItemId = entry.Item.Id,
+            Description = BuildSubscriptionLineDescription(entry.Item),
+            Quantity = entry.Item.Quantity,
+            UnitAmount = entry.Item.UnitAmount,
+            TotalAmount = entry.Item.Quantity * entry.Item.UnitAmount
         }).ToList();
         var total = lineItems.Sum(x => x.TotalAmount);
         var taxProfile = ResolveTaxProfile(invoiceSettings);
         var taxAmount = CalculateTaxAmount(total, taxProfile);
         var grandTotal = total + taxAmount;
-        var periodStartUtc = eligibleItems.Where(x => x.CurrentPeriodStartUtc.HasValue).Min(x => x.CurrentPeriodStartUtc);
-        var periodEndUtc = eligibleItems.Where(x => x.CurrentPeriodEndUtc.HasValue).Max(x => x.CurrentPeriodEndUtc);
-        var issueDateUtc = DateTime.UtcNow;
-        var dueDateUtc = DateTime.UtcNow.AddDays(invoiceSettings?.PaymentDueDays ?? 7);
+        var periodStartUtc = eligibleItemCycles.Where(x => x.InvoicePeriod.PeriodStartUtc.HasValue).Min(x => x.InvoicePeriod.PeriodStartUtc);
+        var periodEndUtc = eligibleItemCycles.Where(x => x.InvoicePeriod.PeriodEndUtc.HasValue).Max(x => x.InvoicePeriod.PeriodEndUtc);
+        var issueDateUtc = periodStartUtc ?? DateTime.UtcNow;
+        var dueDateUtc = issueDateUtc.AddDays(invoiceSettings?.PaymentDueDays ?? 7);
         var invoiceNumber = persist ? await GenerateInvoiceNumberAsync(subscription.CompanyId, cancellationToken) : previewInvoiceNumber ?? $"PREVIEW-{issueDateUtc:yyyyMMdd-HHmmss}";
         var pdf = LocalInvoiceStorage.CreatePdf(
             company.Name,
@@ -1600,7 +1999,7 @@ public sealed class InvoiceService(
             invoiceSettings?.BankName,
             invoiceSettings?.BankAccountName,
             invoiceSettings?.BankAccount,
-            invoiceSettings?.PaymentLink,
+            null,
             await ReadCompanyPaymentQrAsync(invoiceSettings?.PaymentQrPath, cancellationToken),
             taxProfile.IsEnabled,
             taxProfile.Name,
@@ -1658,6 +2057,8 @@ public sealed class InvoiceService(
                 CompanyId = subscription.CompanyId,
                 Invoice = invoice,
                 DunningRuleId = rule.Id,
+                ReminderName = rule.Name,
+                OffsetDays = rule.OffsetDays,
                 ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
             });
         }
@@ -1679,6 +2080,21 @@ public sealed class InvoiceService(
         {
             await TrySendInvoiceWhatsAppAsync(invoice, subscriptionCustomer, cancellationToken);
         }
+
+        foreach (var recurringItem in eligibleItemCycles.Where(x => x.Item.BillingType == BillingType.Recurring))
+        {
+            AdvanceRecurringItemAfterInvoice(recurringItem.Item, recurringItem.InvoicePeriod.PeriodStartUtc, recurringItem.InvoicePeriod.PeriodEndUtc);
+        }
+
+        foreach (var oneTimeItem in eligibleItems.Where(x => x.BillingType == BillingType.OneTime))
+        {
+            oneTimeItem.AutoRenew = false;
+            oneTimeItem.NextBillingUtc = null;
+            oneTimeItem.EndedAtUtc = issueDateUtc;
+        }
+
+        SubscriptionService.SyncAggregateSnapshot(subscription);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return new GeneratedSubscriptionInvoice(invoice, pdf);
     }
@@ -1734,22 +2150,22 @@ public sealed class InvoiceService(
         {
             CompanyId = companyId,
             Prefix = DefaultInvoicePrefix,
-            NextNumber = company.InvoiceSequence > 0 ? company.InvoiceSequence : 1,
-            Padding = 6,
+            NextNumber = 1,
+            Padding = 4,
             ResetYearly = false,
             LastResetYear = null,
             ReceiptPrefix = "RCT",
             ReceiptNextNumber = 1,
-            ReceiptPadding = 6,
-            ReceiptResetYearly = false,
-            ReceiptLastResetYear = null,
-            AutoSendInvoices = true,
-            ShowCompanyAddressOnInvoice = true,
-            ShowCompanyAddressOnReceipt = true
-        };
-        dbContext.CompanyInvoiceSettings.Add(settings);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return settings;
+                ReceiptPadding = 4,
+                ReceiptResetYearly = false,
+                ReceiptLastResetYear = null,
+                AutoSendInvoices = true,
+                CcSubscriberOnCustomerEmails = true,
+                ShowCompanyAddressOnInvoice = true,
+                ShowCompanyAddressOnReceipt = true
+            };
+        await CompanyInvoiceSettingsCreation.ApplySubscriberPackageDefaultsAsync(dbContext, settings, cancellationToken);
+        return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 
     private async Task<string> GenerateInvoiceNumberAsync(Guid companyId, CancellationToken cancellationToken)
@@ -1838,6 +2254,12 @@ public sealed class InvoiceService(
         && payment.Attempts.Count == 0
         && payment.Refunds.All(x => x.Status != RefundStatus.Succeeded)
         && payment.Disputes.Count == 0;
+
+    private static bool IsRefundableManualPayment(Payment payment) =>
+        payment.Status == PaymentStatus.Succeeded
+        && payment.Attempts.Count == 0
+        && payment.Disputes.Count == 0
+        && payment.Refunds.Where(x => x.Status == RefundStatus.Succeeded).Sum(x => x.Amount) < payment.Amount;
 
     private async Task<(string Path, string FileName, string ContentType)> SavePaymentProofAsync(
         Guid companyId,

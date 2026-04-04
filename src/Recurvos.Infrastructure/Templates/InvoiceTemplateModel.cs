@@ -2,7 +2,13 @@ namespace Recurvos.Infrastructure.Templates;
 
 public sealed class InvoiceTemplateModel
 {
+    public string DocumentTitle { get; init; } = "INVOICE";
+    public string DocumentNumberLabel { get; init; } = "Invoice No";
     public string InvoiceTypeLabel { get; init; } = "Invoice";
+    public bool ShowDueDate { get; init; } = true;
+    public string? SecondaryDocumentLabel { get; init; }
+    public string? SecondaryDocumentValue { get; init; }
+    public string? PeriodLabel { get; init; } = "Billing Period";
     public string InvoiceNumber { get; init; } = string.Empty;
     public DateTime InvoiceDateUtc { get; init; }
     public DateTime DueDateUtc { get; init; }
@@ -32,6 +38,8 @@ public sealed class InvoiceTemplateModel
     public string? BankName { get; init; }
     public string? BankAccountName { get; init; }
     public string? BankAccount { get; init; }
+    public string? PaymentGatewayLink { get; init; }
+    public string? PaymentConfirmationLink { get; init; }
     public string? PaymentLink { get; init; }
     public string? PaymentQrDataUrl { get; init; }
     public string? ReferenceNumber { get; init; }

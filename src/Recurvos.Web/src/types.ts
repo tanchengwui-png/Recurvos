@@ -185,8 +185,6 @@ export type ProductPlan = {
   billingLabel: string;
   currency: string;
   unitAmount: number;
-  trialDays: number;
-  setupFeeAmount: number;
   taxBehavior: "Exclusive" | "Inclusive" | "Unspecified";
   isDefault: boolean;
   isActive: boolean;
@@ -214,6 +212,7 @@ export type Subscription = {
   isActiveInPeriod: boolean;
   cancelAtPeriodEnd: boolean;
   canceledAtUtc?: string | null;
+  cancellationReason?: string | null;
   endedAtUtc?: string | null;
   autoRenew: boolean;
   unitPrice: number;
@@ -282,6 +281,7 @@ export type Payment = {
   invoiceId: string;
   invoiceNumber: string;
   amount: number;
+  currency: string;
   refundedAmount: number;
   netCollectedAmount: number;
   status: string;
@@ -292,6 +292,7 @@ export type Payment = {
   hasReceipt: boolean;
   proofFileName?: string | null;
   paidAtUtc?: string | null;
+  history: { createdAtUtc: string; action: string; description: string }[];
   attempts: { attemptNumber: number; status: string; failureCode?: string | null; failureMessage?: string | null }[];
   refunds: Refund[];
   disputes: PaymentDispute[];
@@ -369,6 +370,7 @@ export type CreditNote = {
   id: string;
   invoiceId: string;
   customerId: string;
+  creditNoteNumber: string;
   currency: string;
   subtotalReduction: number;
   taxReduction: number;
@@ -404,6 +406,65 @@ export type DunningRule = {
   isActive: boolean;
 };
 
+export type ReminderHistoryItem = {
+  id: string;
+  reminderName: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  scheduledAtUtc: string;
+  sentAtUtc?: string | null;
+  cancelled: boolean;
+  status: "sent" | "pending" | "cancelled";
+};
+
+export type ReminderHistoryPage = {
+  items: ReminderHistoryItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+};
+
+export type SubscriberWhatsAppQueueItem = {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  recipientPhoneNumber: string;
+  status: string;
+  attemptCount: number;
+  createdAtUtc: string;
+  lastAttemptAtUtc?: string | null;
+  nextAttemptAtUtc?: string | null;
+  errorMessage?: string | null;
+};
+
+export type SubscriberWhatsAppMessageItem = {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  recipientPhoneNumber: string;
+  source: "invoice" | "reminder";
+  reminderName?: string | null;
+  reminderOffsetDays?: number | null;
+  status: string;
+  message: string;
+  attemptCount: number;
+  createdAtUtc: string;
+  lastAttemptAtUtc?: string | null;
+  nextAttemptAtUtc?: string | null;
+  externalMessageId?: string | null;
+  errorMessage?: string | null;
+};
+
+export type SubscriberWhatsAppMessagePage = {
+  items: SubscriberWhatsAppMessageItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+};
+
 export type CompanyInvoiceSettings = {
   companyId: string;
   prefix: string;
@@ -416,6 +477,11 @@ export type CompanyInvoiceSettings = {
   receiptPadding: number;
   receiptResetYearly: boolean;
   receiptLastResetYear?: number | null;
+  creditNotePrefix: string;
+  creditNoteNextNumber: number;
+  creditNotePadding: number;
+  creditNoteResetYearly: boolean;
+  creditNoteLastResetYear?: number | null;
   bankName?: string | null;
   bankAccountName?: string | null;
   bankAccount?: string | null;
@@ -437,6 +503,7 @@ export type CompanyInvoiceSettings = {
   showCompanyAddressOnInvoice: boolean;
   showCompanyAddressOnReceipt: boolean;
   autoSendInvoices: boolean;
+  ccSubscriberOnCustomerEmails: boolean;
   hasPaymentQr: boolean;
   whatsAppEnabled: boolean;
   whatsAppTemplate?: string | null;
@@ -457,12 +524,18 @@ export type PlatformWhatsAppSettings = {
   accessToken?: string | null;
   senderId?: string | null;
   template?: string | null;
+  sendWindowStartHourUtc: number;
+  sendWindowEndHourUtc: number;
   isReady: boolean;
   sessionStatus: string;
   sessionPhone?: string | null;
   sessionLastSyncedAtUtc?: string | null;
   sessionQrCodeDataUrl?: string | null;
   sessionLastError?: string | null;
+  pendingQueueCount: number;
+  deferredQueueCount: number;
+  failedQueueCount: number;
+  nextQueueAttemptAtUtc?: string | null;
 };
 
 export type PlatformWhatsAppTestMessageResult = {
@@ -482,6 +555,23 @@ export type FailedWhatsAppNotification = {
   isReminder: boolean;
   errorMessage?: string | null;
   createdAtUtc: string;
+};
+
+export type PlatformWhatsAppQueueItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  recipientPhoneNumber: string;
+  isReminder: boolean;
+  status: string;
+  attemptCount: number;
+  createdAtUtc: string;
+  lastAttemptAtUtc?: string | null;
+  nextAttemptAtUtc?: string | null;
+  errorMessage?: string | null;
 };
 
 export type WhatsAppRetryResult = {
@@ -547,6 +637,7 @@ export type PlatformBillplzSettings = {
   xSignatureKey?: string | null;
   baseUrl?: string | null;
   requireSignatureVerification: boolean;
+  isActiveProvider: boolean;
   isActiveProfile: boolean;
   isReady: boolean;
 };
@@ -556,6 +647,21 @@ export type PlatformRuntimeProfile = {
 };
 
 export type PlatformBillplzTestResult = {
+  success: boolean;
+  message: string;
+};
+
+export type PlatformStripeSettings = {
+  environment: "staging" | "production";
+  publishableKey?: string | null;
+  secretKey?: string | null;
+  webhookSecret?: string | null;
+  useAsActiveProvider: boolean;
+  isActiveProfile: boolean;
+  isReady: boolean;
+};
+
+export type PlatformStripeTestResult = {
   success: boolean;
   message: string;
 };
@@ -613,6 +719,38 @@ export type PlatformDashboardSummary = {
   companiesUsingWhatsAppThisMonth: number;
 };
 
+export type PlatformJobTriggerResult = {
+  jobKey: string;
+  jobName: string;
+  hangfireJobId: string;
+  message: string;
+  triggeredAtUtc: string;
+};
+
+export type PlatformJobHistoryEntry = {
+  stateName: string;
+  reason?: string | null;
+  createdAtUtc: string;
+};
+
+export type PlatformJobStatus = {
+  jobKey: string;
+  jobName: string;
+  cron: string;
+  queue: string;
+  timeZoneId: string;
+  nextExecutionAtUtc?: string | null;
+  lastExecutionAtUtc?: string | null;
+  lastManualTriggerAtUtc?: string | null;
+  lastManualTriggerJobId?: string | null;
+  lastJobId?: string | null;
+  lastJobState?: string | null;
+  error?: string | null;
+  retryAttempt: number;
+  lastJobCreatedAtUtc?: string | null;
+  recentHistory: PlatformJobHistoryEntry[];
+};
+
 export type PlatformUser = {
   id: string;
   companyId: string;
@@ -628,6 +766,12 @@ export type PlatformUser = {
 
 export type EmailDispatchLog = {
   id: string;
+  notificationType?: string | null;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  customerName?: string | null;
+  messageBody?: string | null;
+  status: string;
   originalRecipient: string;
   effectiveRecipient: string;
   subject: string;
@@ -742,6 +886,8 @@ export type SubscriberPackageBillingSummary = {
   pendingUpgradePackageCode?: string | null;
   pendingUpgradePackageName?: string | null;
   currentCycleEndUtc?: string | null;
+  isCompanyBillingAddressConfigured: boolean;
+  canCancelPendingUpgrade: boolean;
   availableUpgrades: SubscriberPackageUpgradeOption[];
   invoices: SubscriberPackageBillingInvoice[];
 };

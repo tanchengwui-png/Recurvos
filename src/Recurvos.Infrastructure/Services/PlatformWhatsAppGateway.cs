@@ -45,6 +45,24 @@ public sealed class PlatformWhatsAppGateway(
         return await SendSessionCommandAsync(platformCompanyId, "disconnect", cancellationToken);
     }
 
+    public async Task ClearAllSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureWorkerConfigured();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildWorkerUrl("/sessions/clear-all"))
+        {
+            Content = JsonContent.Create(new { }),
+        };
+        AddWorkerAuth(request);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(payload) ? $"Worker HTTP {(int)response.StatusCode}" : payload);
+        }
+    }
+
     public async Task<WhatsAppDispatchResult> SendAsync(Guid platformCompanyId, PlatformWhatsAppConfiguration configuration, string recipientPhoneNumber, string message, string? template, string reference, CancellationToken cancellationToken = default)
     {
         var provider = NormalizeProvider(configuration.Provider);

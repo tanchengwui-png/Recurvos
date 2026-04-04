@@ -7,7 +7,7 @@ public sealed class DunningRuleRequest
     [Required, MaxLength(100)]
     public string Name { get; set; } = string.Empty;
 
-    [Range(0, 60)]
+    [Range(-60, 60)]
     public int OffsetDays { get; set; }
 
     public bool IsActive { get; set; } = true;
@@ -21,6 +21,78 @@ public sealed class UpdateDunningRulesRequest
 
 public sealed record DunningRuleDto(Guid Id, string Name, int OffsetDays, bool IsActive);
 
+public sealed record ReminderHistoryItemDto(
+    Guid Id,
+    string ReminderName,
+    Guid InvoiceId,
+    string InvoiceNumber,
+    string CustomerName,
+    DateTime ScheduledAtUtc,
+    DateTime? SentAtUtc,
+    bool Cancelled,
+    string Status);
+
+public sealed record ReminderHistoryPageDto(
+    IReadOnlyCollection<ReminderHistoryItemDto> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
+public sealed record SubscriberWhatsAppQueueItemDto(
+    Guid Id,
+    Guid InvoiceId,
+    string InvoiceNumber,
+    string CustomerName,
+    string RecipientPhoneNumber,
+    string Status,
+    int AttemptCount,
+    DateTime CreatedAtUtc,
+    DateTime? LastAttemptAtUtc,
+    DateTime? NextAttemptAtUtc,
+    string? ErrorMessage);
+
+public sealed record SubscriberWhatsAppMessageItemDto(
+    Guid Id,
+    Guid InvoiceId,
+    string InvoiceNumber,
+    string CustomerName,
+    string RecipientPhoneNumber,
+    string Source,
+    string? ReminderName,
+    int? ReminderOffsetDays,
+    string Status,
+    string Message,
+    int AttemptCount,
+    DateTime CreatedAtUtc,
+    DateTime? LastAttemptAtUtc,
+    DateTime? NextAttemptAtUtc,
+    string? ExternalMessageId,
+    string? ErrorMessage);
+
+public sealed record SubscriberWhatsAppMessagePageDto(
+    IReadOnlyCollection<SubscriberWhatsAppMessageItemDto> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
+public sealed record SubscriberEmailDispatchLogDto(
+    Guid Id,
+    string? NotificationType,
+    Guid? InvoiceId,
+    string? InvoiceNumber,
+    string? CustomerName,
+    string? MessageBody,
+    string Status,
+    string OriginalRecipient,
+    string EffectiveRecipient,
+    string Subject,
+    string DeliveryMode,
+    bool WasRedirected,
+    string? RedirectReason,
+    bool Succeeded,
+    string? ErrorMessage,
+    DateTime CreatedAtUtc);
+
 public sealed class UpdateCompanyInvoiceSettingsRequest
 {
     [Required, MaxLength(20)]
@@ -30,7 +102,7 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
     public int NextNumber { get; set; } = 1;
 
     [Range(1, 12)]
-    public int Padding { get; set; } = 6;
+    public int Padding { get; set; } = 4;
 
     public bool ResetYearly { get; set; }
 
@@ -41,9 +113,20 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
     public int ReceiptNextNumber { get; set; } = 1;
 
     [Range(1, 12)]
-    public int ReceiptPadding { get; set; } = 6;
+    public int ReceiptPadding { get; set; } = 4;
 
     public bool ReceiptResetYearly { get; set; }
+
+    [Required, MaxLength(20)]
+    public string CreditNotePrefix { get; set; } = "CN";
+
+    [Range(1, int.MaxValue)]
+    public int CreditNoteNextNumber { get; set; } = 1;
+
+    [Range(1, 12)]
+    public int CreditNotePadding { get; set; } = 4;
+
+    public bool CreditNoteResetYearly { get; set; }
 
     [MaxLength(100)]
     public string? BankName { get; set; }
@@ -94,6 +177,7 @@ public sealed class UpdateCompanyInvoiceSettingsRequest
     public bool ShowCompanyAddressOnReceipt { get; set; } = true;
 
     public bool AutoSendInvoices { get; set; }
+    public bool CcSubscriberOnCustomerEmails { get; set; } = true;
 
     public bool WhatsAppEnabled { get; set; }
 
@@ -119,6 +203,12 @@ public sealed class UpdatePlatformWhatsAppSettingsRequest
 
     [MaxLength(100)]
     public string? Template { get; set; }
+
+    [Range(0, 23)]
+    public int SendWindowStartHourUtc { get; set; } = 9;
+
+    [Range(0, 23)]
+    public int SendWindowEndHourUtc { get; set; } = 18;
 }
 
 public sealed class PlatformWhatsAppTestMessageRequest
@@ -212,6 +302,7 @@ public sealed class UpdatePlatformBillplzSettingsRequest
     public string? BaseUrl { get; set; }
 
     public bool RequireSignatureVerification { get; set; } = true;
+    public bool UseAsActiveProvider { get; set; }
 }
 
 public sealed record PlatformWhatsAppSettingsDto(
@@ -221,12 +312,18 @@ public sealed record PlatformWhatsAppSettingsDto(
     string? AccessToken,
     string? SenderId,
     string? Template,
+    int SendWindowStartHourUtc,
+    int SendWindowEndHourUtc,
     bool IsReady,
     string SessionStatus,
     string? SessionPhone,
     DateTime? SessionLastSyncedAtUtc,
     string? SessionQrCodeDataUrl,
-    string? SessionLastError);
+    string? SessionLastError,
+    int PendingQueueCount,
+    int DeferredQueueCount,
+    int FailedQueueCount,
+    DateTime? NextQueueAttemptAtUtc);
 
 public sealed record PlatformWhatsAppTestMessageResultDto(
     bool Success,
@@ -257,7 +354,12 @@ public sealed record PlatformDocumentNumberingSettingsDto(
     int ReceiptNextNumber,
     int ReceiptMinimumDigits,
     bool ReceiptResetYearly,
-    int? ReceiptLastResetYear);
+    int? ReceiptLastResetYear,
+    string CreditNotePrefix,
+    int CreditNoteNextNumber,
+    int CreditNoteMinimumDigits,
+    bool CreditNoteResetYearly,
+    int? CreditNoteLastResetYear);
 
 public sealed record PlatformSmtpSettingsDto(
     string Environment,
@@ -281,8 +383,26 @@ public sealed record PlatformBillplzSettingsDto(
     string? XSignatureKey,
     string? BaseUrl,
     bool RequireSignatureVerification,
+    bool IsActiveProvider,
     bool IsActiveProfile,
     bool IsReady);
+
+public sealed class UpdatePlatformStripeSettingsRequest
+{
+    [Required, RegularExpression("staging|production")]
+    public string Environment { get; set; } = "staging";
+
+    [MaxLength(200)]
+    public string? PublishableKey { get; set; }
+
+    [MaxLength(200)]
+    public string? SecretKey { get; set; }
+
+    [MaxLength(200)]
+    public string? WebhookSecret { get; set; }
+
+    public bool UseAsActiveProvider { get; set; }
+}
 
 public sealed class UpdatePlatformRuntimeProfileRequest
 {
@@ -294,6 +414,19 @@ public sealed record PlatformRuntimeProfileDto(
     string ActiveEnvironment);
 
 public sealed record PlatformBillplzTestResultDto(
+    bool Success,
+    string Message);
+
+public sealed record PlatformStripeSettingsDto(
+    string Environment,
+    string? PublishableKey,
+    string? SecretKey,
+    string? WebhookSecret,
+    bool UseAsActiveProvider,
+    bool IsActiveProfile,
+    bool IsReady);
+
+public sealed record PlatformStripeTestResultDto(
     bool Success,
     string Message);
 
@@ -378,6 +511,11 @@ public sealed record CompanyInvoiceSettingsDto(
     int ReceiptPadding,
     bool ReceiptResetYearly,
     int? ReceiptLastResetYear,
+    string CreditNotePrefix,
+    int CreditNoteNextNumber,
+    int CreditNotePadding,
+    bool CreditNoteResetYearly,
+    int? CreditNoteLastResetYear,
     string? BankName,
     string? BankAccountName,
     string? BankAccount,
@@ -399,6 +537,7 @@ public sealed record CompanyInvoiceSettingsDto(
     bool ShowCompanyAddressOnInvoice,
     bool ShowCompanyAddressOnReceipt,
     bool AutoSendInvoices,
+    bool CcSubscriberOnCustomerEmails,
     bool HasPaymentQr,
     bool WhatsAppEnabled,
     string? WhatsAppTemplate,
@@ -408,10 +547,18 @@ public sealed record CompanyInvoiceSettingsDto(
 
 public sealed record CompanyPaymentQrFile(string FileName, byte[] Content, string ContentType);
 
+public sealed record PaymentQrUploadAcknowledgement(
+    bool ResponsibilityAccepted,
+    string ResponsibilityStatement);
+
 public interface ISettingsService
 {
     Task<IReadOnlyCollection<DunningRuleDto>> GetDunningRulesAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<DunningRuleDto>> UpdateDunningRulesAsync(Guid? companyId, UpdateDunningRulesRequest request, CancellationToken cancellationToken = default);
+    Task<ReminderHistoryPageDto> GetReminderHistoryAsync(Guid? companyId, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>> GetCompanyWhatsAppQueueItemsAsync(Guid? companyId, CancellationToken cancellationToken = default);
+    Task<SubscriberWhatsAppMessagePageDto> GetCompanyWhatsAppMessagesAsync(Guid? companyId, string? status, string? source, int page, int pageSize, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<SubscriberEmailDispatchLogDto>> GetCompanyEmailLogsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default);
     Task<CompanyInvoiceSettingsDto> UpdateCompanyInvoiceSettingsAsync(Guid? companyId, UpdateCompanyInvoiceSettingsRequest request, CancellationToken cancellationToken = default);
     Task<PlatformWhatsAppSettingsDto> GetPlatformWhatsAppSettingsAsync(CancellationToken cancellationToken = default);
@@ -434,10 +581,13 @@ public interface ISettingsService
     Task<PlatformBillplzSettingsDto> GetPlatformBillplzSettingsAsync(string environment, CancellationToken cancellationToken = default);
     Task<PlatformBillplzSettingsDto> UpdatePlatformBillplzSettingsAsync(UpdatePlatformBillplzSettingsRequest request, CancellationToken cancellationToken = default);
     Task<PlatformBillplzTestResultDto> TestPlatformBillplzAsync(UpdatePlatformBillplzSettingsRequest request, CancellationToken cancellationToken = default);
+    Task<PlatformStripeSettingsDto> GetPlatformStripeSettingsAsync(string environment, CancellationToken cancellationToken = default);
+    Task<PlatformStripeSettingsDto> UpdatePlatformStripeSettingsAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default);
+    Task<PlatformStripeTestResultDto> TestPlatformStripeAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default);
     Task<CompanyPaymentGatewayTestResultDto> TestCompanyPaymentGatewayAsync(Guid? companyId, TestCompanyPaymentGatewayRequest request, CancellationToken cancellationToken = default);
     Task<PlatformUploadPolicyDto> GetPlatformUploadPolicyAsync(CancellationToken cancellationToken = default);
     Task<PlatformUploadPolicyDto> UpdatePlatformUploadPolicyAsync(UpdatePlatformUploadPolicyRequest request, CancellationToken cancellationToken = default);
     Task<PlatformUploadPolicyDto> GetCurrentUploadPolicyAsync(CancellationToken cancellationToken = default);
-    Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, CancellationToken cancellationToken = default);
+    Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, PaymentQrUploadAcknowledgement acknowledgement, CancellationToken cancellationToken = default);
     Task<CompanyPaymentQrFile?> GetPaymentQrAsync(Guid? companyId, CancellationToken cancellationToken = default);
 }

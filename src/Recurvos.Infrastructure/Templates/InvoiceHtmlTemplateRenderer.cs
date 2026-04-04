@@ -7,11 +7,13 @@ public static class InvoiceHtmlTemplateRenderer
     public static string Render(InvoiceTemplateModel model)
     {
         var currency = InvoiceTemplateSupport.NormalizeCurrency(model.Currency);
+        var paymentGatewayLink = !string.IsNullOrWhiteSpace(model.PaymentGatewayLink) ? model.PaymentGatewayLink : model.PaymentLink;
         var hasPaymentDetails =
             !string.IsNullOrWhiteSpace(model.BankName) ||
             !string.IsNullOrWhiteSpace(model.BankAccountName) ||
             !string.IsNullOrWhiteSpace(model.BankAccount) ||
-            !string.IsNullOrWhiteSpace(model.PaymentLink);
+            !string.IsNullOrWhiteSpace(paymentGatewayLink) ||
+            !string.IsNullOrWhiteSpace(model.PaymentConfirmationLink);
         var hasPaymentQr = !string.IsNullOrWhiteSpace(model.PaymentQrDataUrl);
         var builder = new StringBuilder();
 
@@ -52,12 +54,12 @@ public static class InvoiceHtmlTemplateRenderer
                     .total-row { display: flex; justify-content: space-between; gap: 14px; padding: 8px 0; }
                     .total-row.final { margin-top: 8px; padding-top: 12px; border-top: 1px solid #cbd5e1; font-size: 16px; font-weight: 700; }
                     .total-row span:last-child, .meta-value { font-variant-numeric: tabular-nums; }
-                    .payment { display: grid; grid-template-columns: minmax(0, 1fr) 108px; gap: 18px; align-items: start; }
+                    .payment { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 20px; align-items: start; }
                     .payment-details { display: grid; gap: 8px; }
-                    .payment-row { display: grid; grid-template-columns: 92px 1fr; gap: 14px; }
+                    .payment-row { display: grid; grid-template-columns: 102px minmax(0, 1fr); gap: 14px; align-items: start; }
                     .payment-label { color: #64748b; font-size: 12px; }
-                    .payment-value { color: #0f172a; line-height: 1.6; word-break: break-word; }
-                    .payment-qr { width: 108px; height: 108px; border: 1px solid #dbe3ef; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+                    .payment-value { color: #0f172a; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
+                    .payment-qr { width: 92px; height: 92px; margin-top: 4px; border: 1px solid #dbe3ef; background: #fcfdfe; padding: 5px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
                     .payment-qr img { width: 100%; height: 100%; object-fit: contain; }
                     .footer { margin-top: 18px; padding-top: 12px; border-top: 1px solid #dbe3ef; color: #64748b; font-size: 12px; line-height: 1.7; }
                     .footer p { margin: 0 0 6px; }
@@ -144,7 +146,11 @@ public static class InvoiceHtmlTemplateRenderer
                 AppendPaymentDetail(builder, "Bank", model.BankName);
                 AppendPaymentDetail(builder, "Account Name", model.BankAccountName);
                 AppendPaymentDetail(builder, "Account No", model.BankAccount);
-                AppendPaymentDetail(builder, "Pay Online", model.PaymentLink);
+                AppendPaymentDetail(builder, "Pay Online", paymentGatewayLink);
+                AppendPaymentDetail(builder, "After Payment", string.IsNullOrWhiteSpace(model.PaymentConfirmationLink)
+                    ? null
+                    : "Once payment is completed, click the confirmation link below to upload your proof of payment.");
+                AppendPaymentDetail(builder, "Payment Confirmation", model.PaymentConfirmationLink, "Open payment confirmation page", true);
                 builder.Append("</div>");
             }
             else
@@ -191,7 +197,12 @@ public static class InvoiceHtmlTemplateRenderer
         builder.Append("</div>");
     }
 
-    private static void AppendPaymentDetail(StringBuilder builder, string label, string? value)
+    private static void AppendPaymentDetail(
+        StringBuilder builder,
+        string label,
+        string? value,
+        string? displayValue = null,
+        bool isHyperlink = false)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -200,7 +211,14 @@ public static class InvoiceHtmlTemplateRenderer
 
         builder.Append("""<div class="payment-row">""");
         builder.Append($"""<div class="payment-label">{InvoiceTemplateSupport.Encode(label)}</div>""");
-        builder.Append($"""<div class="payment-value">{InvoiceTemplateSupport.Encode(value)}</div>""");
+        if (isHyperlink)
+        {
+            builder.Append($"""<div class="payment-value"><a href="{InvoiceTemplateSupport.Encode(value)}" target="_blank" rel="noopener noreferrer">{InvoiceTemplateSupport.Encode(displayValue ?? value)}</a></div>""");
+        }
+        else
+        {
+            builder.Append($"""<div class="payment-value">{InvoiceTemplateSupport.Encode(displayValue ?? value)}</div>""");
+        }
         builder.Append("</div>");
     }
 }

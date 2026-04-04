@@ -9,6 +9,7 @@ import { PasswordInput } from "../components/ui/PasswordInput";
 import { TextInput } from "../components/ui/TextInput";
 import { api } from "../lib/api";
 import { setAuth } from "../lib/auth";
+import { buildPublicSiteUrl } from "../lib/siteUrls";
 import type { AuthResponse, PlatformRuntimeProfile } from "../types";
 
 export function LoginPage() {
@@ -34,8 +35,8 @@ export function LoginPage() {
         const isStaging = result.activeEnvironment === "staging";
         setShowStagingQuickLogin(isStaging);
         if (isStaging) {
-          setEmail((current) => current || "tanchengwui+basic@hotmail.com");
-          setPassword((current) => current || "Passw0rd!");
+          setEmail((current) => current || "Recurvos-Basic@hotmail.com");
+          setPassword((current) => current || "P@ssw0rd!@#$%");
         }
       })
       .catch(() => {
@@ -43,8 +44,8 @@ export function LoginPage() {
         const allowDevQuickLogin = import.meta.env.DEV;
         setShowStagingQuickLogin(allowDevQuickLogin);
         if (allowDevQuickLogin) {
-          setEmail((current) => current || "tanchengwui+basic@hotmail.com");
-          setPassword((current) => current || "Passw0rd!");
+          setEmail((current) => current || "Recurvos-Basic@hotmail.com");
+          setPassword((current) => current || "P@ssw0rd!@#$%");
         }
       });
 
@@ -84,19 +85,19 @@ export function LoginPage() {
     <div className="auth-page login-page-shell">
       <div className="login-layout">
         <section className="login-showcase card subtle-card">
-          <div className="login-showcase-brand">
+          <a className="login-showcase-brand" href={buildPublicSiteUrl("/")}>
             <div className="brand-mark" aria-hidden="true">
               <span />
             </div>
             <div>
-              <p className="eyebrow">Recurvo Billing</p>
-              <h1 className="brand-title">Subscription billing for Malaysian businesses</h1>
+              <p className="eyebrow">Recurvos Billing</p>
+              <h1 className="brand-title">Automate invoices, subscriptions, and recurring billing for Malaysian businesses.</h1>
             </div>
-          </div>
+          </a>
 
           <div className="login-showcase-copy">
             <p className="login-lead">
-              Run invoices, recurring billing, reminders, and payment collection from one focused workspace.
+              Keep customers, subscriptions, invoices, reminders, and payment tracking connected in one focused workspace.
             </p>
             <div className="login-pill-row">
               <span className="login-pill">No contract</span>
@@ -107,13 +108,13 @@ export function LoginPage() {
 
           <div className="login-highlight-grid">
             <article className="login-highlight-card">
-              <p className="eyebrow">Built for operators</p>
-              <h3>Clean billing flow</h3>
+              <p className="eyebrow">Simple billing flow</p>
+              <h3>One connected workspace</h3>
               <p className="muted">Customers, plans, subscriptions, invoices, and payments stay connected.</p>
             </article>
             <article className="login-highlight-card">
-              <p className="eyebrow">Malaysia-first</p>
-              <h3>Invoice-ready setup</h3>
+              <p className="eyebrow">Made for Malaysian billing workflows</p>
+              <h3>Ready to issue invoices</h3>
               <p className="muted">Issuer details, branded invoices, bank transfer instructions, and payment QR support.</p>
             </article>
             <article className="login-highlight-card">
@@ -138,7 +139,7 @@ export function LoginPage() {
                   type="button"
                   variant="secondary"
                   disabled={isSubmitting}
-                  onClick={() => quickLogin("owner@recurvo.com", "Passw0rd!")}
+                  onClick={() => quickLogin("owner@recurvo.com", "P@ssw0rd!@#$%")}
                 >
                   Login as Platform Owner
                 </Button>
@@ -146,7 +147,7 @@ export function LoginPage() {
                   type="button"
                   variant="secondary"
                   disabled={isSubmitting}
-                  onClick={() => quickLogin("tanchengwui+basic@hotmail.com", "Passw0rd!")}
+                  onClick={() => quickLogin("Recurvos-Basic@hotmail.com", "P@ssw0rd!@#$%")}
                 >
                   Login as Subscriber
                 </Button>

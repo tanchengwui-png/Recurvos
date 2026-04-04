@@ -4,6 +4,12 @@ namespace Recurvos.Domain.Entities;
 
 public sealed class EmailDispatchLog : CompanyOwnedEntity
 {
+    public string? NotificationType { get; set; }
+    public Guid? InvoiceId { get; set; }
+    public string? InvoiceNumber { get; set; }
+    public string? CustomerName { get; set; }
+    public string? MessageBody { get; set; }
+    public string Status { get; set; } = "Sent";
     public string OriginalRecipient { get; set; } = string.Empty;
     public string EffectiveRecipient { get; set; } = string.Empty;
     public string Subject { get; set; } = string.Empty;

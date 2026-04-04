@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Recurvos.Application.Abstractions;
 using Recurvos.Application.Auth;
 using Recurvos.Application.Platform;
 using Recurvos.Domain.Entities;
 using Recurvos.Domain.Enums;
+using Recurvos.Infrastructure.Configuration;
 using Recurvos.Infrastructure.Persistence;
 
 namespace Recurvos.Infrastructure.Services;
@@ -12,8 +15,12 @@ public sealed class PlatformService(
     AppDbContext dbContext,
     ICurrentUserService currentUserService,
     ISubscriberPackageBillingService subscriberPackageBillingService,
+    IPlatformWhatsAppGateway platformWhatsAppGateway,
     IPasswordHasher passwordHasher,
-    IAuthService authService) : IPlatformService
+    IAuthService authService,
+    DbSeeder dbSeeder,
+    LegacySchemaRepairService legacySchemaRepairService,
+    StorageResetService storageResetService) : IPlatformService
 {
     public async Task<PlatformDashboardSummaryDto> GetDashboardSummaryAsync(CancellationToken cancellationToken = default)
     {
@@ -190,7 +197,7 @@ public sealed class PlatformService(
         }
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        if (await dbContext.Users.AnyAsync(x => x.Email == normalizedEmail, cancellationToken))
+        if (await dbContext.Users.AnyAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken))
         {
             throw new InvalidOperationException("A user with this email already exists.");
         }
@@ -346,6 +353,12 @@ public sealed class PlatformService(
             .Take(200)
             .Select(x => new EmailDispatchLogDto(
                 x.Id,
+                x.NotificationType,
+                x.InvoiceId,
+                x.InvoiceNumber,
+                x.CustomerName,
+                x.MessageBody,
+                x.Status,
                 x.OriginalRecipient,
                 x.EffectiveRecipient,
                 x.Subject,
@@ -379,6 +392,82 @@ public sealed class PlatformService(
                 x.ErrorMessage,
                 x.CreatedAtUtc))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<PlatformWhatsAppQueueItemDto>> GetWhatsAppQueueItemsAsync(CancellationToken cancellationToken = default)
+    {
+        EnsurePlatformOwner();
+
+        return await dbContext.WhatsAppOutboundQueues
+            .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
+            .Join(
+                dbContext.Companies,
+                queue => queue.CompanyId,
+                company => company.Id,
+                (queue, company) => new { Queue = queue, Company = company })
+            .OrderByDescending(x => x.Queue.CreatedAtUtc)
+            .Take(100)
+            .Select(x => new PlatformWhatsAppQueueItemDto(
+                x.Queue.Id,
+                x.Queue.CompanyId,
+                x.Company.Name,
+                x.Queue.InvoiceId,
+                x.Queue.Invoice != null ? x.Queue.Invoice.InvoiceNumber : "-",
+                x.Queue.Invoice != null && x.Queue.Invoice.Customer != null ? x.Queue.Invoice.Customer.Name : "-",
+                x.Queue.RecipientPhoneNumber,
+                x.Queue.ReminderScheduleId != null,
+                x.Queue.Status,
+                x.Queue.AttemptCount,
+                x.Queue.CreatedAtUtc,
+                x.Queue.LastAttemptAtUtc,
+                x.Queue.NextAttemptAtUtc,
+                x.Queue.ErrorMessage))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<PlatformWhatsAppQueueItemDto> RetryWhatsAppQueueItemAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        EnsurePlatformOwner();
+
+        var queueItem = await dbContext.WhatsAppOutboundQueues
+            .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("WhatsApp queue item could not be found.");
+
+        if (string.Equals(queueItem.Status, "Sent", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Sent WhatsApp queue items cannot be retried.");
+        }
+
+        queueItem.Status = "Deferred";
+        queueItem.NextAttemptAtUtc = DateTime.UtcNow;
+        queueItem.ErrorMessage = null;
+        queueItem.UpdatedAtUtc = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return await MapWhatsAppQueueItemAsync(queueItem.Id, cancellationToken);
+    }
+
+    public async Task<PlatformWhatsAppQueueItemDto> CancelWhatsAppQueueItemAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        EnsurePlatformOwner();
+
+        var queueItem = await dbContext.WhatsAppOutboundQueues
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
+            ?? throw new InvalidOperationException("WhatsApp queue item could not be found.");
+
+        if (string.Equals(queueItem.Status, "Sent", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Sent WhatsApp queue items cannot be cancelled.");
+        }
+
+        queueItem.Status = "Cancelled";
+        queueItem.NextAttemptAtUtc = null;
+        queueItem.ErrorMessage = "Cancelled by platform owner.";
+        queueItem.UpdatedAtUtc = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return await MapWhatsAppQueueItemAsync(queueItem.Id, cancellationToken);
     }
 
     public async Task<IReadOnlyCollection<AuditLogEntryDto>> GetAuditLogsAsync(int take = 100, CancellationToken cancellationToken = default)
@@ -490,6 +579,86 @@ public sealed class PlatformService(
         return MapPackage(refreshed);
     }
 
+    public async Task<FactoryResetResult> FactoryResetAsync(FactoryResetRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsurePlatformOwner();
+
+        if (!string.Equals(request.ConfirmationText?.Trim(), "FACTORY RESET", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Type FACTORY RESET to continue.");
+        }
+
+        await TryClearPlatformWhatsAppStorageAsync(cancellationToken);
+        await TryDisconnectPlatformWhatsAppSessionAsync(cancellationToken);
+        dbContext.ChangeTracker.Clear();
+        await dbContext.Database.EnsureDeletedAsync(cancellationToken);
+        await dbContext.Database.MigrateAsync(cancellationToken);
+        await legacySchemaRepairService.EnsureAsync(cancellationToken);
+        storageResetService.ClearAll();
+        await dbSeeder.SeedAsync(cancellationToken);
+
+        return new FactoryResetResult(
+            DateTime.UtcNow,
+            "Factory reset completed. The database is recreated, file storage is cleared, and demo seed data is loaded. Restart the API to reinitialize Hangfire jobs.");
+    }
+
+    private async Task TryDisconnectPlatformWhatsAppSessionAsync(CancellationToken cancellationToken)
+    {
+        var platformSettings = await dbContext.Companies
+            .Where(x => x.IsPlatformAccount)
+            .Select(x => new
+            {
+                x.Id,
+                InvoiceSettings = x.InvoiceSettings
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (platformSettings?.InvoiceSettings is null)
+        {
+            return;
+        }
+
+        var invoiceSettings = platformSettings.InvoiceSettings;
+        var provider = (invoiceSettings.WhatsAppProvider ?? "generic_api").Trim().ToLowerInvariant();
+        if (provider != "whatsapp_web_js")
+        {
+            return;
+        }
+
+        try
+        {
+            await platformWhatsAppGateway.DisconnectAsync(
+                platformSettings.Id,
+                new PlatformWhatsAppConfiguration(
+                    invoiceSettings.WhatsAppEnabled,
+                    invoiceSettings.WhatsAppProvider ?? "generic_api",
+                    invoiceSettings.WhatsAppApiUrl,
+                    invoiceSettings.WhatsAppAccessToken,
+                    invoiceSettings.WhatsAppSenderId,
+                    invoiceSettings.WhatsAppTemplate,
+                    invoiceSettings.WhatsAppSessionStatus,
+                    invoiceSettings.WhatsAppSessionPhone,
+                    invoiceSettings.WhatsAppSessionLastSyncedAtUtc),
+                cancellationToken);
+        }
+        catch
+        {
+            // Reset should continue even if the worker is unreachable; on-disk session cleanup still runs.
+        }
+    }
+
+    private async Task TryClearPlatformWhatsAppStorageAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await platformWhatsAppGateway.ClearAllSessionsAsync(cancellationToken);
+        }
+        catch
+        {
+            // Reset should continue even if the worker is unreachable.
+        }
+    }
+
     private void EnsurePlatformOwner()
     {
         if (!currentUserService.IsPlatformOwner)
@@ -498,15 +667,60 @@ public sealed class PlatformService(
         }
     }
 
+    private async Task<PlatformWhatsAppQueueItemDto> MapWhatsAppQueueItemAsync(Guid id, CancellationToken cancellationToken)
+    {
+        return await dbContext.WhatsAppOutboundQueues
+            .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
+            .Join(
+                dbContext.Companies,
+                queue => queue.CompanyId,
+                company => company.Id,
+                (queue, company) => new { Queue = queue, Company = company })
+            .Where(x => x.Queue.Id == id)
+            .Select(x => new PlatformWhatsAppQueueItemDto(
+                x.Queue.Id,
+                x.Queue.CompanyId,
+                x.Company.Name,
+                x.Queue.InvoiceId,
+                x.Queue.Invoice != null ? x.Queue.Invoice.InvoiceNumber : "-",
+                x.Queue.Invoice != null && x.Queue.Invoice.Customer != null ? x.Queue.Invoice.Customer.Name : "-",
+                x.Queue.RecipientPhoneNumber,
+                x.Queue.ReminderScheduleId != null,
+                x.Queue.Status,
+                x.Queue.AttemptCount,
+                x.Queue.CreatedAtUtc,
+                x.Queue.LastAttemptAtUtc,
+                x.Queue.NextAttemptAtUtc,
+                x.Queue.ErrorMessage))
+            .FirstAsync(cancellationToken);
+    }
+
     private static string ResolvePackageStatus(string? rawStatus, DateTime? gracePeriodEndsAtUtc)
     {
         var normalized = (rawStatus ?? "pending_payment").Trim().ToLowerInvariant();
 
-        if (normalized == "pending_payment" && gracePeriodEndsAtUtc.HasValue)
+        if (normalized is "pending_payment" or "grace_period")
         {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return normalized == "grace_period" ? "past_due" : "pending_payment";
+            }
+
             return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
                 ? "grace_period"
-                : "pending_payment";
+                : "past_due";
+        }
+
+        if (normalized == "reactivation_pending_payment")
+        {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return "past_due";
+            }
+
+            return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
+                ? "pending_payment"
+                : "past_due";
         }
 
         return normalized;

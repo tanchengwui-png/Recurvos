@@ -281,9 +281,10 @@ export function PlatformDocumentPreviewPage() {
                       setError("");
                       setConfirmState(null);
                     } catch (previewError) {
-                      setError(previewError instanceof Error ? previewError.message : "Unable to generate invoice preview.");
+                      const nextError = previewError instanceof Error ? previewError.message : "Unable to generate invoice preview.";
+                      setError(nextError);
                       setMessage("");
-                      setConfirmState(null);
+                      throw new Error(nextError);
                     }
                   },
                 })}
@@ -371,9 +372,10 @@ export function PlatformDocumentPreviewPage() {
                       setError("");
                       setConfirmState(null);
                     } catch (previewError) {
-                      setError(previewError instanceof Error ? previewError.message : "Unable to generate receipt preview.");
+                      const nextError = previewError instanceof Error ? previewError.message : "Unable to generate receipt preview.";
+                      setError(nextError);
                       setMessage("");
-                      setConfirmState(null);
+                      throw new Error(nextError);
                     }
                   },
                 })}

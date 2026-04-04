@@ -13,7 +13,6 @@ public sealed class ProductPlan : CompanyOwnedEntity
     public int IntervalCount { get; set; }
     public string Currency { get; set; } = "MYR";
     public decimal UnitAmount { get; set; }
-    public int TrialDays { get; set; }
     public decimal SetupFeeAmount { get; set; }
     public TaxBehavior TaxBehavior { get; set; } = TaxBehavior.Unspecified;
     public bool IsDefault { get; set; }

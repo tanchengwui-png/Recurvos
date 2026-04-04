@@ -13,9 +13,20 @@ const sessionRoot = process.env.WHATSAPP_SESSION_DIR || path.resolve(__dirname, 
 const minSendDelayMs = Number(process.env.WHATSAPP_MIN_SEND_DELAY_MS || 12000);
 const sendJitterMs = Number(process.env.WHATSAPP_SEND_JITTER_MS || 4000);
 const maxMessagesPerDay = Number(process.env.WHATSAPP_MAX_MESSAGES_PER_DAY || 250);
+const puppeteerExecutablePath = process.env.PUPPETEER_EXECUTABLE_PATH || "";
+const puppeteerProtocolTimeoutMs = Number(process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS || 120000);
+const chromiumProfileLockNames = ["SingletonLock", "SingletonSocket", "SingletonCookie"];
 fs.mkdirSync(sessionRoot, { recursive: true });
 
 const sessions = new Map();
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+});
 
 function authorize(req, res, next) {
   if (!workerToken) {
@@ -75,16 +86,65 @@ function touch(session, updates = {}) {
   Object.assign(session, updates, { lastSyncedAtUtc: new Date().toISOString() });
 }
 
+function clearStaleChromiumLocks(tenantId) {
+  const profilePath = path.join(sessionRoot, `session-${tenantId}`);
+  for (const lockName of chromiumProfileLockNames) {
+    const lockPath = path.join(profilePath, lockName);
+    try {
+      fs.lstatSync(lockPath);
+      fs.unlinkSync(lockPath);
+    } catch {
+      // Ignore stale lock cleanup errors and continue startup.
+    }
+  }
+}
+
+function getSessionProfilePath(tenantId) {
+  return path.join(sessionRoot, `session-${tenantId}`);
+}
+
+function removeSessionFiles(tenantId) {
+  try {
+    fs.rmSync(getSessionProfilePath(tenantId), { recursive: true, force: true });
+  } catch {
+    // Ignore cleanup failures so disconnect/reset flow can continue.
+  }
+}
+
+function removeAllSessionFiles() {
+  try {
+    for (const entry of fs.readdirSync(sessionRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !entry.name.startsWith("session-")) {
+        continue;
+      }
+
+      fs.rmSync(path.join(sessionRoot, entry.name), { recursive: true, force: true });
+    }
+  } catch {
+    // Ignore cleanup failures so reset flow can continue.
+  }
+}
+
 function createClient(tenantId, session) {
+  const puppeteerConfig = {
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    protocolTimeout: puppeteerProtocolTimeoutMs,
+  };
+
+  if (puppeteerExecutablePath) {
+    puppeteerConfig.executablePath = puppeteerExecutablePath;
+  }
+
   const client = new Client({
     authStrategy: new LocalAuth({
       clientId: tenantId,
       dataPath: sessionRoot,
     }),
-    puppeteer: {
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    webVersionCache: {
+      type: "none",
     },
+    puppeteer: puppeteerConfig,
   });
 
   client.on("qr", async (qr) => {
@@ -163,20 +223,20 @@ async function ensureInitialized(tenantId) {
     return session;
   }
 
+  clearStaleChromiumLocks(tenantId);
   const client = createClient(tenantId, session);
   touch(session, {
     status: "initializing",
     lastError: null,
   });
 
-  try {
-    await client.initialize();
-  } catch (error) {
+  // Start initialization asynchronously so API connect requests never block on browser startup.
+  void client.initialize().catch((error) => {
     touch(session, {
       status: "error",
       lastError: error instanceof Error ? error.message : "Unable to initialize WhatsApp client.",
     });
-  }
+  });
 
   return session;
 }
@@ -265,6 +325,7 @@ app.post("/api/sessions/:tenantId/disconnect", async (req, res) => {
       await session.client.destroy().catch(() => {});
     }
   } finally {
+    removeSessionFiles(req.params.tenantId);
     touch(session, {
       status: "not_connected",
       phoneNumber: null,
@@ -275,6 +336,29 @@ app.post("/api/sessions/:tenantId/disconnect", async (req, res) => {
   }
 
   res.json(toSessionResponse(session));
+});
+
+app.post("/api/sessions/clear-all", async (_req, res) => {
+  for (const session of sessions.values()) {
+    try {
+      if (session.client) {
+        await session.client.logout().catch(() => {});
+        await session.client.destroy().catch(() => {});
+      }
+    } finally {
+      touch(session, {
+        status: "not_connected",
+        phoneNumber: null,
+        qrCodeDataUrl: null,
+        lastError: null,
+        client: null,
+      });
+    }
+  }
+
+  sessions.clear();
+  removeAllSessionFiles();
+  res.json({ success: true });
 });
 
 app.post("/api/messages/send", async (req, res) => {

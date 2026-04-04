@@ -20,7 +20,7 @@ export function RowActionMenu({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
-  const [menuStyle, setMenuStyle] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [menuStyle, setMenuStyle] = useState<{ top?: number; left?: number; width: number; mobile: boolean } | null>(null);
 
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
@@ -50,6 +50,15 @@ export function RowActionMenu({
         return;
       }
 
+      const mobile = window.innerWidth <= 720;
+      if (mobile) {
+        setMenuStyle({
+          mobile: true,
+          width: Math.min(window.innerWidth - 16, 360),
+        });
+        return;
+      }
+
       const width = 164;
       const margin = 12;
       const estimatedHeight = Math.max(items.length * 34 + 10, 86);
@@ -63,7 +72,7 @@ export function RowActionMenu({
         window.innerWidth - width - margin,
       );
 
-      setMenuStyle({ top, left, width });
+      setMenuStyle({ top, left, width, mobile: false });
     }
 
     updatePosition();
@@ -88,37 +97,77 @@ export function RowActionMenu({
       </button>
       {open && menuStyle
         ? createPortal(
-            <div
-              ref={popoverRef}
-              className="row-action-popover row-action-popover-portal"
-              style={{
-                position: "fixed",
-                top: `${menuStyle.top}px`,
-                left: `${menuStyle.left}px`,
-                width: `${menuStyle.width}px`,
-              }}
-            >
-              {items.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  className={`row-action-item${item.tone === "danger" ? " row-action-item-danger" : ""}${item.disabled ? " row-action-item-disabled" : ""}`}
-                  disabled={item.disabled}
-                  title={item.title}
-                  onClick={() => {
-                    setOpen(false);
-                    item.onClick();
-                  }}
+            menuStyle.mobile ? (
+              <div className="row-action-mobile-layer" role="presentation" onClick={() => setOpen(false)}>
+                <div
+                  ref={popoverRef}
+                  className="row-action-popover row-action-popover-mobile-sheet"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={`${label} actions`}
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  <span className="row-action-item-label">{item.label}</span>
-                  {item.disabled ? (
-                    <span className="row-action-item-meta">
-                      {item.title ?? "Not available"}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>,
+                  <div className="row-action-mobile-header">
+                    <strong>{label}</strong>
+                    <button type="button" className="button button-secondary button-compact" onClick={() => setOpen(false)}>
+                      Close
+                    </button>
+                  </div>
+                  {items.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      className={`row-action-item${item.tone === "danger" ? " row-action-item-danger" : ""}${item.disabled ? " row-action-item-disabled" : ""}`}
+                      disabled={item.disabled}
+                      title={item.title}
+                      onClick={() => {
+                        setOpen(false);
+                        item.onClick();
+                      }}
+                    >
+                      <span className="row-action-item-label">{item.label}</span>
+                      {item.disabled ? (
+                        <span className="row-action-item-meta">
+                          {item.title ?? "Not available"}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div
+                ref={popoverRef}
+                className="row-action-popover row-action-popover-portal"
+                style={{
+                  position: "fixed",
+                  top: `${menuStyle.top}px`,
+                  left: `${menuStyle.left}px`,
+                  width: `${menuStyle.width}px`,
+                }}
+              >
+                {items.map((item) => (
+                  <button
+                    key={item.label}
+                    type="button"
+                    className={`row-action-item${item.tone === "danger" ? " row-action-item-danger" : ""}${item.disabled ? " row-action-item-disabled" : ""}`}
+                    disabled={item.disabled}
+                    title={item.title}
+                    onClick={() => {
+                      setOpen(false);
+                      item.onClick();
+                    }}
+                  >
+                    <span className="row-action-item-label">{item.label}</span>
+                    {item.disabled ? (
+                      <span className="row-action-item-meta">
+                        {item.title ?? "Not available"}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ),
             document.body,
           )
         : null}

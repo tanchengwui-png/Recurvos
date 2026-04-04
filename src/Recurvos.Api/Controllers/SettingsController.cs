@@ -5,6 +5,13 @@ using Recurvos.Application.Settings;
 
 namespace Recurvos.Api.Controllers;
 
+public sealed class UploadPaymentQrForm
+{
+    public IFormFile? File { get; set; }
+    public bool ResponsibilityAccepted { get; set; }
+    public string? ResponsibilityStatement { get; set; }
+}
+
 [ApiController]
 [Authorize]
 [Route("api/settings")]
@@ -199,6 +206,31 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
         }
     }
 
+    [HttpGet("platform-stripe")]
+    public async Task<ActionResult<PlatformStripeSettingsDto>> GetPlatformStripe([FromQuery] string environment = "staging", CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetPlatformStripeSettingsAsync(environment, cancellationToken));
+
+    [HttpPut("platform-stripe")]
+    public async Task<ActionResult<PlatformStripeSettingsDto>> UpdatePlatformStripe(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken) =>
+        Ok(await settingsService.UpdatePlatformStripeSettingsAsync(request, cancellationToken));
+
+    [HttpPost("platform-stripe/test")]
+    public async Task<ActionResult<PlatformStripeTestResultDto>> TestPlatformStripe(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await settingsService.TestPlatformStripeAsync(request, cancellationToken));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Problem(statusCode: StatusCodes.Status403Forbidden, title: "Only platform owners can test Stripe settings.");
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
     [HttpGet("platform-upload-policy")]
     public async Task<ActionResult<PlatformUploadPolicyDto>> GetPlatformUploadPolicy(CancellationToken cancellationToken) =>
         Ok(await settingsService.GetPlatformUploadPolicyAsync(cancellationToken));
@@ -221,8 +253,9 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
     [HttpPost("invoice-settings/payment-qr")]
     [Authorize(Policy = "OwnerOnly")]
     [RequestSizeLimit(5_000_000)]
-    public async Task<ActionResult<CompanyInvoiceSettingsDto>> UploadPaymentQr([FromQuery] Guid? companyId, IFormFile file, CancellationToken cancellationToken)
+    public async Task<ActionResult<CompanyInvoiceSettingsDto>> UploadPaymentQr([FromQuery] Guid? companyId, [FromForm] UploadPaymentQrForm request, CancellationToken cancellationToken)
     {
+        var file = request.File;
         if (file is null || file.Length == 0)
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Please choose a QR image to upload.");
@@ -236,7 +269,12 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
         try
         {
             await using var stream = file.OpenReadStream();
-            var settings = await settingsService.UploadPaymentQrAsync(companyId, stream, file.FileName, cancellationToken);
+            var settings = await settingsService.UploadPaymentQrAsync(
+                companyId,
+                stream,
+                file.FileName,
+                new PaymentQrUploadAcknowledgement(request.ResponsibilityAccepted, request.ResponsibilityStatement ?? string.Empty),
+                cancellationToken);
             return settings is null ? NotFound() : Ok(settings);
         }
         catch (InvalidOperationException exception)
@@ -253,4 +291,26 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
     [Authorize(Policy = "OwnerOnly")]
     public async Task<ActionResult<IReadOnlyCollection<DunningRuleDto>>> UpdateDunningRules([FromQuery] Guid? companyId, UpdateDunningRulesRequest request, CancellationToken cancellationToken) =>
         Ok(await settingsService.UpdateDunningRulesAsync(companyId, request, cancellationToken));
+
+    [HttpGet("reminder-history")]
+    public async Task<ActionResult<ReminderHistoryPageDto>> GetReminderHistory([FromQuery] Guid? companyId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetReminderHistoryAsync(companyId, page, pageSize, cancellationToken));
+
+    [HttpGet("whatsapp-queue")]
+    public async Task<ActionResult<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>>> GetWhatsAppQueue([FromQuery] Guid? companyId, CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetCompanyWhatsAppQueueItemsAsync(companyId, cancellationToken));
+
+    [HttpGet("whatsapp-messages")]
+    public async Task<ActionResult<SubscriberWhatsAppMessagePageDto>> GetWhatsAppMessages(
+        [FromQuery] Guid? companyId,
+        [FromQuery] string? status = null,
+        [FromQuery] string? source = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetCompanyWhatsAppMessagesAsync(companyId, status, source, page, pageSize, cancellationToken));
+
+    [HttpGet("email-logs")]
+    public async Task<ActionResult<IReadOnlyCollection<SubscriberEmailDispatchLogDto>>> GetEmailLogs([FromQuery] Guid? companyId, CancellationToken cancellationToken = default) =>
+        Ok(await settingsService.GetCompanyEmailLogsAsync(companyId, cancellationToken));
 }

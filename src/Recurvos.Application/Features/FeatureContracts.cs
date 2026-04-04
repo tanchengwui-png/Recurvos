@@ -18,6 +18,7 @@ public static class PlatformFeatureKeys
     public const string PaymentLinkGeneration = "payment_link_generation";
     public const string PublicPaymentConfirmation = "public_payment_confirmation";
     public const string PaymentGatewayConfiguration = "payment_gateway_configuration";
+    public const string AutoReceiptEmails = "auto_receipt_emails";
 }
 
 public sealed record FeatureRequirementDto(string FeatureKey, string PackageCode, string PackageName);

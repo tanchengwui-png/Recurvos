@@ -5,7 +5,9 @@ namespace Recurvos.Domain.Entities;
 public sealed class ReminderSchedule : CompanyOwnedEntity
 {
     public Guid InvoiceId { get; set; }
-    public Guid DunningRuleId { get; set; }
+    public Guid? DunningRuleId { get; set; }
+    public string ReminderName { get; set; } = string.Empty;
+    public int OffsetDays { get; set; }
     public DateTime ScheduledAtUtc { get; set; }
     public DateTime? SentAtUtc { get; set; }
     public bool Cancelled { get; set; }

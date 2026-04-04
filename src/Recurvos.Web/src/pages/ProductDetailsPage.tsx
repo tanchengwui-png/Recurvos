@@ -20,9 +20,7 @@ const emptyPlanForm = {
   intervalUnit: "Month",
   intervalCount: "1",
   currency: "MYR",
-  unitAmount: "49.00",
-  trialDays: "0",
-  setupFeeAmount: "0",
+  unitAmount: "0.00",
   taxBehavior: "Unspecified",
   isDefault: false,
   isActive: true,
@@ -70,8 +68,6 @@ export function ProductDetailsPage() {
           intervalCount: planForm.billingType === "OneTime" ? 0 : Number(planForm.intervalCount),
           currency: "MYR",
           unitAmount: Number(planForm.unitAmount),
-          trialDays: planForm.billingType === "OneTime" ? 0 : Number(planForm.trialDays),
-          setupFeeAmount: Number(planForm.setupFeeAmount),
           taxBehavior: planForm.taxBehavior,
           isDefault: planForm.isDefault,
           isActive: planForm.isActive,
@@ -125,7 +121,7 @@ export function ProductDetailsPage() {
           {plans.length === 0 ? (
             <div className="empty-state">
               <h3>No plans added for this product yet</h3>
-              <p className="muted">Add monthly, quarterly, yearly, or one-time plans to make the product billable.</p>
+              <p className="muted">Add monthly, quarterly, yearly, or one-time plans to make the product billable. Trial is configured at subscription creation.</p>
             </div>
           ) : (
             <>
@@ -185,8 +181,9 @@ export function ProductDetailsPage() {
                                   setConfirmState(null);
                                   await load();
                                 } catch (error) {
-                                  setConfirmState(null);
-                                  setActionError(error instanceof Error ? error.message : "Unable to set default plan.");
+                                  const nextError = error instanceof Error ? error.message : "Unable to set default plan.";
+                                  setActionError(nextError);
+                                  throw new Error(nextError);
                                 }
                               },
                             });
@@ -207,8 +204,9 @@ export function ProductDetailsPage() {
                                     setConfirmState(null);
                                     await load();
                                   } catch (error) {
-                                    setConfirmState(null);
-                                    setActionError(error instanceof Error ? error.message : "Unable to update plan status.");
+                                    const nextError = error instanceof Error ? error.message : "Unable to update plan status.";
+                                    setActionError(nextError);
+                                    throw new Error(nextError);
                                   }
                                 },
                               });
@@ -227,8 +225,9 @@ export function ProductDetailsPage() {
                                   setConfirmState(null);
                                   await load();
                                 } catch (error) {
-                                  setConfirmState(null);
-                                  setActionError(error instanceof Error ? error.message : "Unable to delete plan.");
+                                  const nextError = error instanceof Error ? error.message : "Unable to delete plan.";
+                                  setActionError(nextError);
+                                  throw new Error(nextError);
                                 }
                               },
                             });
@@ -260,9 +259,6 @@ export function ProductDetailsPage() {
               <FormLabel htmlFor="detail-amount">Amount<TextInput id="detail-amount" value={planForm.unitAmount} onChange={(event) => setPlanForm((current) => ({ ...current, unitAmount: event.target.value }))} /></FormLabel>
               <FormLabel htmlFor="detail-currency">Currency<TextInput id="detail-currency" value="MYR" readOnly /></FormLabel>
             </div>
-            {planForm.billingType === "Recurring" ? (
-              <FormLabel htmlFor="detail-trial-days">Trial Days<TextInput id="detail-trial-days" value={planForm.trialDays} onChange={(event) => setPlanForm((current) => ({ ...current, trialDays: event.target.value }))} /></FormLabel>
-            ) : null}
             <label className="checkbox-row"><input type="checkbox" checked={planForm.isDefault} onChange={(event) => setPlanForm((current) => ({ ...current, isDefault: event.target.checked }))} /> Make default plan</label>
             <Button type="button" onClick={() => void createPlan()}>Add Plan</Button>
           </div>

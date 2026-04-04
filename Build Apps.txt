@@ -1,0 +1,79 @@
+ 1. SSH into server
+
+  ssh server@v102169
+
+  2. Go to project
+
+  cd /srv/recurvos/staging/repo
+
+  3. Make sure you are on develop
+
+  git checkout develop
+  git status
+
+  4. Pull latest code
+
+  git pull origin develop
+
+  5. Stop current staging containers
+
+  docker-compose -f docker-compose.staging.yml down
+
+  6. Rebuild all services from latest code
+
+  docker-compose -f docker-compose.staging.yml build --no-cache
+
+  7. Start all services in background
+
+  docker-compose -f docker-compose.staging.yml up -d
+
+  8. Check running status
+
+  docker-compose -f docker-compose.staging.yml ps
+
+  9. Check logs (quick health check)
+
+  docker logs --tail 120 recurvos-staging-api
+  docker logs --tail 120 recurvos-staging-web
+  docker logs --tail 120 recurvos-staging-worker
+
+  10. Verify URLs
+
+  - API: http://<server-ip>:7002/swagger
+  - Web: http://<server-ip>:4174
+  - Mailpit: http://<server-ip>:8026
+
+  If you want, I can give you a one-shot script version (copy once, run once) for recording too.
+
+
+
+  ssh server@v102169 << 'EOF'
+  set -euo pipefail
+
+  cd /srv/recurvos/staging/repo
+
+  echo "==> Branch check"
+  git checkout develop
+  git status -sb
+
+  echo "==> Pull latest"
+  git pull origin develop
+
+  echo "==> Rebuild + restart staging"
+  docker-compose -f docker-compose.staging.yml down
+  docker-compose -f docker-compose.staging.yml build --no-cache
+  docker-compose -f docker-compose.staging.yml up -d
+
+  echo "==> Service status"
+  docker-compose -f docker-compose.staging.yml ps
+
+  echo "==> Recent logs"
+  docker logs --tail 120 recurvos-staging-api || true
+  docker logs --tail 120 recurvos-staging-web || true
+  docker logs --tail 120 recurvos-staging-worker || true
+
+  echo "==> Done"
+  echo "API:     http://<server-ip>:7002/swagger"
+  echo "WEB:     http://<server-ip>:4174"
+  echo "MAILPIT: http://<server-ip>:8026"
+  EOF

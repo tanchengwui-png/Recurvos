@@ -1,0 +1,34 @@
+.git
+.gitignore
+.config
+.vs
+.vscode
+
+artifacts
+logs
+storage
+
+**/bin
+**/obj
+**/node_modules
+**/dist
+
+src/Recurvos.Web/playwright-report
+src/Recurvos.Web/test-results
+
+*.binlog
+*.log
+*.tmp
+
+A.png
+B.png
+Build Apps.txt
+DEPLOY-CHEATSHEET.txt
+DEPLOYMENT.md
+Hangfire.txt
+Plan and Helper.txt
+README_AI.md
+Set password store for GIT.txt
+build-api.log
+infra.binlog
+subscription-migration.binlog

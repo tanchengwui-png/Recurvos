@@ -25,6 +25,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         PlatformFeatureKeys.PaymentLinkGeneration,
         PlatformFeatureKeys.PublicPaymentConfirmation,
         PlatformFeatureKeys.PaymentGatewayConfiguration,
+        PlatformFeatureKeys.AutoReceiptEmails,
     ];
 
     private static readonly IReadOnlyDictionary<string, string> FeatureTextMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -49,6 +50,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         ["Payment record screen for customer to upload their payment"] = PlatformFeatureKeys.PublicPaymentConfirmation,
         ["Payment gateway configuration"] = PlatformFeatureKeys.PaymentGatewayConfiguration,
         ["Payment reminder workflows"] = PlatformFeatureKeys.WhatsAppNotifications,
+        ["Auto receipt emails"] = PlatformFeatureKeys.AutoReceiptEmails,
     };
 
     private static readonly IReadOnlyDictionary<string, string> FeatureLabels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -69,6 +71,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         [PlatformFeatureKeys.PaymentLinkGeneration] = "payment link generation",
         [PlatformFeatureKeys.PublicPaymentConfirmation] = "public payment confirmation",
         [PlatformFeatureKeys.PaymentGatewayConfiguration] = "payment gateway configuration",
+        [PlatformFeatureKeys.AutoReceiptEmails] = "automatic receipt emails",
     };
 
     public async Task<FeatureAccessDto> GetCurrentAccessAsync(CancellationToken cancellationToken = default)
@@ -114,7 +117,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
 
         var packageCode = company.SelectedPackage?.Trim().ToLowerInvariant() ?? string.Empty;
         var packageStatus = ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc);
-        var allowBillingFeatures = packageStatus is "active" or "pending_payment" or "grace_period";
+        var allowBillingFeatures = packageStatus is "active" or "pending_payment" or "grace_period" or "upgrade_pending_payment";
         var featureKeys = allowBillingFeatures
             ? await ResolvePackageFeatureKeysAsync(packageCode, cancellationToken)
             : Array.Empty<string>();
@@ -154,6 +157,25 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         return expanded.ToList();
     }
 
+    internal static IReadOnlyCollection<string> ResolvePackageFeatureKeysForConfiguration(string packageCode, IReadOnlyCollection<string>? featureTexts = null)
+    {
+        if (string.IsNullOrWhiteSpace(packageCode))
+        {
+            return Array.Empty<string>();
+        }
+
+        var resolvedFeatureTexts = featureTexts is { Count: > 0 }
+            ? featureTexts
+            : GetDefaultFeatureTexts(packageCode);
+
+        var mappedFeatureKeys = resolvedFeatureTexts
+            .Select(text => FeatureTextMap.TryGetValue(text.Trim(), out var featureKey) ? featureKey : null)
+            .Where(featureKey => !string.IsNullOrWhiteSpace(featureKey))
+            .Cast<string>();
+
+        return ExpandDependencies(mappedFeatureKeys).Where(AllFeatureKeys.Contains).ToList();
+    }
+
     private async Task<IReadOnlyCollection<string>> ResolvePackageFeatureKeysAsync(string packageCode, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(packageCode))
@@ -171,12 +193,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
             featureTexts = GetDefaultFeatureTexts(packageCode).ToList();
         }
 
-        var mappedFeatureKeys = featureTexts
-            .Select(text => FeatureTextMap.TryGetValue(text.Trim(), out var featureKey) ? featureKey : null)
-            .Where(featureKey => !string.IsNullOrWhiteSpace(featureKey))
-            .Cast<string>();
-
-        return ExpandDependencies(mappedFeatureKeys).Where(AllFeatureKeys.Contains).ToList();
+        return ResolvePackageFeatureKeysForConfiguration(packageCode, featureTexts);
     }
 
     private async Task<IReadOnlyCollection<FeatureRequirementDto>> ResolveFeatureRequirementsAsync(CancellationToken cancellationToken)
@@ -236,6 +253,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
                 "Configurable WhatsApp",
                 "Payment tracking",
                 "Payment record screen for customer to upload their payment",
+                "Auto receipt emails",
                 "Finance exports",
             ],
             "premium" =>
@@ -253,6 +271,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
                 "Payment record screen for customer to upload their payment",
                 "Finance exports",
                 "Payment gateway configuration",
+                "Auto receipt emails",
             ],
             _ => []
         };
@@ -260,15 +279,33 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
     private static string ResolvePackageStatus(string? rawStatus, DateTime? gracePeriodEndsAtUtc)
     {
         var normalized = rawStatus?.Trim().ToLowerInvariant() ?? string.Empty;
-        if (normalized == "pending_payment")
+
+        if (normalized is "pending_payment" or "grace_period")
         {
             if (!gracePeriodEndsAtUtc.HasValue)
             {
-                return "pending_payment";
+                return normalized == "grace_period" ? "past_due" : "pending_payment";
             }
 
             return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
                 ? "grace_period"
+                : "past_due";
+        }
+
+        if (normalized == "upgrade_pending_payment")
+        {
+            return "upgrade_pending_payment";
+        }
+
+        if (normalized == "reactivation_pending_payment")
+        {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return "past_due";
+            }
+
+            return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
+                ? "reactivation_pending_payment"
                 : "past_due";
         }
 

@@ -1,0 +1,19 @@
+ssh server@115.187.22.70 -p 6262
+
+
+
+ ssh server@YOUR_VPS_IP
+  tmux
+  cd /srv/recurvos/staging/repo
+  codex
+
+  Minimal saved command flow:
+
+  ssh server@115.187.22.70 -p 6262
+  cd /srv/recurvos/staging/repo
+  codex login --device-auth
+  codex
+
+  If you want one-liner SSH into project:
+
+  ssh server@YOUR_VPS_IP "cd /srv/recurvos/staging/repo && bash"

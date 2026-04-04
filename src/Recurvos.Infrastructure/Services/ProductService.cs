@@ -59,12 +59,13 @@ public sealed class ProductService(
 
     public async Task<ProductDetailsDto> CreateAsync(ProductUpsertRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureCompanyAccessAsync(request.CompanyId, cancellationToken);
-        await packageLimitService.EnsureCanCreateProductAsync(cancellationToken);
         await ValidateRequestAsync(request, null, cancellationToken);
+        var companyId = request.CompanyId!.Value;
+        await EnsureCompanyAccessAsync(companyId, cancellationToken);
+        await packageLimitService.EnsureCanCreateProductAsync(cancellationToken);
         var product = new Product
         {
-            CompanyId = request.CompanyId,
+            CompanyId = companyId,
             Name = request.Name.Trim(),
             Code = request.Code.Trim().ToUpperInvariant(),
             Description = request.Description?.Trim(),
@@ -90,12 +91,11 @@ public sealed class ProductService(
             return null;
         }
 
+        await ValidateRequestAsync(request, id, cancellationToken);
         if (product.CompanyId != request.CompanyId)
         {
             throw new InvalidOperationException("Product company cannot be changed.");
         }
-
-        await ValidateRequestAsync(request, id, cancellationToken);
         product.Name = request.Name.Trim();
         product.Code = request.Code.Trim().ToUpperInvariant();
         product.Description = request.Description?.Trim();
@@ -162,8 +162,19 @@ public sealed class ProductService(
     private async Task ValidateRequestAsync(ProductUpsertRequest request, Guid? existingId, CancellationToken cancellationToken)
     {
         var errors = ProductValidators.Validate(request).ToList();
+        if (!request.CompanyId.HasValue || request.CompanyId == Guid.Empty)
+        {
+            if (errors.Count > 0)
+            {
+                throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
+            }
+
+            throw new InvalidOperationException("Company is required.");
+        }
+
+        var companyId = request.CompanyId.Value;
         var duplicateCode = await dbContext.Products.AnyAsync(
-            x => x.CompanyId == request.CompanyId && x.Code == request.Code.Trim().ToUpperInvariant() && x.Id != existingId,
+            x => x.CompanyId == companyId && x.Code == request.Code.Trim().ToUpperInvariant() && x.Id != existingId,
             cancellationToken);
         if (duplicateCode)
         {

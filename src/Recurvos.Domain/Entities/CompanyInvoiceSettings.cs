@@ -13,6 +13,11 @@ public sealed class CompanyInvoiceSettings
     public int ReceiptPadding { get; set; } = 6;
     public bool ReceiptResetYearly { get; set; }
     public int? ReceiptLastResetYear { get; set; }
+    public string CreditNotePrefix { get; set; } = "CN";
+    public int CreditNoteNextNumber { get; set; } = 1;
+    public int CreditNotePadding { get; set; } = 6;
+    public bool CreditNoteResetYearly { get; set; }
+    public int? CreditNoteLastResetYear { get; set; }
     public string? BankName { get; set; }
     public string? BankAccountName { get; set; }
     public string? BankAccount { get; set; }
@@ -33,13 +38,18 @@ public sealed class CompanyInvoiceSettings
     public bool ShowCompanyAddressOnInvoice { get; set; } = true;
     public bool ShowCompanyAddressOnReceipt { get; set; } = true;
     public string? PaymentQrPath { get; set; }
+    public DateTime? PaymentQrResponsibilityAcceptedAtUtc { get; set; }
+    public string? PaymentQrResponsibilityStatement { get; set; }
     public bool AutoSendInvoices { get; set; } = true;
+    public bool CcSubscriberOnCustomerEmails { get; set; } = true;
     public bool WhatsAppEnabled { get; set; }
     public string WhatsAppProvider { get; set; } = "generic_api";
     public string? WhatsAppApiUrl { get; set; }
     public string? WhatsAppAccessToken { get; set; }
     public string? WhatsAppSenderId { get; set; }
     public string? WhatsAppTemplate { get; set; }
+    public int WhatsAppSendWindowStartHourUtc { get; set; } = 9;
+    public int WhatsAppSendWindowEndHourUtc { get; set; } = 18;
     public string? WhatsAppSessionStatus { get; set; }
     public string? WhatsAppSessionPhone { get; set; }
     public DateTime? WhatsAppSessionLastSyncedAtUtc { get; set; }
@@ -72,11 +82,19 @@ public sealed class CompanyInvoiceSettings
     public string? BillplzXSignatureKey { get; set; }
     public string? BillplzBaseUrl { get; set; }
     public bool? BillplzRequireSignatureVerification { get; set; }
+    public string? StripePublishableKey { get; set; }
+    public string? StripeSecretKey { get; set; }
+    public string? StripeWebhookSecret { get; set; }
     public string? ProductionBillplzApiKey { get; set; }
     public string? ProductionBillplzCollectionId { get; set; }
     public string? ProductionBillplzXSignatureKey { get; set; }
     public string? ProductionBillplzBaseUrl { get; set; }
     public bool? ProductionBillplzRequireSignatureVerification { get; set; }
+    public string? ProductionStripePublishableKey { get; set; }
+    public string? ProductionStripeSecretKey { get; set; }
+    public string? ProductionStripeWebhookSecret { get; set; }
+    public string PlatformPaymentGatewayProvider { get; set; } = "billplz";
+    public string ProductionPlatformPaymentGatewayProvider { get; set; } = "billplz";
     public bool LocalEmailCaptureEnabled { get; set; }
     public bool EmailShieldEnabled { get; set; }
     public string? EmailShieldAddress { get; set; }

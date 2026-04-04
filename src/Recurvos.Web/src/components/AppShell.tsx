@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "./ConfirmModal";
+import { InstallPromptCard } from "./InstallPromptCard";
 import { api } from "../lib/api";
 import { getAuth, setAuth } from "../lib/auth";
+import { useInstallPromptState } from "../hooks/useInstallPromptState";
+import { isStandalonePwa } from "../lib/pwa";
 import type { BillingReadiness, CompanyLookup, FeatureAccess, FeedbackNotificationSummary, PaymentConfirmation, SubscriberPackageBillingSummary } from "../types";
 
 function formatPackageLabel(packageCode?: string | null) {
@@ -33,22 +36,144 @@ function formatStatusLabel(status?: string | null) {
     .join(" ");
 }
 
+function getGracePeriodCountdown(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const endsAt = new Date(value);
+  const remainingMilliseconds = endsAt.getTime() - Date.now();
+
+  if (!Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) {
+    return "Payment deadline reached.";
+  }
+
+  const remainingDays = Math.ceil(remainingMilliseconds / (1000 * 60 * 60 * 24));
+
+  if (remainingDays <= 1) {
+    return "Less than 1 day left. Pay now to avoid access being restricted.";
+  }
+
+  if (remainingDays <= 3) {
+    return `${remainingDays} days left. Please pay now to avoid access being restricted.`;
+  }
+
+  return `${remainingDays} days left to pay before access is restricted.`;
+}
+
 function getFeatureRequirementLabel(featureAccess: FeatureAccess | null, featureKey: string) {
   const requirement = featureAccess?.featureRequirements?.find((item) => item.featureKey === featureKey);
   return requirement ? `Available on ${requirement.packageName}` : "Upgrade required";
+}
+
+function getPageLabel(pathname: string, isPlatformOwner: boolean) {
+  if (pathname === "/" || pathname === "") {
+    return "Dashboard";
+  }
+
+  if (isPlatformOwner) {
+    if (pathname.startsWith("/subscribers")) return "Subscribers";
+    if (pathname.startsWith("/platform/users")) return "Users";
+    if (pathname.startsWith("/platform/feedback")) return "Feedback";
+    if (pathname.startsWith("/platform/email-logs")) return "Email Logs";
+    if (pathname.startsWith("/platform/audit-logs")) return "Audit Logs";
+    if (pathname.startsWith("/platform/packages")) return "Packages";
+    if (pathname.startsWith("/platform/documents")) return "Document Preview";
+    if (pathname.startsWith("/platform/whatsapp-sessions")) return "WhatsApp Sessions";
+    if (pathname.startsWith("/platform/settings")) return "Settings";
+    return "Platform";
+  }
+
+  if (pathname.startsWith("/companies")) return "Companies";
+  if (pathname.startsWith("/products")) return "Products";
+  if (pathname.startsWith("/plans")) return "Plans";
+  if (pathname.startsWith("/customers")) return "Customers";
+  if (pathname.startsWith("/subscriptions")) return "Subscriptions";
+  if (pathname.startsWith("/invoices")) return "Invoices";
+  if (pathname.startsWith("/payments")) return "Payments";
+  if (pathname.startsWith("/whatsapp-messages")) return "Notification History";
+  if (pathname.startsWith("/finance")) return "Finance";
+  if (pathname.startsWith("/feedback")) return "Feedback";
+  if (pathname.startsWith("/package-billing")) return "My Plan";
+  if (pathname.startsWith("/settings")) return "Settings";
+  if (pathname.startsWith("/help/quick-start")) return "Quick Start";
+  return "Workspace";
 }
 
 export function AppShell() {
   const auth = getAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const contentRef = useRef<HTMLElement | null>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [packageBilling, setPackageBilling] = useState<SubscriberPackageBillingSummary | null>(null);
   const [companyCount, setCompanyCount] = useState<number | null>(null);
   const [pendingSetupCount, setPendingSetupCount] = useState<number | null>(null);
   const [feedbackUnreadCount, setFeedbackUnreadCount] = useState(0);
   const [pendingPaymentConfirmationCount, setPendingPaymentConfirmationCount] = useState(0);
+  const installPrompt = useInstallPromptState(location.pathname);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth > 960) {
+        setMobileNavOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileNavOpen(false);
+      }
+    };
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(display-mode: standalone)");
+
+    const syncStandaloneClass = () => {
+      document.body.classList.toggle("app-pwa-standalone", isStandalonePwa());
+    };
+
+    syncStandaloneClass();
+
+    mediaQuery.addEventListener("change", syncStandaloneClass);
+    return () => {
+      mediaQuery.removeEventListener("change", syncStandaloneClass);
+      document.body.classList.remove("app-pwa-standalone");
+    };
+  }, []);
 
   useEffect(() => {
     if (!auth || auth.isPlatformOwner) {
@@ -129,6 +254,7 @@ export function AppShell() {
         ["Feedback", "/feedback"],
         ["My Plan", "/package-billing"],
         ["Settings", "/settings"],
+        ["Notification History", "/whatsapp-messages"],
       ] as const);
   const showFloatingQuickStart = Boolean(auth && !auth.isPlatformOwner && location.pathname !== "/help/quick-start");
   const resolvedPackageStatus = (packageBilling?.packageStatus ?? featureAccess?.packageStatus ?? "").toLowerCase();
@@ -136,7 +262,7 @@ export function AppShell() {
     auth &&
     !auth.isPlatformOwner &&
     location.pathname !== "/package-billing" &&
-    ["pending_payment", "grace_period", "past_due"].includes(resolvedPackageStatus),
+    ["pending_payment", "grace_period", "past_due", "upgrade_pending_payment", "reactivation_pending_payment"].includes(resolvedPackageStatus),
   );
   const showPaymentConfirmationReminder = Boolean(
     auth &&
@@ -144,6 +270,13 @@ export function AppShell() {
     location.pathname !== "/payments" &&
     pendingPaymentConfirmationCount > 0,
   );
+  const showInstallPrompt = Boolean(
+    auth &&
+    !auth.isPlatformOwner &&
+    ["/", "/settings", "/help/quick-start"].includes(location.pathname) &&
+    installPrompt.shouldShowPrompt,
+  );
+  const currentPageLabel = getPageLabel(location.pathname, auth?.isPlatformOwner ?? false);
 
   function formatDate(value: string) {
     return new Intl.DateTimeFormat("en-MY", {
@@ -155,9 +288,10 @@ export function AppShell() {
 
   function getBillingReminderCopy() {
     if (resolvedPackageStatus === "grace_period" && packageBilling?.gracePeriodEndsAtUtc) {
+      const countdown = getGracePeriodCountdown(packageBilling.gracePeriodEndsAtUtc);
       return {
         title: "Package payment is still pending",
-        body: `Your billing access remains available until ${formatDate(packageBilling.gracePeriodEndsAtUtc)}. Pay your package invoice before then to avoid interruption.`,
+        body: `Your billing access remains available until ${formatDate(packageBilling.gracePeriodEndsAtUtc)}. ${countdown ?? "Pay your package invoice before then to avoid interruption."}`,
         tone: "warning",
       } as const;
     }
@@ -166,6 +300,22 @@ export function AppShell() {
       return {
         title: "Package payment is overdue",
         body: "Your account is past due. Open My Plan and pay the package invoice to restore full billing access.",
+        tone: "danger",
+      } as const;
+    }
+
+    if (resolvedPackageStatus === "upgrade_pending_payment" && packageBilling?.pendingUpgradePackageName) {
+      return {
+        title: "Package upgrade is waiting for payment",
+        body: `Your current package stays active until you pay the upgrade invoice for ${packageBilling.pendingUpgradePackageName}.`,
+        tone: "warning",
+      } as const;
+    }
+
+    if (resolvedPackageStatus === "reactivation_pending_payment") {
+      return {
+        title: "Reactivation invoice is waiting for payment",
+        body: "Your account remains restricted until the reactivation invoice is paid.",
         tone: "danger",
       } as const;
     }
@@ -181,16 +331,29 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <div
+        className={`sidebar-backdrop ${mobileNavOpen ? "is-visible" : ""}`}
+        aria-hidden={mobileNavOpen ? "false" : "true"}
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <aside className={`sidebar ${mobileNavOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-brand">
           <div className="brand-mark small" aria-hidden="true">
             <span />
           </div>
           <div>
-            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvo Platform" : "Recurvo Billing"}</p>
-            <h1 className="sidebar-title">{auth?.isPlatformOwner ? "Platform" : "Recurvo"}</h1>
+            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Billing"}</p>
+            <h1 className="sidebar-title">{auth?.isPlatformOwner ? "Platform" : "Recurvos"}</h1>
           </div>
         </div>
+        <button
+          type="button"
+          className="sidebar-mobile-close"
+          onClick={() => setMobileNavOpen(false)}
+          aria-label="Close navigation"
+        >
+          Close
+        </button>
         <div className="sidebar-account card subtle-card">
           <p>{auth?.isPlatformOwner ? auth?.companyName : auth?.fullName}</p>
           <p className="muted">{auth?.email}</p>
@@ -217,7 +380,7 @@ export function AppShell() {
           )}
           <p className="sidebar-helper">
             {auth?.isPlatformOwner
-              ? "Manage subscriber businesses across the Recurvo platform"
+              ? "Manage subscriber businesses across the Recurvos platform"
               : "Manage subscriptions, invoices, and payments in one place"}
           </p>
         </div>
@@ -228,6 +391,7 @@ export function AppShell() {
                   key={path}
                   to={path}
                   className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                  onClick={() => setMobileNavOpen(false)}
                 >
                   {label}
                 </NavLink>
@@ -249,6 +413,7 @@ export function AppShell() {
                     key={item.path}
                     to={item.path}
                     className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                    onClick={() => setMobileNavOpen(false)}
                   >
                     {item.label}
                     {item.label === "Payments" && pendingPaymentConfirmationCount > 0 ? (
@@ -267,6 +432,7 @@ export function AppShell() {
                   key={path}
                   to={path}
                   className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                  onClick={() => setMobileNavOpen(false)}
                 >
                   {label}
                   {label === "Feedback" && feedbackUnreadCount > 0 ? (
@@ -291,7 +457,32 @@ export function AppShell() {
           <Link className="inline-link" to="/terms" state={{ backgroundLocation: location }}>Terms</Link>
         </div>
       </aside>
-      <main className="content">
+      <main ref={contentRef} className="content">
+        <header className="mobile-appbar">
+          <button
+            type="button"
+            className="mobile-appbar-menu"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open navigation"
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+          <div className="mobile-appbar-copy">
+            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Billing"}</p>
+            <strong>{currentPageLabel}</strong>
+            <span className="mobile-appbar-subtitle">{auth?.isPlatformOwner ? auth?.companyName : auth?.companyName ?? "Account"}</span>
+          </div>
+          <button
+            type="button"
+            className="mobile-appbar-account"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open account menu"
+          >
+            {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
+          </button>
+        </header>
         {billingReminder ? (
           <section className={`billing-reminder-banner billing-reminder-banner-${billingReminder.tone}`}>
             <div>
@@ -302,7 +493,10 @@ export function AppShell() {
             <button
               type="button"
               className="button"
-              onClick={() => navigate("/package-billing")}
+              onClick={() => {
+                setMobileNavOpen(false);
+                navigate("/package-billing");
+              }}
             >
               View my plan
             </button>
@@ -322,11 +516,31 @@ export function AppShell() {
             <button
               type="button"
               className="button"
-              onClick={() => navigate("/payments")}
+              onClick={() => {
+                setMobileNavOpen(false);
+                navigate("/payments?tab=pending");
+              }}
             >
               Review payments
             </button>
           </section>
+        ) : null}
+        {showInstallPrompt ? (
+          <InstallPromptCard
+            canTriggerInstall={installPrompt.canTriggerInstall}
+            isManualInstallOnly={installPrompt.isManualInstallOnly}
+            onDismiss={installPrompt.dismiss}
+            onPrimaryAction={() => {
+              setMobileNavOpen(false);
+
+              if (installPrompt.canTriggerInstall) {
+                void installPrompt.promptInstall();
+                return;
+              }
+
+              navigate("/settings#install-help");
+            }}
+          />
         ) : null}
         <Outlet />
       </main>
@@ -334,7 +548,10 @@ export function AppShell() {
         <button
           type="button"
           className="quickstart-float-button"
-          onClick={() => navigate("/help/quick-start")}
+          onClick={() => {
+            setMobileNavOpen(false);
+            navigate("/help/quick-start");
+          }}
         >
           <span className="quickstart-float-kicker">Quick Start</span>
           {pendingSetupCount && pendingSetupCount > 0 ? (
@@ -345,7 +562,7 @@ export function AppShell() {
       <ConfirmModal
         open={showSignOutConfirm}
         title="Sign out"
-        description="Sign out of your current Recurvo session?"
+        description="Sign out of your current Recurvos session?"
         confirmLabel="Sign out"
         onConfirm={() => {
           setAuth(null);

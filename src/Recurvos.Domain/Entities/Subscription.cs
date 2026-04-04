@@ -15,6 +15,7 @@ public sealed class Subscription : CompanyOwnedEntity
     public DateTime? NextBillingUtc { get; set; }
     public bool CancelAtPeriodEnd { get; set; }
     public DateTime? CanceledAtUtc { get; set; }
+    public string? CancellationReason { get; set; }
     public DateTime? EndedAtUtc { get; set; }
     public bool AutoRenew { get; set; } = true;
     public decimal UnitPrice { get; set; }

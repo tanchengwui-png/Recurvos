@@ -168,21 +168,25 @@ var resetDemoData = args.Any(argument => string.Equals(argument, "--reset-demo-d
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var legacySchemaRepairService = scope.ServiceProvider.GetRequiredService<LegacySchemaRepairService>();
+    var hangfireBootstrapService = scope.ServiceProvider.GetRequiredService<HangfireBootstrapService>();
     if (resetDemoData)
     {
-        await ResetDemoDataAsync(scope.ServiceProvider, dbContext);
+        await ResetDemoDataAsync(scope.ServiceProvider, dbContext, legacySchemaRepairService, hangfireBootstrapService);
         return;
     }
 
     if (dbContext.Database.IsRelational())
     {
         await dbContext.Database.MigrateAsync();
+        await legacySchemaRepairService.EnsureAsync();
     }
     else
     {
         await dbContext.Database.EnsureCreatedAsync();
     }
     await scope.ServiceProvider.GetRequiredService<DbSeeder>().SeedAsync();
+    hangfireBootstrapService.EnsureConfigured();
 }
 
 if (app.Environment.IsDevelopment())
@@ -230,16 +234,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseHangfireDashboard("/hangfire");
 
-RecurringJob.AddOrUpdate<GenerateInvoicesJob>("generate-invoices", x => x.ExecuteAsync(), Cron.Hourly);
-RecurringJob.AddOrUpdate<SendInvoiceRemindersJob>("send-invoice-reminders", x => x.ExecuteAsync(), Cron.Daily);
-RecurringJob.AddOrUpdate<RetryFailedPaymentsJob>("retry-failed-payments", x => x.ExecuteAsync(), Cron.Hourly);
-RecurringJob.AddOrUpdate<CleanupStaleSignupsJob>("cleanup-stale-signups", x => x.ExecuteAsync(), Cron.Daily);
-
 app.MapControllers();
 
 app.Run();
 
-static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext)
+static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext, LegacySchemaRepairService legacySchemaRepairService, HangfireBootstrapService hangfireBootstrapService)
 {
     Console.WriteLine("Resetting Recurvos demo data...");
 
@@ -247,6 +246,7 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
     {
         await dbContext.Database.EnsureDeletedAsync();
         await dbContext.Database.MigrateAsync();
+        await legacySchemaRepairService.EnsureAsync();
     }
     else
     {
@@ -254,44 +254,17 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
         await dbContext.Database.EnsureCreatedAsync();
     }
 
-    var environment = services.GetRequiredService<IHostEnvironment>();
-    var storageOptions = services.GetRequiredService<IOptions<StorageOptions>>().Value;
-    var invoiceRoot = StoragePathResolver.Resolve(environment, storageOptions.InvoiceDirectory);
-    var storageRoot = Directory.GetParent(invoiceRoot)?.FullName ?? Path.Combine(environment.ContentRootPath, "storage");
-    ClearDirectory(invoiceRoot);
-    ClearDirectory(Path.Combine(storageRoot, "emails"));
-    ClearDirectory(Path.Combine(storageRoot, "receipts"));
-    ClearDirectory(StoragePathResolver.Resolve(environment, storageOptions.PaymentProofDirectory));
+    services.GetRequiredService<StorageResetService>().ClearAll();
 
     await services.GetRequiredService<DbSeeder>().SeedAsync();
 
     Console.WriteLine("Recurvos demo data reset complete.");
+    Console.WriteLine("Restart the API process now so Hangfire can recreate its tables and recurring jobs.");
     Console.WriteLine("Seeded accounts:");
-    Console.WriteLine("  Platform owner: owner@recurvo.com / Passw0rd!");
-    Console.WriteLine("  Subscriber Basic: tanchengwui+basic@hotmail.com / Passw0rd!");
-    Console.WriteLine("  Subscriber Growth: tanchengwui+growth@hotmail.com / Passw0rd!");
-    Console.WriteLine("  Subscriber Premium: tanchengwui+premium@hotmail.com / Passw0rd!");
-}
-
-static void ClearDirectory(string path)
-{
-    if (!Directory.Exists(path))
-    {
-        return;
-    }
-
-    foreach (var file in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
-    {
-        File.Delete(file);
-    }
-
-    foreach (var directory in Directory.GetDirectories(path, "*", SearchOption.AllDirectories).OrderByDescending(x => x.Length))
-    {
-        if (Directory.Exists(directory))
-        {
-            Directory.Delete(directory, recursive: false);
-        }
-    }
+    Console.WriteLine("  Platform owner: owner@recurvo.com / P@ssw0rd!@#$%");
+    Console.WriteLine("  Subscriber Basic: Recurvos-Basic@hotmail.com / P@ssw0rd!@#$%");
+    Console.WriteLine("  Subscriber Growth: Recurvos-growth@hotmail.com / P@ssw0rd!@#$%");
+    Console.WriteLine("  Subscriber Premium: Recurvos-premium@hotmail.com / P@ssw0rd!@#$%");
 }
 
 public partial class Program;

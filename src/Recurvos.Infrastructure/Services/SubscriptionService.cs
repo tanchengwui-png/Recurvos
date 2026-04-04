@@ -52,21 +52,17 @@ public sealed class SubscriptionService(
             throw new InvalidOperationException("All subscription items must belong to the same company.");
         }
 
-        if (plans.Any(x => x.BillingType != BillingType.Recurring))
-        {
-            throw new InvalidOperationException("Subscriptions require recurring plans.");
-        }
-
         var companyId = companyIds[0];
         await billingReadinessService.EnsureReadyAsync(companyId, "subscription creation", cancellationToken);
         var startUtc = request.StartDateUtc.Kind == DateTimeKind.Utc ? request.StartDateUtc : request.StartDateUtc.ToUniversalTime();
+        ThrowIfInvalid(SubscriptionValidators.ValidateStartDate(startUtc, DateTime.UtcNow));
+        DateTime? trialStartUtc = request.TrialDays > 0 ? startUtc : null;
+        DateTime? trialEndUtc = request.TrialDays > 0 ? startUtc.AddDays(request.TrialDays) : null;
+        ValidateTrialWindow(trialStartUtc, trialEndUtc);
 
         var items = request.Items.Select(itemRequest =>
         {
             var plan = plans.Single(x => x.Id == itemRequest.ProductPlanId);
-            DateTime? trialStartUtc = plan.TrialDays > 0 ? startUtc : null;
-            DateTime? trialEndUtc = plan.TrialDays > 0 ? startUtc.AddDays(plan.TrialDays) : null;
-            ValidateTrialWindow(trialStartUtc, trialEndUtc);
             var cycle = ComputeBillingCycle(startUtc, trialEndUtc, plan.BillingType, plan.IntervalUnit, plan.IntervalCount);
 
             return new SubscriptionItem
@@ -95,6 +91,8 @@ public sealed class SubscriptionService(
             CustomerId = customer.Id,
             Status = SubscriptionStatus.Active,
             StartDateUtc = startUtc,
+            TrialStartUtc = trialStartUtc,
+            TrialEndUtc = trialEndUtc,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             CreatedAtUtc = DateTime.UtcNow,
             UpdatedAtUtc = DateTime.UtcNow,
@@ -187,6 +185,87 @@ public sealed class SubscriptionService(
             nameof(Subscription),
             subscription.Id.ToString(),
             string.IsNullOrWhiteSpace(request.Reason) ? $"unitPrice={item.UnitAmount:0.00}" : request.Reason.Trim(),
+            cancellationToken);
+        return Map(subscription);
+    }
+
+    public async Task<SubscriptionDto?> MigrateItemAsync(Guid id, Guid subscriptionItemId, MigrateSubscriptionItemRequest request, CancellationToken cancellationToken = default)
+    {
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.RecurringInvoices, cancellationToken);
+        ThrowIfInvalid(SubscriptionValidators.ValidateMigration(request));
+
+        var subscription = await Query().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (subscription is null)
+        {
+            return null;
+        }
+
+        if (subscription.EndedAtUtc.HasValue || subscription.Status == SubscriptionStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Ended or cancelled subscriptions cannot be migrated.");
+        }
+
+        var item = subscription.Items.FirstOrDefault(x => x.Id == subscriptionItemId)
+            ?? throw new InvalidOperationException("Subscription item not found.");
+
+        if (item.EndedAtUtc.HasValue)
+        {
+            throw new InvalidOperationException("Ended subscription items cannot be migrated.");
+        }
+
+        if (item.ProductPlanId == request.TargetProductPlanId)
+        {
+            throw new InvalidOperationException("This item is already using the selected plan.");
+        }
+
+        var targetPlan = await dbContext.ProductPlans
+            .Include(x => x.Product)
+            .FirstOrDefaultAsync(
+                x => OwnedCompanyIdsQuery().Contains(x.CompanyId)
+                    && x.CompanyId == subscription.CompanyId
+                    && x.Id == request.TargetProductPlanId,
+                cancellationToken)
+            ?? throw new InvalidOperationException("Target plan not found.");
+
+        if (!targetPlan.IsActive)
+        {
+            throw new InvalidOperationException("Only active plans can be used for migration.");
+        }
+
+        var effectiveStartUtc = item.TrialEndUtc.HasValue && item.TrialEndUtc.Value > DateTime.UtcNow
+            ? item.TrialEndUtc.Value
+            : DateTime.UtcNow;
+        var cycle = ComputeBillingCycle(
+            effectiveStartUtc,
+            null,
+            targetPlan.BillingType,
+            targetPlan.BillingType == BillingType.OneTime ? IntervalUnit.None : targetPlan.IntervalUnit,
+            targetPlan.BillingType == BillingType.OneTime ? 0 : targetPlan.IntervalCount);
+
+        item.ProductPlanId = targetPlan.Id;
+        item.ProductPlan = targetPlan;
+        item.UnitAmount = targetPlan.UnitAmount;
+        item.Currency = targetPlan.Currency.Trim().ToUpperInvariant();
+        item.BillingType = targetPlan.BillingType;
+        item.IntervalUnit = targetPlan.BillingType == BillingType.OneTime ? IntervalUnit.None : targetPlan.IntervalUnit;
+        item.IntervalCount = targetPlan.BillingType == BillingType.OneTime ? 0 : targetPlan.IntervalCount;
+        item.AutoRenew = targetPlan.BillingType == BillingType.Recurring;
+        item.CurrentPeriodStartUtc = cycle.CurrentPeriodStartUtc;
+        item.CurrentPeriodEndUtc = cycle.CurrentPeriodEndUtc;
+        item.NextBillingUtc = cycle.NextBillingUtc;
+
+        SyncAggregateSnapshot(subscription);
+        ThrowIfInvalid(SubscriptionValidators.ValidateSnapshot(subscription));
+        subscription.UpdatedAtUtc = DateTime.UtcNow;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync(
+            "subscription.item-plan-migrated",
+            nameof(Subscription),
+            subscription.Id.ToString(),
+            string.IsNullOrWhiteSpace(request.Reason)
+                ? $"{item.Id}: {targetPlan.PlanName}"
+                : request.Reason.Trim(),
             cancellationToken);
         return Map(subscription);
     }
@@ -287,6 +366,7 @@ public sealed class SubscriptionService(
 
             subscription.CancelAtPeriodEnd = true;
             subscription.CanceledAtUtc = DateTime.UtcNow;
+            subscription.CancellationReason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
             subscription.EndedAtUtc = null;
         }
         else
@@ -295,6 +375,7 @@ public sealed class SubscriptionService(
             subscription.Status = SubscriptionStatus.Cancelled;
             subscription.CancelAtPeriodEnd = false;
             subscription.CanceledAtUtc = nowUtc;
+            subscription.CancellationReason = string.IsNullOrWhiteSpace(request.Reason) ? null : request.Reason.Trim();
             subscription.EndedAtUtc = nowUtc;
 
             foreach (var item in subscription.Items.Where(x => !x.EndedAtUtc.HasValue))
@@ -309,7 +390,10 @@ public sealed class SubscriptionService(
         ThrowIfInvalid(SubscriptionValidators.ValidateSnapshot(subscription));
         subscription.UpdatedAtUtc = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
-        await auditService.WriteAsync("subscription.cancelled", nameof(Subscription), subscription.Id.ToString(), $"endOfPeriod={request.EndOfPeriod}", cancellationToken);
+        var auditSummary = string.IsNullOrWhiteSpace(request.Reason)
+            ? $"endOfPeriod={request.EndOfPeriod}"
+            : $"{request.Reason.Trim()} | endOfPeriod={request.EndOfPeriod}";
+        await auditService.WriteAsync("subscription.cancelled", nameof(Subscription), subscription.Id.ToString(), auditSummary, cancellationToken);
         return Map(subscription);
     }
 
@@ -364,6 +448,7 @@ public sealed class SubscriptionService(
                 && !x.EndedAtUtc.HasValue),
             subscription.CancelAtPeriodEnd,
             subscription.CanceledAtUtc,
+            subscription.CancellationReason,
             subscription.EndedAtUtc,
             subscription.AutoRenew,
             subscription.UnitPrice,
@@ -464,6 +549,7 @@ public sealed class SubscriptionService(
         if (!subscription.CancelAtPeriodEnd && !subscription.AutoRenew)
         {
             subscription.CanceledAtUtc = null;
+            subscription.CancellationReason = null;
         }
     }
 
@@ -502,19 +588,28 @@ public sealed class SubscriptionService(
     {
         if (billingType == BillingType.OneTime)
         {
-            return (startDateUtc, startDateUtc, null);
+            var effectiveStartUtc = trialEndUtc ?? startDateUtc;
+            return (effectiveStartUtc, effectiveStartUtc, null);
         }
 
         var currentPeriodStartUtc = trialEndUtc ?? startDateUtc;
         var currentPeriodEndUtc = BillingCalculator.ComputePeriodEnd(currentPeriodStartUtc, intervalUnit, intervalCount);
-        var nextBillingUtc = BillingCalculator.ComputeNextBillingUtc(currentPeriodEndUtc);
+        var nextBillingUtc = currentPeriodStartUtc;
         return (currentPeriodStartUtc, currentPeriodEndUtc, nextBillingUtc);
     }
 
     internal static bool IsItemDue(SubscriptionItem item, DateTime nowUtc) =>
         !item.EndedAtUtc.HasValue && item.NextBillingUtc.HasValue && item.NextBillingUtc.Value <= nowUtc;
 
+    internal static bool IsOneTimeItemReadyForBilling(SubscriptionItem item, DateTime nowUtc) =>
+        item.BillingType == BillingType.OneTime
+        && !item.EndedAtUtc.HasValue
+        && item.CurrentPeriodStartUtc.HasValue
+        && item.CurrentPeriodStartUtc.Value <= nowUtc;
+
     internal static bool ShouldEndWithoutRenewal(SubscriptionItem item, DateTime nowUtc) =>
+        item.BillingType != BillingType.OneTime
+        &&
         !item.EndedAtUtc.HasValue
         && item.CurrentPeriodEndUtc.HasValue
         && item.CurrentPeriodEndUtc.Value <= nowUtc
@@ -527,6 +622,11 @@ public sealed class SubscriptionService(
 
         foreach (var item in subscription.Items.Where(x => billedSet.Contains(x.Id) && !x.EndedAtUtc.HasValue))
         {
+            if (item.BillingType != BillingType.OneTime)
+            {
+                continue;
+            }
+
             if (!item.AutoRenew || !item.NextBillingUtc.HasValue)
             {
                 item.EndedAtUtc = item.CurrentPeriodEndUtc ?? DateTime.UtcNow;

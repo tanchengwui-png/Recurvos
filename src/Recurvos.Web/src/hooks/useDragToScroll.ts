@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { isStandalonePwa } from "../lib/pwa";
 
 const interactiveSelector = "button, a, input, select, textarea, label";
 
@@ -9,6 +10,13 @@ export function useDragToScroll<T extends HTMLElement>() {
     const element = ref.current;
 
     if (!element) {
+      return;
+    }
+
+    const shouldDisableDrag = isStandalonePwa() || window.matchMedia("(max-width: 960px), (pointer: coarse)").matches;
+
+    if (shouldDisableDrag) {
+      element.classList.remove("is-dragging");
       return;
     }
 

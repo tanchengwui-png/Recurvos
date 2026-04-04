@@ -24,5 +24,6 @@ public interface IPlatformWhatsAppGateway
     Task<PlatformWhatsAppSessionSnapshot> GetSessionAsync(Guid platformCompanyId, PlatformWhatsAppConfiguration configuration, CancellationToken cancellationToken = default);
     Task<PlatformWhatsAppSessionSnapshot> ConnectAsync(Guid platformCompanyId, PlatformWhatsAppConfiguration configuration, CancellationToken cancellationToken = default);
     Task<PlatformWhatsAppSessionSnapshot> DisconnectAsync(Guid platformCompanyId, PlatformWhatsAppConfiguration configuration, CancellationToken cancellationToken = default);
+    Task ClearAllSessionsAsync(CancellationToken cancellationToken = default);
     Task<WhatsAppDispatchResult> SendAsync(Guid platformCompanyId, PlatformWhatsAppConfiguration configuration, string recipientPhoneNumber, string message, string? template, string reference, CancellationToken cancellationToken = default);
 }

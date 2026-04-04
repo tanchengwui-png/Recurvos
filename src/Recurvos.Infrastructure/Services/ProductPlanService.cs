@@ -87,8 +87,7 @@ public sealed class ProductPlanService(
             IntervalCount = request.BillingType == BillingType.OneTime ? 0 : request.IntervalCount,
             Currency = "MYR",
             UnitAmount = request.UnitAmount,
-            TrialDays = request.BillingType == BillingType.OneTime ? 0 : request.TrialDays,
-            SetupFeeAmount = request.SetupFeeAmount,
+            SetupFeeAmount = 0,
             TaxBehavior = request.TaxBehavior,
             IsDefault = request.IsDefault,
             IsActive = request.IsActive,
@@ -125,8 +124,7 @@ public sealed class ProductPlanService(
         plan.IntervalCount = request.BillingType == BillingType.OneTime ? 0 : request.IntervalCount;
         plan.Currency = "MYR";
         plan.UnitAmount = request.UnitAmount;
-        plan.TrialDays = request.BillingType == BillingType.OneTime ? 0 : request.TrialDays;
-        plan.SetupFeeAmount = request.SetupFeeAmount;
+        plan.SetupFeeAmount = 0;
         plan.TaxBehavior = request.TaxBehavior;
         plan.IsDefault = request.IsDefault;
         plan.IsActive = request.IsActive;
@@ -281,8 +279,6 @@ public sealed class ProductPlanService(
             FormatBillingLabel(plan.BillingType, plan.IntervalUnit, plan.IntervalCount),
             plan.Currency,
             plan.UnitAmount,
-            plan.TrialDays,
-            plan.SetupFeeAmount,
             plan.TaxBehavior,
             plan.IsDefault,
             plan.IsActive,
@@ -298,15 +294,11 @@ public sealed class ProductPlanService(
     {
         var requestIntervalUnit = request.BillingType == BillingType.OneTime ? IntervalUnit.None : request.IntervalUnit;
         var requestIntervalCount = request.BillingType == BillingType.OneTime ? 0 : request.IntervalCount;
-        var requestTrialDays = request.BillingType == BillingType.OneTime ? 0 : request.TrialDays;
-
         return existing.BillingType != request.BillingType
             || existing.IntervalUnit != requestIntervalUnit
             || existing.IntervalCount != requestIntervalCount
             || existing.UnitAmount != request.UnitAmount
             || !string.Equals(existing.Currency, "MYR", StringComparison.Ordinal)
-            || existing.TrialDays != requestTrialDays
-            || existing.SetupFeeAmount != request.SetupFeeAmount
             || existing.TaxBehavior != request.TaxBehavior;
     }
 

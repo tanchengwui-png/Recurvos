@@ -23,7 +23,7 @@ public sealed class SubscriberPackageBillingService(
     IHostEnvironment environment) : ISubscriberPackageBillingService
 {
     private const string PlatformInvoicePrefix = "SUB";
-    private readonly IPaymentGateway _gateway = gateways.First(x => x.Name == "Billplz");
+    private readonly IReadOnlyDictionary<string, IPaymentGateway> _gateways = gateways.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
     private readonly AppUrlOptions _appUrlOptions = appUrlOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
@@ -193,11 +193,19 @@ public sealed class SubscriberPackageBillingService(
         DateTime? currentCycleEndUtc = package is null
             ? null
             : await ResolveCurrentCycleEndUtcAsync(company, package, cancellationToken);
+        var resolvedPackageStatus = ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc);
+        var canCancelPendingUpgrade = resolvedPackageStatus == "upgrade_pending_payment"
+            && !string.IsNullOrWhiteSpace(company.PendingPackageCode)
+            && invoices.Any(invoice =>
+                invoice.Status != InvoiceStatus.Paid
+                && invoice.Status != InvoiceStatus.Voided
+                && invoice.Payments.All(payment => payment.Status != PaymentStatus.Succeeded)
+                && invoice.PaymentConfirmations.All(x => x.Status != PaymentConfirmationStatus.Pending));
 
         return new SubscriberPackageBillingSummaryDto(
             company.SelectedPackage,
             package?.Name,
-            ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc),
+            resolvedPackageStatus,
             company.PackageGracePeriodEndsAtUtc,
             package?.Amount,
             package?.Currency,
@@ -205,6 +213,8 @@ public sealed class SubscriberPackageBillingService(
             company.PendingPackageCode,
             pendingUpgrade?.Name,
             currentCycleEndUtc,
+            !string.IsNullOrWhiteSpace(company.Address),
+            canCancelPendingUpgrade,
             availableUpgrades,
             invoices.Select(MapInvoice).ToList());
     }
@@ -219,6 +229,7 @@ public sealed class SubscriberPackageBillingService(
     {
         var preview = await BuildUpgradePreviewAsync(packageCode, cancellationToken);
         var company = preview.Company;
+        EnsureSubscriberBillingAddressConfigured(company);
 
         var existingOpenInvoices = await dbContext.Invoices
             .Where(x => x.SubscriberCompanyId == company.Id
@@ -316,6 +327,123 @@ public sealed class SubscriberPackageBillingService(
         return MapInvoice(invoice);
     }
 
+    public async Task<SubscriberPackageBillingSummaryDto> CancelPendingUpgradeAsync(CancellationToken cancellationToken = default)
+    {
+        var subscriberCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var company = await dbContext.Companies.FirstOrDefaultAsync(x => x.Id == subscriberCompanyId && !x.IsPlatformAccount, cancellationToken)
+            ?? throw new UnauthorizedAccessException();
+        var packageStatus = ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc);
+
+        if (packageStatus is "pending_payment" or "grace_period")
+        {
+            throw new InvalidOperationException("First-time package activation cannot be cancelled.");
+        }
+
+        if (packageStatus != "upgrade_pending_payment" || string.IsNullOrWhiteSpace(company.PendingPackageCode))
+        {
+            throw new InvalidOperationException("There is no pending package upgrade to cancel.");
+        }
+
+        var invoice = await dbContext.Invoices
+            .Include(x => x.Payments)
+            .Include(x => x.PaymentConfirmations)
+            .Where(x => x.SubscriberCompanyId == subscriberCompanyId
+                && x.SourceType == InvoiceSourceType.PlatformSubscription
+                && x.Status != InvoiceStatus.Paid
+                && x.Status != InvoiceStatus.Voided)
+            .OrderByDescending(x => x.IssueDateUtc)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Pending upgrade invoice could not be found.");
+
+        if (invoice.Payments.Any(payment => payment.Status == PaymentStatus.Succeeded))
+        {
+            throw new InvalidOperationException("Paid package upgrades cannot be cancelled.");
+        }
+
+        if (invoice.PaymentConfirmations.Any(x => x.Status == PaymentConfirmationStatus.Pending))
+        {
+            throw new InvalidOperationException("Upgrade payment is under review. Resolve the payment confirmation before cancelling.");
+        }
+
+        invoice.Status = InvoiceStatus.Voided;
+        invoice.AmountDue = 0;
+        company.PendingPackageCode = null;
+        company.PackageStatus = "active";
+        company.PackageGracePeriodEndsAtUtc = null;
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await TryWriteAuditAsync("subscriber-package.upgrade.cancelled", nameof(Invoice), invoice.Id.ToString(), invoice.CompanyId, invoice.InvoiceNumber, cancellationToken);
+
+        return await GetCurrentAsync(cancellationToken);
+    }
+
+    public async Task<int> GenerateDueRenewalInvoicesAsync(CancellationToken cancellationToken = default)
+    {
+        var companies = await dbContext.Companies
+            .Where(x => !x.IsPlatformAccount
+                && !string.IsNullOrWhiteSpace(x.SelectedPackage)
+                && string.IsNullOrWhiteSpace(x.PendingPackageCode)
+                && x.PackageStatus == "active")
+            .ToListAsync(cancellationToken);
+
+        var created = 0;
+        foreach (var company in companies)
+        {
+            var package = await dbContext.PlatformPackages.FirstOrDefaultAsync(x => x.Code == company.SelectedPackage, cancellationToken);
+            if (package is null || !package.IsActive)
+            {
+                continue;
+            }
+
+            var hasOpenInvoice = await dbContext.Invoices.AnyAsync(x =>
+                x.SubscriberCompanyId == company.Id
+                && x.SourceType == InvoiceSourceType.PlatformSubscription
+                && x.Status != InvoiceStatus.Paid
+                && x.Status != InvoiceStatus.Voided,
+                cancellationToken);
+            if (hasOpenInvoice)
+            {
+                continue;
+            }
+
+            var cycleEndUtc = await ResolveCurrentCycleEndUtcAsync(company, package, cancellationToken);
+            if (cycleEndUtc > DateTime.UtcNow)
+            {
+                continue;
+            }
+
+            await ProvisionForSubscriberCompanyAsync(company.Id, cancellationToken);
+            created++;
+        }
+
+        return created;
+    }
+
+    public async Task<int> ReconcileExpiredPackageStatusesAsync(CancellationToken cancellationToken = default)
+    {
+        var nowUtc = DateTime.UtcNow;
+        var companies = await dbContext.Companies
+            .Where(x => !x.IsPlatformAccount
+                && x.PackageGracePeriodEndsAtUtc.HasValue
+                && x.PackageGracePeriodEndsAtUtc.Value < nowUtc
+                && (x.PackageStatus == "pending_payment"
+                    || x.PackageStatus == "grace_period"
+                    || x.PackageStatus == "reactivation_pending_payment"))
+            .ToListAsync(cancellationToken);
+
+        foreach (var company in companies)
+        {
+            company.PackageStatus = "past_due";
+        }
+
+        if (companies.Count > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return companies.Count;
+    }
+
     public async Task<SubscriberPackageReactivationPreviewDto> PreviewReactivationAsync(string packageCode, CancellationToken cancellationToken = default)
     {
         var preview = await BuildReactivationPreviewAsync(packageCode, cancellationToken);
@@ -325,19 +453,19 @@ public sealed class SubscriberPackageBillingService(
     public async Task<SubscriberPackageBillingInvoiceDto> CreateReactivationInvoiceAsync(string packageCode, CancellationToken cancellationToken = default)
     {
         var preview = await BuildReactivationPreviewAsync(packageCode, cancellationToken);
-        var existingOpenInvoice = await dbContext.Invoices
-            .Include(x => x.Payments)
-            .Include(x => x.PaymentConfirmations)
+        EnsureSubscriberBillingAddressConfigured(preview.Company);
+
+        var existingOpenInvoices = await dbContext.Invoices
             .Where(x => x.SubscriberCompanyId == preview.Company.Id
                 && x.SourceType == InvoiceSourceType.PlatformSubscription
                 && x.Status != InvoiceStatus.Paid
                 && x.Status != InvoiceStatus.Voided)
-            .OrderByDescending(x => x.IssueDateUtc)
-            .FirstOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        if (existingOpenInvoice is not null)
+        foreach (var existingOpenInvoice in existingOpenInvoices)
         {
-            return MapInvoice(existingOpenInvoice);
+            existingOpenInvoice.Status = InvoiceStatus.Voided;
+            existingOpenInvoice.AmountDue = 0;
         }
 
         preview.Company.SelectedPackage = preview.Package.Code;
@@ -355,12 +483,20 @@ public sealed class SubscriberPackageBillingService(
             .OrderByDescending(x => x.IssueDateUtc)
             .FirstAsync(cancellationToken);
 
+        preview.Company.PackageStatus = "reactivation_pending_payment";
+        await dbContext.SaveChangesAsync(cancellationToken);
+
         return MapInvoice(invoice);
     }
 
     public async Task<SubscriberPackageBillingInvoiceDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
         var subscriberCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var subscriberCompany = await dbContext.Companies
+            .FirstOrDefaultAsync(x => x.Id == subscriberCompanyId && !x.IsPlatformAccount, cancellationToken)
+            ?? throw new UnauthorizedAccessException();
+        EnsureSubscriberBillingAddressConfigured(subscriberCompany);
+
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
             .Include(x => x.Payments).ThenInclude(x => x.Attempts)
@@ -376,8 +512,24 @@ public sealed class SubscriberPackageBillingService(
             throw new InvalidOperationException("A payment confirmation is already pending for this invoice.");
         }
 
+        if (invoice.Payments.Any(x => x.Status == PaymentStatus.Succeeded))
+        {
+            throw new InvalidOperationException("This package invoice has already been paid.");
+        }
+
+        var existingPendingPaymentLink = invoice.Payments
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefault(x => x.Status == PaymentStatus.Pending && !string.IsNullOrWhiteSpace(x.PaymentLinkUrl));
+        if (existingPendingPaymentLink is not null)
+        {
+            return MapInvoice(invoice);
+        }
+
+        invoice.Customer.BillingAddress = subscriberCompany.Address.Trim();
+
         var packageName = await ResolvePackageNameAsync(subscriberCompanyId, cancellationToken);
-        var result = await _gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
+        var gateway = await ResolvePlatformGatewayAsync(invoice.CompanyId, cancellationToken);
+        var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
         {
             CompanyId = invoice.CompanyId,
             GatewayConfigurationCompanyId = invoice.CompanyId,
@@ -389,7 +541,7 @@ public sealed class SubscriberPackageBillingService(
             CustomerEmail = invoice.Customer.Email,
             CustomerMobile = invoice.Customer.PhoneNumber,
             Description = $"{packageName} package invoice {invoice.InvoiceNumber}",
-            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/billplz",
+            CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/{gateway.Name.ToLowerInvariant()}",
             RedirectUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/package-billing"
         }, cancellationToken);
 
@@ -399,7 +551,7 @@ public sealed class SubscriberPackageBillingService(
             InvoiceId = invoice.Id,
             Amount = invoice.AmountDue,
             Currency = invoice.Currency,
-            GatewayName = _gateway.Name,
+            GatewayName = gateway.Name,
             Status = PaymentStatus.Pending,
             ExternalPaymentId = result.ExternalPaymentId,
             PaymentLinkUrl = result.PaymentUrl
@@ -420,6 +572,30 @@ public sealed class SubscriberPackageBillingService(
 
         invoice.Payments.Add(payment);
         return MapInvoice(invoice);
+    }
+
+    private async Task<IPaymentGateway> ResolvePlatformGatewayAsync(Guid platformCompanyId, CancellationToken cancellationToken)
+    {
+        var settings = await dbContext.Companies
+            .Where(x => x.Id == platformCompanyId && x.IsPlatformAccount)
+            .Select(x => x.InvoiceSettings)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Platform payment gateway settings could not be resolved.");
+
+        var provider = settings.UseProductionPlatformSettings
+            ? settings.ProductionPlatformPaymentGatewayProvider
+            : settings.PlatformPaymentGatewayProvider;
+        if (string.IsNullOrWhiteSpace(provider) || string.Equals(provider, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("No active platform payment gateway is configured.");
+        }
+
+        if (_gateways.TryGetValue(provider, out var gateway))
+        {
+            return gateway;
+        }
+
+        throw new InvalidOperationException($"Platform payment gateway '{provider}' is not registered.");
     }
 
     public async Task<(byte[] Content, string FileName, string ContentType)?> DownloadInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default)
@@ -515,7 +691,9 @@ public sealed class SubscriberPackageBillingService(
                 issuerProfile.RegistrationNumber,
                 issuerProfile.BillingEmail,
                 invoiceSettings.ShowCompanyAddressOnReceipt ? issuerProfile.Address : null,
+                await ReadBytesIfExistsAsync(issuerCompany.LogoPath, cancellationToken),
                 invoice.Customer.Name,
+                invoice.Customer.BillingAddress,
                 receiptNumber,
                 invoice.InvoiceNumber,
                 packageName,
@@ -525,7 +703,7 @@ public sealed class SubscriberPackageBillingService(
                 payment.PaidAtUtc!.Value,
                 payment.ExternalPaymentId ?? payment.GatewayTransactionId ?? payment.GatewaySettlementRef,
                 invoice.AmountDue);
-            payment.ReceiptPdfPath = await SaveReceiptPdfAsync(invoice.CompanyId, invoice.InvoiceNumber, receiptBytes, cancellationToken);
+            payment.ReceiptPdfPath = await SaveReceiptPdfAsync(invoice.CompanyId, receiptNumber, receiptBytes, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
             filePath = ResolveStoredPath(payment.ReceiptPdfPath);
         }
@@ -535,7 +713,8 @@ public sealed class SubscriberPackageBillingService(
             return null;
         }
 
-        return (await File.ReadAllBytesAsync(filePath, cancellationToken), $"{invoice.InvoiceNumber}-receipt.pdf", "application/pdf");
+        var fileName = Path.GetFileName(filePath);
+        return (await File.ReadAllBytesAsync(filePath, cancellationToken), string.IsNullOrWhiteSpace(fileName) ? $"{invoice.InvoiceNumber}-receipt.pdf" : fileName, "application/pdf");
     }
 
     private async Task<Customer> EnsureBillingCustomerAsync(Guid platformOwnerUserId, Company subscriberCompany, CancellationToken cancellationToken)
@@ -585,9 +764,7 @@ public sealed class SubscriberPackageBillingService(
             ShowCompanyAddressOnInvoice = true,
             ShowCompanyAddressOnReceipt = true
         };
-        dbContext.CompanyInvoiceSettings.Add(settings);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return settings;
+        return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 
     private async Task<string> GenerateInvoiceNumberAsync(Guid companyId, CancellationToken cancellationToken)
@@ -814,9 +991,42 @@ public sealed class SubscriberPackageBillingService(
     private static string ResolvePackageStatus(string? rawStatus, DateTime? gracePeriodEndsAtUtc)
     {
         var normalized = rawStatus?.Trim().ToLowerInvariant() ?? string.Empty;
-        return normalized == "pending_payment" && gracePeriodEndsAtUtc.HasValue && gracePeriodEndsAtUtc.Value < DateTime.UtcNow
-            ? "past_due"
-            : normalized;
+
+        if (normalized is "pending_payment" or "grace_period")
+        {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return normalized == "grace_period" ? "past_due" : "pending_payment";
+            }
+
+            return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
+                ? "grace_period"
+                : "past_due";
+        }
+
+        if (normalized == "reactivation_pending_payment")
+        {
+            if (!gracePeriodEndsAtUtc.HasValue)
+            {
+                return "past_due";
+            }
+
+            return gracePeriodEndsAtUtc.Value >= DateTime.UtcNow
+                ? "reactivation_pending_payment"
+                : "past_due";
+        }
+
+        return normalized;
+    }
+
+    private static void EnsureSubscriberBillingAddressConfigured(Company company)
+    {
+        if (!string.IsNullOrWhiteSpace(company.Address))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("Please update your company billing address in Companies before creating or paying package invoices.");
     }
 
     private SubscriberPackageBillingInvoiceDto MapInvoice(Invoice invoice)
@@ -849,11 +1059,11 @@ public sealed class SubscriberPackageBillingService(
         return path.Replace("\\", "/");
     }
 
-    private async Task<string> SaveReceiptPdfAsync(Guid companyId, string invoiceNumber, byte[] pdf, CancellationToken cancellationToken)
+    private async Task<string> SaveReceiptPdfAsync(Guid companyId, string receiptNumber, byte[] pdf, CancellationToken cancellationToken)
     {
         var receiptRoot = Path.Combine(StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory), companyId.ToString("N"), "receipts");
         Directory.CreateDirectory(receiptRoot);
-        var path = Path.Combine(receiptRoot, $"{invoiceNumber}-receipt.pdf");
+        var path = Path.Combine(receiptRoot, $"{receiptNumber}.pdf");
         await File.WriteAllBytesAsync(path, pdf, cancellationToken);
         return path.Replace("\\", "/");
     }
@@ -897,8 +1107,14 @@ public sealed class SubscriberPackageBillingService(
             billingCustomer.Email,
             $"Invoice {invoice.InvoiceNumber}",
             body,
-            [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", pdfContent, "application/pdf")],
-            cancellationToken);
+            attachments: [new EmailAttachment($"{invoice.InvoiceNumber}.pdf", pdfContent, "application/pdf")],
+            logContext: new EmailLogContext(
+                CompanyId: issuerCompany.Id,
+                NotificationType: "PlatformInvoice",
+                InvoiceId: invoice.Id,
+                InvoiceNumber: invoice.InvoiceNumber,
+                CustomerName: billingCustomer.Name),
+            cancellationToken: cancellationToken);
     }
 
     private async Task TryAutoSendPlatformInvoiceEmailAsync(Company issuerCompany, Customer billingCustomer, Invoice invoice, CompanyInvoiceSettings invoiceSettings, CancellationToken cancellationToken)

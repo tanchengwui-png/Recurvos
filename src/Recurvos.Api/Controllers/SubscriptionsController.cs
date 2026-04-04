@@ -40,6 +40,21 @@ public sealed class SubscriptionsController(ISubscriptionService subscriptionSer
         return subscription is null ? NotFound() : Ok(subscription);
     }
 
+    [HttpPost("{id:guid}/items/{itemId:guid}/migrate-plan")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<SubscriptionDto>> MigrateItem(Guid id, Guid itemId, MigrateSubscriptionItemRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var subscription = await subscriptionService.MigrateItemAsync(id, itemId, request, cancellationToken);
+            return subscription is null ? NotFound() : Ok(subscription);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
     [HttpPost("{id:guid}/pause")]
     [Authorize(Policy = "ManageBilling")]
     public async Task<ActionResult<SubscriptionDto>> Pause(Guid id, CancellationToken cancellationToken)

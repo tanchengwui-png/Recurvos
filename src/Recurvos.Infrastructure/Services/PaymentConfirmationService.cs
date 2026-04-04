@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using System.Text;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -19,12 +18,16 @@ public sealed class PaymentConfirmationService(
     ICurrentUserService currentUserService,
     IAuditService auditService,
     IFeatureEntitlementService featureEntitlementService,
+    PlatformOwnerNotificationService platformOwnerNotificationService,
+    IPaymentService paymentService,
+    IDataProtectionProvider dataProtectionProvider,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : IPaymentConfirmationService
 {
     private const int PublicTokenLifetimeDays = 30;
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
+    private const string PublicTokenPurpose = "recurvos.public-payment-confirmation";
     private static readonly HashSet<string> AllowedProofExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png",
@@ -43,12 +46,27 @@ public sealed class PaymentConfirmationService(
     private readonly AppUrlOptions _appUrlOptions = appUrlOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
+    private readonly IDataProtector _publicTokenProtector = dataProtectionProvider.CreateProtector(PublicTokenPurpose);
 
     public async Task<PaymentConfirmationLinkDto?> GetOrCreateLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
-        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PublicPaymentConfirmation, cancellationToken);
-        var invoice = await dbContext.Invoices
-            .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == invoiceId, cancellationToken);
+        Invoice? invoice;
+        if (currentUserService.CompanyId.HasValue)
+        {
+            await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PublicPaymentConfirmation, cancellationToken);
+            invoice = await dbContext.Invoices
+                .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == invoiceId, cancellationToken);
+        }
+        else
+        {
+            invoice = await dbContext.Invoices
+                .FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken);
+            if (invoice is not null)
+            {
+                await featureEntitlementService.EnsureCompanyHasFeatureAsync(invoice.CompanyId, PlatformFeatureKeys.PublicPaymentConfirmation, cancellationToken);
+            }
+        }
+
         if (invoice is null)
         {
             return null;
@@ -111,7 +129,7 @@ public sealed class PaymentConfirmationService(
         submission.Invoice.AmountDue = Math.Max(0, submission.Invoice.Total - submission.Invoice.AmountPaid);
         submission.Invoice.Status = submission.Invoice.AmountDue <= 0 ? InvoiceStatus.Paid : InvoiceStatus.Open;
 
-        dbContext.Payments.Add(new Payment
+        var payment = new Payment
         {
             CompanyId = submission.CompanyId,
             InvoiceId = submission.InvoiceId,
@@ -124,9 +142,12 @@ public sealed class PaymentConfirmationService(
             ProofFileName = submission.ProofFileName,
             ProofContentType = submission.ProofContentType,
             PaidAtUtc = submission.PaidAtUtc
-        });
+        };
+        dbContext.Payments.Add(payment);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
+        await paymentService.TryAutoSendReceiptIfEligibleAsync(payment.Id, cancellationToken);
         await auditService.WriteAsync("payment.confirmation.approved", nameof(PaymentConfirmationSubmission), submission.Id.ToString(), submission.Invoice.InvoiceNumber, cancellationToken);
         await auditService.WriteAsync("invoice.payment-recorded", nameof(Invoice), submission.InvoiceId.ToString(), $"customer-confirmation:{submission.Amount:0.00}", cancellationToken);
         return Map(submission);
@@ -250,9 +271,9 @@ public sealed class PaymentConfirmationService(
             throw new InvalidOperationException("Paid date is too old for online confirmation.");
         }
 
-        if (request.Amount > invoice.AmountDue)
+        if (request.Amount != invoice.AmountDue)
         {
-            throw new InvalidOperationException("The confirmed amount cannot exceed the invoice balance.");
+            throw new InvalidOperationException("Payment confirmation must match the full outstanding invoice balance.");
         }
 
         var submission = new PaymentConfirmationSubmission
@@ -282,24 +303,67 @@ public sealed class PaymentConfirmationService(
 
     private async Task<Invoice?> ResolvePublicInvoiceAsync(string token, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(token)
-            || token.Length != 48
-            || token.Any(ch => !Uri.IsHexDigit(ch)))
+        if (string.IsNullOrWhiteSpace(token))
         {
             return null;
         }
 
-        var tokenHash = HashToken(token);
+        return await ResolveSignedPublicInvoiceAsync(token, cancellationToken);
+    }
+
+    private string EnsureInvoiceToken(Invoice invoice)
+    {
+        var issuedAtUtc = invoice.PaymentConfirmationTokenIssuedAtUtc;
+        if (!issuedAtUtc.HasValue || issuedAtUtc.Value < DateTime.UtcNow.AddDays(-PublicTokenLifetimeDays))
+        {
+            issuedAtUtc = NormalizePublicTokenIssuedAtUtc(DateTime.UtcNow);
+            invoice.PaymentConfirmationTokenIssuedAtUtc = issuedAtUtc;
+        }
+        else
+        {
+            issuedAtUtc = NormalizePublicTokenIssuedAtUtc(issuedAtUtc.Value);
+            invoice.PaymentConfirmationTokenIssuedAtUtc = issuedAtUtc;
+        }
+
+        return _publicTokenProtector.Protect($"{invoice.Id:N}|{issuedAtUtc.Value.Ticks}");
+    }
+
+    private async Task<Invoice?> ResolveSignedPublicInvoiceAsync(string token, CancellationToken cancellationToken)
+    {
+        string unprotected;
+        try
+        {
+            unprotected = _publicTokenProtector.Unprotect(token);
+        }
+        catch
+        {
+            return null;
+        }
+
+        var parts = unprotected.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2
+            || !Guid.TryParseExact(parts[0], "N", out var invoiceId)
+            || !long.TryParse(parts[1], out var issuedAtTicks))
+        {
+            return null;
+        }
+
+        var issuedAtUtc = NormalizePublicTokenIssuedAtUtc(new DateTime(issuedAtTicks, DateTimeKind.Utc));
+        if (issuedAtUtc < DateTime.UtcNow.AddDays(-PublicTokenLifetimeDays))
+        {
+            return null;
+        }
+
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
-            .FirstOrDefaultAsync(x => x.PaymentConfirmationTokenHash == tokenHash, cancellationToken);
-        if (invoice is null)
+            .FirstOrDefaultAsync(x => x.Id == invoiceId, cancellationToken);
+        if (invoice is null || !invoice.PaymentConfirmationTokenIssuedAtUtc.HasValue)
         {
             return null;
         }
 
-        if (!invoice.PaymentConfirmationTokenIssuedAtUtc.HasValue
-            || invoice.PaymentConfirmationTokenIssuedAtUtc.Value < DateTime.UtcNow.AddDays(-PublicTokenLifetimeDays))
+        var storedIssuedAtUtc = NormalizePublicTokenIssuedAtUtc(invoice.PaymentConfirmationTokenIssuedAtUtc.Value);
+        if (storedIssuedAtUtc != issuedAtUtc)
         {
             return null;
         }
@@ -307,15 +371,11 @@ public sealed class PaymentConfirmationService(
         return invoice;
     }
 
-    private string EnsureInvoiceToken(Invoice invoice)
+    private static DateTime NormalizePublicTokenIssuedAtUtc(DateTime valueUtc)
     {
-        var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(24));
-        invoice.PaymentConfirmationTokenHash = HashToken(rawToken);
-        invoice.PaymentConfirmationTokenIssuedAtUtc = DateTime.UtcNow;
-        return rawToken;
+        var utcValue = valueUtc.Kind == DateTimeKind.Utc ? valueUtc : valueUtc.ToUniversalTime();
+        return new DateTime(utcValue.Ticks - (utcValue.Ticks % 10), DateTimeKind.Utc);
     }
-
-    private static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 
     private static PendingPaymentConfirmationDto Map(PaymentConfirmationSubmission submission) =>
         new(

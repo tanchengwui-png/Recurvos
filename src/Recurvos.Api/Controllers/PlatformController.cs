@@ -1,15 +1,39 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Hangfire;
+using Hangfire.Storage;
+using Microsoft.EntityFrameworkCore;
+using Recurvos.Application.Abstractions;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
+using Recurvos.Infrastructure.Jobs;
+using Recurvos.Infrastructure.Persistence;
 
 namespace Recurvos.Api.Controllers;
 
 [ApiController]
 [Authorize(Policy = "PlatformOwnerOnly")]
 [Route("api/platform")]
-public sealed class PlatformController(IPlatformService platformService, IInvoiceService invoiceService) : ControllerBase
+public sealed class PlatformController(
+    IPlatformService platformService,
+    IInvoiceService invoiceService,
+    IBackgroundJobClient backgroundJobClient,
+    JobStorage jobStorage,
+    IAuditService auditService,
+    AppDbContext dbContext) : ControllerBase
 {
+    private static readonly (string Key, string Name)[] SupportedPlatformJobs =
+    [
+        ("generate-invoices", "Generate invoices"),
+        ("generate-subscriber-package-invoices", "Generate subscriber package invoices"),
+        ("reconcile-subscriber-package-statuses", "Reconcile subscriber package statuses"),
+        ("send-invoice-reminders", "Send invoice reminders"),
+        ("process-whatsapp-queue", "Process WhatsApp queue"),
+        ("retry-failed-payments", "Retry failed payments"),
+        ("recover-missed-receipt-emails", "Recover missed receipt emails"),
+        ("cleanup-stale-signups", "Cleanup stale signups")
+    ];
+
     [HttpGet("summary")]
     public async Task<ActionResult<PlatformDashboardSummaryDto>> GetSummary(CancellationToken cancellationToken) =>
         Ok(await platformService.GetDashboardSummaryAsync(cancellationToken));
@@ -92,6 +116,36 @@ public sealed class PlatformController(IPlatformService platformService, IInvoic
     public async Task<ActionResult<IReadOnlyCollection<FailedWhatsAppNotificationDto>>> GetFailedWhatsAppNotifications(CancellationToken cancellationToken) =>
         Ok(await platformService.GetFailedWhatsAppNotificationsAsync(cancellationToken));
 
+    [HttpGet("whatsapp-queue")]
+    public async Task<ActionResult<IReadOnlyCollection<PlatformWhatsAppQueueItemDto>>> GetWhatsAppQueueItems(CancellationToken cancellationToken) =>
+        Ok(await platformService.GetWhatsAppQueueItemsAsync(cancellationToken));
+
+    [HttpPost("whatsapp-queue/{id:guid}/retry")]
+    public async Task<ActionResult<PlatformWhatsAppQueueItemDto>> RetryWhatsAppQueueItem(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await platformService.RetryWhatsAppQueueItemAsync(id, cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
+    [HttpPost("whatsapp-queue/{id:guid}/cancel")]
+    public async Task<ActionResult<PlatformWhatsAppQueueItemDto>> CancelWhatsAppQueueItem(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await platformService.CancelWhatsAppQueueItemAsync(id, cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
     [HttpPost("whatsapp-failures/{id:guid}/retry")]
     public async Task<ActionResult<WhatsAppRetryResultDto>> RetryFailedWhatsAppNotification(Guid id, CancellationToken cancellationToken)
     {
@@ -108,6 +162,19 @@ public sealed class PlatformController(IPlatformService platformService, IInvoic
     [HttpGet("audit-logs")]
     public async Task<ActionResult<IReadOnlyCollection<AuditLogEntryDto>>> GetAuditLogs([FromQuery] int take = 100, CancellationToken cancellationToken = default) =>
         Ok(await platformService.GetAuditLogsAsync(take, cancellationToken));
+
+    [HttpPost("factory-reset")]
+    public async Task<ActionResult<FactoryResetResult>> FactoryReset(FactoryResetRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await platformService.FactoryResetAsync(request, cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
 
     [HttpPut("packages/{id:guid}")]
     public async Task<ActionResult<PlatformPackageDto>> UpdatePackage(Guid id, UpdatePlatformPackageRequest request, CancellationToken cancellationToken)
@@ -148,5 +215,142 @@ public sealed class PlatformController(IPlatformService platformService, IInvoic
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
         }
+    }
+
+    [HttpPost("jobs/{jobKey}/trigger")]
+    public async Task<ActionResult<PlatformJobTriggerResultDto>> TriggerJob(string jobKey, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var (normalizedJobKey, jobName, hangfireJobId) = jobKey.Trim().ToLowerInvariant() switch
+            {
+                "generate-invoices" => (
+                    "generate-invoices",
+                    "Generate invoices",
+                    backgroundJobClient.Enqueue<GenerateInvoicesJob>(job => job.ExecuteAsync())),
+                "generate-subscriber-package-invoices" => (
+                    "generate-subscriber-package-invoices",
+                    "Generate subscriber package invoices",
+                    backgroundJobClient.Enqueue<GenerateSubscriberPackageInvoicesJob>(job => job.ExecuteAsync())),
+                "reconcile-subscriber-package-statuses" => (
+                    "reconcile-subscriber-package-statuses",
+                    "Reconcile subscriber package statuses",
+                    backgroundJobClient.Enqueue<ReconcileSubscriberPackageStatusesJob>(job => job.ExecuteAsync())),
+                "send-invoice-reminders" => (
+                    "send-invoice-reminders",
+                    "Send invoice reminders",
+                    backgroundJobClient.Enqueue<SendInvoiceRemindersJob>(job => job.ExecuteAsync())),
+                "process-whatsapp-queue" => (
+                    "process-whatsapp-queue",
+                    "Process WhatsApp queue",
+                    backgroundJobClient.Enqueue<ProcessWhatsAppQueueJob>(job => job.ExecuteAsync())),
+                "retry-failed-payments" => (
+                    "retry-failed-payments",
+                    "Retry failed payments",
+                    backgroundJobClient.Enqueue<RetryFailedPaymentsJob>(job => job.ExecuteAsync())),
+                "recover-missed-receipt-emails" => (
+                    "recover-missed-receipt-emails",
+                    "Recover missed receipt emails",
+                    backgroundJobClient.Enqueue<RecoverMissedReceiptEmailsJob>(job => job.ExecuteAsync())),
+                "cleanup-stale-signups" => (
+                    "cleanup-stale-signups",
+                    "Cleanup stale signups",
+                    backgroundJobClient.Enqueue<CleanupStaleSignupsJob>(job => job.ExecuteAsync())),
+                _ => throw new InvalidOperationException("Unknown platform job.")
+            };
+            var platformCompanyId = await dbContext.Companies
+                .Where(x => x.IsPlatformAccount)
+                .Select(x => x.Id)
+                .FirstAsync(cancellationToken);
+            await auditService.WriteAsync(
+                "platform.job.manual-triggered",
+                "PlatformJob",
+                normalizedJobKey,
+                platformCompanyId,
+                $"hangfireJobId={hangfireJobId}",
+                cancellationToken);
+
+            return Ok(new PlatformJobTriggerResultDto(
+                normalizedJobKey,
+                jobName,
+                hangfireJobId,
+                $"{jobName} was queued in Hangfire.",
+                DateTime.UtcNow));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
+    [HttpGet("jobs")]
+    public async Task<ActionResult<IReadOnlyCollection<PlatformJobStatusDto>>> GetJobs(CancellationToken cancellationToken)
+    {
+        using var connection = jobStorage.GetConnection();
+        var recurringJobs = connection.GetRecurringJobs()
+            .ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        var monitoringApi = jobStorage.GetMonitoringApi();
+        var jobKeys = SupportedPlatformJobs.Select(x => x.Key).ToArray();
+        var manualTriggerLogs = await dbContext.AuditLogs
+            .Where(x => x.EntityName == "PlatformJob"
+                && x.Action == "platform.job.manual-triggered"
+                && jobKeys.Contains(x.EntityId))
+            .GroupBy(x => x.EntityId)
+            .Select(x => x
+                .OrderByDescending(entry => entry.CreatedAtUtc)
+                .Select(entry => new
+                {
+                    JobKey = x.Key,
+                    entry.CreatedAtUtc,
+                    entry.Metadata
+                })
+                .First())
+            .ToDictionaryAsync(x => x.JobKey, cancellationToken);
+
+        var results = SupportedPlatformJobs
+            .Select(definition =>
+            {
+                recurringJobs.TryGetValue(definition.Key, out var recurringJob);
+                manualTriggerLogs.TryGetValue(definition.Key, out var manualTrigger);
+                var lastJobId = recurringJob?.LastJobId;
+                var jobDetails = string.IsNullOrWhiteSpace(lastJobId) ? null : monitoringApi.JobDetails(lastJobId);
+                var recentHistory = jobDetails?.History?
+                    .OrderByDescending(x => x.CreatedAt)
+                    .Take(5)
+                    .Select(x => new PlatformJobHistoryEntryDto(
+                        x.StateName,
+                        string.IsNullOrWhiteSpace(x.Reason) ? null : x.Reason,
+                        DateTime.SpecifyKind(x.CreatedAt, DateTimeKind.Utc)))
+                    .ToArray()
+                    ?? [];
+
+                return new PlatformJobStatusDto(
+                    definition.Key,
+                    definition.Name,
+                    recurringJob?.Cron ?? "-",
+                    recurringJob?.Queue ?? "default",
+                    recurringJob?.TimeZoneId ?? "UTC",
+                    recurringJob?.NextExecution,
+                    recurringJob?.LastExecution,
+                    manualTrigger?.CreatedAtUtc,
+                    TryParseManualTriggerJobId(manualTrigger?.Metadata),
+                    lastJobId,
+                    recurringJob?.LastJobState,
+                    recurringJob?.Error,
+                    recurringJob?.RetryAttempt ?? 0,
+                    jobDetails?.CreatedAt,
+                    recentHistory);
+            })
+            .ToArray();
+
+        return Ok(results);
+    }
+
+    private static string? TryParseManualTriggerJobId(string? metadata)
+    {
+        const string prefix = "hangfireJobId=";
+        return string.IsNullOrWhiteSpace(metadata) || !metadata.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : metadata[prefix.Length..];
     }
 }

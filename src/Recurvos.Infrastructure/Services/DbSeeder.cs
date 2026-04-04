@@ -16,7 +16,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
         var passwordHasher = new PasswordHasher();
         var demoSubscribers = GetDemoSubscribers();
         var demoSubscriberEmails = demoSubscribers.Select(x => x.OwnerEmail).ToArray();
-        var platformOwnerExists = await dbContext.Users.AnyAsync(x => x.Email == "owner@recurvo.com", cancellationToken);
+        var platformOwnerExists = await dbContext.Users.AnyAsync(x => x.Email.ToLower() == "owner@recurvo.com", cancellationToken);
         var subscriberOwnerCount = await dbContext.Users.CountAsync(x => demoSubscriberEmails.Contains(x.Email), cancellationToken);
         var subscriberOwnersExist = subscriberOwnerCount == demoSubscriberEmails.Length;
         var catalogSeedExists = await dbContext.Products.AnyAsync(x => x.Code == "STARTER", cancellationToken)
@@ -25,6 +25,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
 
         if (platformOwnerExists && subscriberOwnersExist && catalogSeedExists && packageSeedExists)
         {
+            await SyncPlatformSeedSettingsAsync(cancellationToken);
             await BackfillPlatformPackageBillingDefaultsAsync(cancellationToken);
             return;
         }
@@ -33,18 +34,18 @@ public sealed class DbSeeder(AppDbContext dbContext)
         if (!platformOwnerExists)
         {
             platformCompany = await dbContext.Companies.FirstOrDefaultAsync(
-                x => x.IsPlatformAccount || x.Email == "support@recurvo.com",
+                x => x.IsPlatformAccount || x.Email == "support@recurvos.com" || x.Email == "support@recurvo.com",
                 cancellationToken);
 
             if (platformCompany is null)
             {
                 platformCompany = new Company
                 {
-                    Name = "Recurvo",
-                    RegistrationNumber = "PLATFORM-OWNER",
-                    Email = "support@recurvo.com",
-                    Phone = "+60300000000",
-                    Address = "Kuala Lumpur, Malaysia",
+                    Name = "SYSNEX TECHNOLOGY - LOCALHOST",
+                    RegistrationNumber = "202603074137",
+                    Email = "support@recurvos.com",
+                    Phone = "+60126093799",
+                    Address = "SELANGOR, MALAYSIA - LOCALHOST",
                     IsActive = true,
                     IsPlatformAccount = true
                 };
@@ -52,8 +53,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
             }
             else
             {
-                platformCompany.Phone ??= string.Empty;
-                platformCompany.Address ??= string.Empty;
+                platformCompany.Name = "SYSNEX TECHNOLOGY - LOCALHOST";
+                platformCompany.RegistrationNumber = "202603074137";
+                platformCompany.Email = "support@recurvos.com";
+                platformCompany.Phone = "+60126093799";
+                platformCompany.Address = "SELANGOR, MALAYSIA - LOCALHOST";
                 platformCompany.IsActive = true;
                 platformCompany.IsPlatformAccount = true;
             }
@@ -62,9 +66,9 @@ public sealed class DbSeeder(AppDbContext dbContext)
             {
                 Company = platformCompany,
                 CompanyId = platformCompany.Id,
-                FullName = "Recurvo Owner",
+                FullName = "Recurvos Owner",
                 Email = "owner@recurvo.com",
-                PasswordHash = passwordHasher.Hash("Passw0rd!"),
+                PasswordHash = passwordHasher.Hash("P@ssw0rd!@#$%"),
                 IsEmailVerified = true,
                 EmailVerifiedAtUtc = DateTime.UtcNow,
                 IsOwner = true,
@@ -75,14 +79,16 @@ public sealed class DbSeeder(AppDbContext dbContext)
 
         foreach (var demoSubscriber in demoSubscribers)
         {
-            var subscriberOwnerExists = await dbContext.Users.AnyAsync(x => x.Email == demoSubscriber.OwnerEmail, cancellationToken);
+            var normalizedOwnerEmail = demoSubscriber.OwnerEmail.ToLowerInvariant();
+            var normalizedBillingEmail = demoSubscriber.BillingEmail.ToLowerInvariant();
+            var subscriberOwnerExists = await dbContext.Users.AnyAsync(x => x.Email.ToLower() == normalizedOwnerEmail, cancellationToken);
             if (subscriberOwnerExists)
             {
                 continue;
             }
 
             var subscriberCompany = await dbContext.Companies
-                .FirstOrDefaultAsync(x => x.Email == demoSubscriber.BillingEmail || x.Name == demoSubscriber.CompanyName, cancellationToken);
+                .FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedBillingEmail || x.Name == demoSubscriber.CompanyName, cancellationToken);
 
             if (subscriberCompany is null)
             {
@@ -90,14 +96,14 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 {
                     Name = demoSubscriber.CompanyName,
                     RegistrationNumber = demoSubscriber.RegistrationNumber,
-                    Email = demoSubscriber.BillingEmail,
+                    Email = normalizedBillingEmail,
                     Phone = demoSubscriber.Phone,
                     Address = demoSubscriber.Address,
                     IsActive = true,
                     IsPlatformAccount = false,
                     SelectedPackage = demoSubscriber.PackageCode,
                     PackageStatus = "active",
-                    InvoiceSequence = 1001
+                    InvoiceSequence = 1
                 };
                 dbContext.Companies.Add(subscriberCompany);
             }
@@ -111,7 +117,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 subscriberCompany.PackageStatus ??= "active";
                 if (subscriberCompany.InvoiceSequence == 0)
                 {
-                    subscriberCompany.InvoiceSequence = 1001;
+                    subscriberCompany.InvoiceSequence = 1;
                 }
             }
 
@@ -120,8 +126,8 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 Company = subscriberCompany,
                 CompanyId = subscriberCompany.Id,
                 FullName = demoSubscriber.OwnerName,
-                Email = demoSubscriber.OwnerEmail,
-                PasswordHash = passwordHasher.Hash("Passw0rd!"),
+                Email = normalizedOwnerEmail,
+                PasswordHash = passwordHasher.Hash("P@ssw0rd!@#$%"),
                 IsEmailVerified = true,
                 EmailVerifiedAtUtc = DateTime.UtcNow,
                 IsOwner = true,
@@ -130,28 +136,6 @@ public sealed class DbSeeder(AppDbContext dbContext)
             };
             dbContext.Users.Add(subscriberOwner);
             pendingSubscriberAssignments.Add((subscriberCompany, subscriberOwner));
-            dbContext.CompanyInvoiceSettings.Add(new CompanyInvoiceSettings
-            {
-                CompanyId = subscriberCompany.Id,
-                Prefix = "INV-",
-                NextNumber = 1002,
-                Padding = 6,
-                ResetYearly = false,
-                LastResetYear = DateTime.UtcNow.Year,
-                ReceiptPrefix = "RCT-",
-                ReceiptNextNumber = 1002,
-                ReceiptPadding = 6,
-                ReceiptResetYearly = false,
-                ReceiptLastResetYear = DateTime.UtcNow.Year,
-                PaymentDueDays = 7,
-                ShowCompanyAddressOnInvoice = true,
-                ShowCompanyAddressOnReceipt = true,
-                AutoSendInvoices = true,
-                AutoCompressUploads = true,
-                UploadMaxBytes = 2_000_000,
-                UploadImageMaxDimension = 1600,
-                UploadImageQuality = 80
-            });
 
             var customer = await dbContext.Customers.FirstOrDefaultAsync(
                 x => x.SubscriberId == subscriberCompany.SubscriberId && x.Email == demoSubscriber.CustomerEmail,
@@ -169,9 +153,9 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 dbContext.Customers.Add(customer);
             }
 
-            var starter = await EnsureProductAsync(subscriberCompany.Id, "Recurvo Starter", "STARTER", "Core recurring billing for smaller operators.", "Subscriptions", true, cancellationToken);
-            var growth = await EnsureProductAsync(subscriberCompany.Id, "Recurvo Growth", "GROWTH", "Higher-volume recurring billing with expanded workflows.", "Subscriptions", true, cancellationToken);
-            var premium = await EnsureProductAsync(subscriberCompany.Id, "Recurvo Premium", "PREMIUM", "Premium recurring billing for mature service businesses.", "Subscriptions", true, cancellationToken);
+            var starter = await EnsureProductAsync(subscriberCompany.Id, "Recurvos Starter", "STARTER", "Core recurring billing for smaller operators.", "Subscriptions", true, cancellationToken);
+            var growth = await EnsureProductAsync(subscriberCompany.Id, "Recurvos Growth", "GROWTH", "Higher-volume recurring billing with expanded workflows.", "Subscriptions", true, cancellationToken);
+            var premium = await EnsureProductAsync(subscriberCompany.Id, "Recurvos Premium", "PREMIUM", "Premium recurring billing for mature service businesses.", "Subscriptions", true, cancellationToken);
 
             var starterMonthly = await EnsurePlanAsync(starter, "Starter Monthly", "STARTER-MONTHLY", 49m, IntervalUnit.Month, 1, true, 0, cancellationToken);
             await EnsurePlanAsync(starter, "Starter Yearly", "STARTER-YEARLY", 490m, IntervalUnit.Year, 1, false, 1, cancellationToken);
@@ -290,6 +274,21 @@ public sealed class DbSeeder(AppDbContext dbContext)
             }
         }
 
+        var resolvedPlatformCompany = platformCompany
+            ?? await dbContext.Companies.FirstOrDefaultAsync(
+                x => x.IsPlatformAccount || x.Email == "support@recurvos.com" || x.Email == "support@recurvo.com",
+                cancellationToken);
+        if (resolvedPlatformCompany is not null
+            && !await dbContext.CompanyInvoiceSettings.AnyAsync(x => x.CompanyId == resolvedPlatformCompany.Id, cancellationToken))
+        {
+            var platformSettings = new CompanyInvoiceSettings
+            {
+                CompanyId = resolvedPlatformCompany.Id
+            };
+            ApplyPlatformSeedSettings(platformSettings);
+            dbContext.CompanyInvoiceSettings.Add(platformSettings);
+        }
+
         if (!packageSeedExists)
         {
             SeedPlatformPackages();
@@ -332,8 +331,9 @@ public sealed class DbSeeder(AppDbContext dbContext)
             }
         }
 
+        var normalizedDemoSubscriberEmails = demoSubscriberEmails.Select(x => x.ToLowerInvariant()).ToArray();
         var seedUsers = await dbContext.Users
-            .Where(x => x.Email == "owner@recurvo.com" || demoSubscriberEmails.Contains(x.Email))
+            .Where(x => x.Email.ToLower() == "owner@recurvo.com" || normalizedDemoSubscriberEmails.Contains(x.Email.ToLower()))
             .ToListAsync(cancellationToken);
         foreach (var seedUser in seedUsers.Where(x => !x.IsEmailVerified))
         {
@@ -341,33 +341,58 @@ public sealed class DbSeeder(AppDbContext dbContext)
             seedUser.EmailVerifiedAtUtc = DateTime.UtcNow;
         }
 
+        var trackedInvoiceSettingsCompanyIds = dbContext.ChangeTracker
+            .Entries<CompanyInvoiceSettings>()
+            .Where(x => x.State != EntityState.Detached && x.State != EntityState.Deleted)
+            .Select(x => x.Entity.CompanyId)
+            .ToHashSet();
+
         var companiesWithoutInvoiceSettings = await dbContext.Companies
-            .Where(x => !dbContext.CompanyInvoiceSettings.Any(s => s.CompanyId == x.Id))
+            .Where(x => !trackedInvoiceSettingsCompanyIds.Contains(x.Id)
+                && !dbContext.CompanyInvoiceSettings.Any(s => s.CompanyId == x.Id))
             .ToListAsync(cancellationToken);
         foreach (var company in companiesWithoutInvoiceSettings)
         {
-            dbContext.CompanyInvoiceSettings.Add(new CompanyInvoiceSettings
+            if (company.IsPlatformAccount)
             {
-                CompanyId = company.Id,
-                Prefix = "INV-",
-                NextNumber = company.InvoiceSequence > 0 ? company.InvoiceSequence : 1001,
-                Padding = 6,
-                ResetYearly = false,
-                LastResetYear = null,
-                ReceiptPrefix = "RCT-",
-                ReceiptNextNumber = 1001,
-                ReceiptPadding = 6,
-                ReceiptResetYearly = false,
-                ReceiptLastResetYear = null,
-                PaymentDueDays = 7,
-                ShowCompanyAddressOnInvoice = true,
-                ShowCompanyAddressOnReceipt = true,
-                AutoSendInvoices = true,
-                AutoCompressUploads = true,
-                UploadMaxBytes = 2_000_000,
-                UploadImageMaxDimension = 1600,
-                UploadImageQuality = 80
-            });
+                var platformSettings = new CompanyInvoiceSettings
+                {
+                    CompanyId = company.Id
+                };
+                ApplyPlatformSeedSettings(platformSettings);
+                dbContext.CompanyInvoiceSettings.Add(platformSettings);
+            }
+            else
+            {
+                dbContext.CompanyInvoiceSettings.Add(new CompanyInvoiceSettings
+                {
+                    CompanyId = company.Id,
+                    Prefix = "INV-",
+                    NextNumber = 1,
+                    Padding = 4,
+                    ResetYearly = false,
+                    LastResetYear = null,
+                    ReceiptPrefix = "RCT-",
+                    ReceiptNextNumber = 1,
+                    ReceiptPadding = 4,
+                    ReceiptResetYearly = false,
+                    ReceiptLastResetYear = null,
+                    CreditNotePrefix = "CN",
+                    CreditNoteNextNumber = 1,
+                    CreditNotePadding = 4,
+                    CreditNoteResetYearly = false,
+                    CreditNoteLastResetYear = null,
+                    PaymentDueDays = 7,
+                    ShowCompanyAddressOnInvoice = true,
+                    ShowCompanyAddressOnReceipt = true,
+                    AutoSendInvoices = true,
+                    CcSubscriberOnCustomerEmails = true,
+                    AutoCompressUploads = true,
+                    UploadMaxBytes = 2_000_000,
+                    UploadImageMaxDimension = 1600,
+                    UploadImageQuality = 80
+                });
+            }
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -404,11 +429,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
             PackageLabel: "Basic",
             CompanyName: "Blue Oak Pilates Studio Sdn Bhd",
             RegistrationNumber: "202601000101",
-            BillingEmail: "tanchengwui+basic@hotmail.com",
+            BillingEmail: "recurvos-basic@hotmail.com",
             Phone: "+60379331201",
             Address: "Bangsar South, Kuala Lumpur, Malaysia",
             OwnerName: "Tancheng Wui",
-            OwnerEmail: "tanchengwui+basic@hotmail.com",
+            OwnerEmail: "recurvos-basic@hotmail.com",
             CustomerName: "Aina Syuhada",
             CustomerEmail: "aina.syuhada@example.com",
             CustomerPhone: "+601121110101",
@@ -418,11 +443,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
             PackageLabel: "Growth",
             CompanyName: "Northpoint Learning Hub Sdn Bhd",
             RegistrationNumber: "202601000202",
-            BillingEmail: "tanchengwui+growth@hotmail.com",
+            BillingEmail: "recurvos-growth@hotmail.com",
             Phone: "+60376224502",
             Address: "Ara Damansara, Selangor, Malaysia",
             OwnerName: "Tancheng Wui",
-            OwnerEmail: "tanchengwui+growth@hotmail.com",
+            OwnerEmail: "recurvos-growth@hotmail.com",
             CustomerName: "Daniel Tan",
             CustomerEmail: "daniel.tan@example.com",
             CustomerPhone: "+601123450202",
@@ -432,11 +457,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
             PackageLabel: "Premium",
             CompanyName: "Meridian Wellness Group Sdn Bhd",
             RegistrationNumber: "202601000303",
-            BillingEmail: "tanchengwui+premium@hotmail.com",
+            BillingEmail: "recurvos-premium@hotmail.com",
             Phone: "+60374995603",
             Address: "Damansara Heights, Kuala Lumpur, Malaysia",
             OwnerName: "Tancheng Wui",
-            OwnerEmail: "tanchengwui+premium@hotmail.com",
+            OwnerEmail: "recurvos-premium@hotmail.com",
             CustomerName: "Farah Nabila",
             CustomerEmail: "farah.nabila@example.com",
             CustomerPhone: "+601134560303",
@@ -506,6 +531,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Payments"
+            ADD COLUMN IF NOT EXISTS "ReceiptEmailedAtUtc" timestamp with time zone NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE company_invoice_settings
             ADD COLUMN IF NOT EXISTS "WhatsAppEnabled" boolean NOT NULL DEFAULT FALSE;
             """, cancellationToken);
@@ -518,6 +548,11 @@ public sealed class DbSeeder(AppDbContext dbContext)
         await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE company_invoice_settings
             ADD COLUMN IF NOT EXISTS "AutoSendInvoices" boolean NOT NULL DEFAULT TRUE;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "CcSubscriberOnCustomerEmails" boolean NOT NULL DEFAULT TRUE;
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
@@ -802,6 +837,46 @@ public sealed class DbSeeder(AppDbContext dbContext)
 
         await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "StripePublishableKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "StripeSecretKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "StripeWebhookSecret" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionStripePublishableKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionStripeSecretKey" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionStripeWebhookSecret" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "PlatformPaymentGatewayProvider" character varying(40) NOT NULL DEFAULT 'billplz';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
+            ADD COLUMN IF NOT EXISTS "ProductionPlatformPaymentGatewayProvider" character varying(40) NOT NULL DEFAULT 'billplz';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_invoice_settings
             ADD COLUMN IF NOT EXISTS "SmtpUseSsl" boolean NULL;
             """, cancellationToken);
 
@@ -844,6 +919,12 @@ public sealed class DbSeeder(AppDbContext dbContext)
             CREATE TABLE IF NOT EXISTS "EmailDispatchLogs" (
                 "Id" uuid NOT NULL,
                 "CompanyId" uuid NOT NULL,
+                "NotificationType" character varying(50) NULL,
+                "InvoiceId" uuid NULL,
+                "InvoiceNumber" character varying(100) NULL,
+                "CustomerName" character varying(200) NULL,
+                "MessageBody" text NULL,
+                "Status" character varying(30) NOT NULL DEFAULT 'Sent',
                 "OriginalRecipient" character varying(200) NOT NULL,
                 "EffectiveRecipient" character varying(200) NOT NULL,
                 "Subject" character varying(300) NOT NULL,
@@ -856,6 +937,42 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 "UpdatedAtUtc" timestamp with time zone NULL,
                 CONSTRAINT "PK_EmailDispatchLogs" PRIMARY KEY ("Id")
             );
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "NotificationType" character varying(50) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "InvoiceId" uuid NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "InvoiceNumber" character varying(100) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "CustomerName" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "MessageBody" text NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "Status" character varying(30) NOT NULL DEFAULT 'Sent';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            UPDATE "EmailDispatchLogs"
+            SET "Status" = CASE WHEN "Succeeded" THEN 'Sent' ELSE 'Failed' END
+            WHERE "Status" IS NULL OR "Status" = '';
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
@@ -1096,16 +1213,16 @@ public sealed class DbSeeder(AppDbContext dbContext)
             CreatePackage(
                 "starter",
                 "Starter",
-                "MYR 29 / month",
+                "MYR 49 / month",
                 "Clean billing tools for businesses starting recurring invoicing.",
-                29m,
+                49m,
                 IntervalUnit.Month,
                 1,
                 7,
                 1,
                 6,
                 0,
-                50,
+                500,
                 0,
                 1,
                 [
@@ -1113,13 +1230,14 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     "Manual invoices",
                     "Recurring invoices",
                     "Email reminders",
-                    "Basic reports"
+                    "Basic reports",
+                    "Auto invoice notification (Email)",
+                    "Payment reminders",
+                    "Generate WhatsApp friendly reminder (Copy and Paste)",
+                    "Payment tracking",
+                    "Payment record screen for customer to upload their payment"
                 ],
-                [
-                    "No contract. Cancel anytime.",
-                    "Your data always belongs to you.",
-                    "You can export invoices and customers anytime."
-                ]),
+                []),
             CreatePackage(
                 "growth",
                 "Growth",
@@ -1132,7 +1250,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 3,
                 15,
                 0,
-                200,
+                5000,
                 200,
                 2,
                 [
@@ -1140,40 +1258,57 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     "Subscriptions and plan management",
                     "Payment tracking",
                     "Finance exports",
-                    "Dunning workflows"
+                    "Dunning workflows",
+                    "Customer management",
+                    "Manual invoices",
+                    "Auto invoice",
+                    "Auto invoice notification (Email)",
+                    "Auto invoice notification (WhatsApp)",
+                    "Payment reminders",
+                    "Generate WhatsApp friendly reminder (Copy and Paste)",
+                    "Generate WhatsApp friendly reminder (Browser copy and paste, click send to send)",
+                    "Payment record screen for customer to upload their payment",
+                    "Basic reports"
                 ],
-                [
-                    "No contract. Cancel anytime.",
-                    "Your data always belongs to you.",
-                    "You can export invoices and customers anytime."
-                ]),
+                []),
             CreatePackage(
                 "premium",
                 "Premium",
-                "Talk to sales",
+                "MYR 199 / month",
                 "For larger operators that want rollout support and deeper visibility.",
-                149m,
+                199m,
                 IntervalUnit.Month,
                 1,
-                14,
+                7,
                 5,
                 1000,
                 0,
-                500,
-                500,
+                50000,
+                1000,
                 3,
                 [
                     "Everything in Growth",
                     "Priority onboarding",
                     "Advanced billing operations",
                     "Platform visibility",
-                    "Custom rollout support"
+                    "Custom rollout support",
+                    "Customer management",
+                    "Manual invoices",
+                    "Auto invoice",
+                    "Auto invoice notification (Email)",
+                    "Auto invoice notification (WhatsApp)",
+                    "Payment reminders",
+                    "Generate WhatsApp friendly reminder (Copy and Paste)",
+                    "Generate WhatsApp friendly reminder (Browser copy and paste, click send to send)",
+                    "Configurable WhatsApp",
+                    "Payment tracking",
+                    "Generate payment link",
+                    "Payment record screen for customer to upload their payment",
+                    "Payment gateway configuration",
+                    "Basic reports",
+                    "Finance exports"
                 ],
-                [
-                    "No contract. Cancel anytime.",
-                    "Your data always belongs to you.",
-                    "You can export invoices and customers anytime."
-                ]));
+                []));
     }
 
     private static PlatformPackage CreatePackage(
@@ -1266,6 +1401,121 @@ public sealed class DbSeeder(AppDbContext dbContext)
         return product;
     }
 
+    private async Task SyncPlatformSeedSettingsAsync(CancellationToken cancellationToken)
+    {
+        var platformCompany = await dbContext.Companies
+            .FirstOrDefaultAsync(x => x.IsPlatformAccount || x.Email == "support@recurvos.com" || x.Email == "support@recurvo.com", cancellationToken);
+        if (platformCompany is null)
+        {
+            return;
+        }
+
+        platformCompany.Name = "SYSNEX TECHNOLOGY - LOCALHOST";
+        platformCompany.RegistrationNumber = "202603074137";
+        platformCompany.Email = "support@recurvos.com";
+        platformCompany.Phone = "+60126093799";
+        platformCompany.Address = "SELANGOR, MALAYSIA - LOCALHOST";
+        platformCompany.IsActive = true;
+        platformCompany.IsPlatformAccount = true;
+
+        var settings = await dbContext.CompanyInvoiceSettings.FirstOrDefaultAsync(x => x.CompanyId == platformCompany.Id, cancellationToken);
+        if (settings is null)
+        {
+            settings = new CompanyInvoiceSettings
+            {
+                CompanyId = platformCompany.Id
+            };
+            ApplyPlatformSeedSettings(settings);
+            dbContext.CompanyInvoiceSettings.Add(settings);
+        }
+        else
+        {
+            ApplyPlatformSeedSettings(settings);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void ApplyPlatformSeedSettings(CompanyInvoiceSettings settings)
+    {
+        settings.Prefix = "RCV-INV";
+        settings.NextNumber = 1;
+        settings.Padding = 6;
+        settings.ResetYearly = true;
+        settings.LastResetYear = null;
+        settings.ReceiptPrefix = "RCV-RCT";
+        settings.ReceiptNextNumber = 1;
+        settings.ReceiptPadding = 6;
+        settings.ReceiptResetYearly = true;
+        settings.ReceiptLastResetYear = DateTime.UtcNow.Year;
+        settings.CreditNotePrefix = "CN";
+        settings.CreditNoteNextNumber = 1;
+        settings.CreditNotePadding = 6;
+        settings.CreditNoteResetYearly = false;
+        settings.CreditNoteLastResetYear = null;
+        settings.PaymentDueDays = 7;
+        settings.ShowCompanyAddressOnInvoice = true;
+        settings.ShowCompanyAddressOnReceipt = true;
+        settings.AutoSendInvoices = true;
+        settings.CcSubscriberOnCustomerEmails = true;
+        settings.AutoCompressUploads = true;
+        settings.UploadMaxBytes = 2_000_000;
+        settings.UploadImageMaxDimension = 1600;
+        settings.UploadImageQuality = 80;
+        settings.WhatsAppEnabled = true;
+        settings.WhatsAppProvider = "whatsapp_web_js";
+        settings.WhatsAppApiUrl = null;
+        settings.WhatsAppAccessToken = null;
+        settings.WhatsAppSenderId = null;
+        settings.WhatsAppTemplate = null;
+        settings.WhatsAppSessionStatus = "connected";
+        settings.FeedbackNotificationEmail = "tancw@recurvos.com";
+        settings.SmtpHost = "smtp.gmail.com";
+        settings.SmtpPort = 465;
+        settings.SmtpUsername = "tanchengwui@gmail.com";
+        settings.SmtpPassword = "esfx ajbq uoor myxz";
+        settings.SmtpFromEmail = "No-Reply-LOCALHOST@recurvos.com";
+        settings.SmtpFromName = "Recurvos Admin - LOCALHOST";
+        settings.SmtpUseSsl = true;
+        settings.LocalEmailCaptureEnabled = false;
+        settings.EmailShieldEnabled = false;
+        settings.EmailShieldAddress = null;
+        settings.UseProductionPlatformSettings = false;
+        settings.ProductionIssuerCompanyName = "SYSNEX TECHNOLOGY";
+        settings.ProductionIssuerRegistrationNumber = "202603074137";
+        settings.ProductionIssuerBillingEmail = "support@recurvos.com";
+        settings.ProductionIssuerPhone = "+60126093799";
+        settings.ProductionIssuerAddress = "SELANGOR, MALAYSIA";
+        settings.ProductionSmtpHost = "smtp.gmail.com";
+        settings.ProductionSmtpPort = 465;
+        settings.ProductionSmtpUsername = "tancw@recurvos.com";
+        settings.ProductionSmtpPassword = "uqzz jtvj xqyu crlb";
+        settings.ProductionSmtpFromEmail = "No-Reply@recurvos.com";
+        settings.ProductionSmtpFromName = "Recurvos Admin";
+        settings.ProductionSmtpUseSsl = true;
+        settings.ProductionLocalEmailCaptureEnabled = false;
+        settings.ProductionEmailShieldEnabled = false;
+        settings.ProductionEmailShieldAddress = null;
+        settings.BillplzApiKey = "0817d7e9-5047-437c-98e3-847a086e728a";
+        settings.BillplzCollectionId = "rc2eertl";
+        settings.BillplzXSignatureKey = "0bad97332fbb5a173caa81d314e1b9e6df3e1b99055447f44ea4a7c9497235c67fb8d4d983bb6a196a1d2a3591c769cc61b4e3b17c0b68851c006b31266353d8";
+        settings.BillplzBaseUrl = "https://www.billplz-sandbox.com";
+        settings.BillplzRequireSignatureVerification = true;
+        settings.StripePublishableKey = null;
+        settings.StripeSecretKey = null;
+        settings.StripeWebhookSecret = null;
+        settings.ProductionBillplzApiKey = null;
+        settings.ProductionBillplzCollectionId = null;
+        settings.ProductionBillplzXSignatureKey = null;
+        settings.ProductionBillplzBaseUrl = null;
+        settings.ProductionBillplzRequireSignatureVerification = null;
+        settings.ProductionStripePublishableKey = null;
+        settings.ProductionStripeSecretKey = null;
+        settings.ProductionStripeWebhookSecret = null;
+        settings.PlatformPaymentGatewayProvider = "billplz";
+        settings.ProductionPlatformPaymentGatewayProvider = "billplz";
+    }
+
     private async Task<ProductPlan> EnsurePlanAsync(
         Product product,
         string planName,
@@ -1295,7 +1545,6 @@ public sealed class DbSeeder(AppDbContext dbContext)
             IntervalCount = intervalCount,
             Currency = "MYR",
             UnitAmount = unitAmount,
-            TrialDays = 0,
             SetupFeeAmount = 0,
             TaxBehavior = TaxBehavior.Unspecified,
             IsDefault = isDefault,

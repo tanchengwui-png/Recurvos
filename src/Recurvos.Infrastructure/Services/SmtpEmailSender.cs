@@ -22,9 +22,17 @@ public sealed class SmtpEmailSender(
     private readonly IHostEnvironment _environment = environment;
     private readonly AppDbContext _dbContext = dbContext;
 
-    public async Task SendAsync(string to, string subject, string body, IReadOnlyCollection<EmailAttachment>? attachments = null, CancellationToken cancellationToken = default)
+    public async Task SendAsync(
+        string to,
+        string subject,
+        string body,
+        IReadOnlyCollection<EmailAttachment>? attachments = null,
+        IReadOnlyCollection<string>? cc = null,
+        EmailLogContext? logContext = null,
+        CancellationToken cancellationToken = default)
     {
         var smtpConfig = await ResolveSmtpConfigurationAsync(cancellationToken);
+        var logCompanyId = logContext?.CompanyId ?? smtpConfig.CompanyId;
         var wasRedirected = smtpConfig.EmailShieldEnabled && !string.IsNullOrWhiteSpace(smtpConfig.EmailShieldAddress);
         var effectiveTo = smtpConfig.EmailShieldEnabled && !string.IsNullOrWhiteSpace(smtpConfig.EmailShieldAddress)
             ? smtpConfig.EmailShieldAddress
@@ -47,20 +55,27 @@ public sealed class SmtpEmailSender(
         if (smtpConfig.LocalEmailCaptureEnabled)
         {
             await SaveToLocalFileAsync(effectiveTo, effectiveSubject, effectiveBody, attachments, cancellationToken);
-            await TryWriteEmailLogAsync(smtpConfig.CompanyId, to, effectiveTo, effectiveSubject, "LocalFolder", wasRedirected, wasRedirected ? "Email shield" : "Forced local capture", true, null, cancellationToken);
+            await TryWriteEmailLogAsync(logCompanyId, logContext, to, effectiveTo, effectiveSubject, body, "LocalFolder", wasRedirected, wasRedirected ? "Email shield" : "Forced local capture", true, null, cancellationToken);
             return;
         }
 
         if (!smtpConfig.HasPlatformSmtpConfiguration && _environment.IsDevelopment())
         {
             await SaveToLocalFileAsync(effectiveTo, effectiveSubject, effectiveBody, attachments, cancellationToken);
-            await TryWriteEmailLogAsync(smtpConfig.CompanyId, to, effectiveTo, effectiveSubject, "LocalFolder", wasRedirected, wasRedirected ? "Email shield" : "Development fallback", true, null, cancellationToken);
+            await TryWriteEmailLogAsync(logCompanyId, logContext, to, effectiveTo, effectiveSubject, body, "LocalFolder", wasRedirected, wasRedirected ? "Email shield" : "Development fallback", true, null, cancellationToken);
             return;
         }
 
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(smtpConfig.FromName, fromAddress.Address));
         message.To.Add(toAddress);
+        if (cc is not null)
+        {
+            foreach (var ccValue in cc.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                message.Cc.Add(ParseMailboxOrThrow(ccValue, "Cc email"));
+            }
+        }
         message.Subject = effectiveSubject;
 
         var builder = new BodyBuilder
@@ -89,26 +104,26 @@ public sealed class SmtpEmailSender(
 
             await client.SendAsync(message, cancellationToken);
             await client.DisconnectAsync(true, cancellationToken);
-            await TryWriteEmailLogAsync(smtpConfig.CompanyId, to, effectiveTo, effectiveSubject, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, true, null, cancellationToken);
+            await TryWriteEmailLogAsync(logCompanyId, logContext, to, effectiveTo, effectiveSubject, body, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, true, null, cancellationToken);
         }
         catch (SocketException)
         {
-            await TryWriteEmailLogAsync(smtpConfig.CompanyId, to, effectiveTo, effectiveSubject, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, $"SMTP server is not reachable at {smtpConfig.Host}:{smtpConfig.Port}.", cancellationToken);
+            await TryWriteEmailLogAsync(logCompanyId, logContext, to, effectiveTo, effectiveSubject, body, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, $"SMTP server is not reachable at {smtpConfig.Host}:{smtpConfig.Port}.", cancellationToken);
             throw new InvalidOperationException($"SMTP server is not reachable at {smtpConfig.Host}:{smtpConfig.Port}. Start a local SMTP server or update the SMTP settings.");
         }
         catch (SmtpCommandException exception)
         {
-            await TryWriteEmailLogAsync(smtpConfig.CompanyId, to, effectiveTo, effectiveSubject, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, exception.Message, cancellationToken);
+            await TryWriteEmailLogAsync(logCompanyId, logContext, to, effectiveTo, effectiveSubject, body, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, exception.Message, cancellationToken);
             throw new InvalidOperationException($"Unable to send email via SMTP: {exception.Message}");
         }
         catch (SmtpProtocolException exception)
         {
-            await TryWriteEmailLogAsync(smtpConfig.CompanyId, to, effectiveTo, effectiveSubject, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, exception.Message, cancellationToken);
+            await TryWriteEmailLogAsync(logCompanyId, logContext, to, effectiveTo, effectiveSubject, body, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, exception.Message, cancellationToken);
             throw new InvalidOperationException($"SMTP server returned an invalid response: {exception.Message}");
         }
         catch (Exception exception)
         {
-            await TryWriteEmailLogAsync(smtpConfig.CompanyId, to, effectiveTo, effectiveSubject, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, exception.Message, cancellationToken);
+            await TryWriteEmailLogAsync(logCompanyId, logContext, to, effectiveTo, effectiveSubject, body, "Smtp", wasRedirected, wasRedirected ? "Email shield" : null, false, exception.Message, cancellationToken);
             throw new InvalidOperationException($"Unable to send email via SMTP: {exception.Message}");
         }
     }
@@ -151,9 +166,11 @@ public sealed class SmtpEmailSender(
 
     private async Task WriteEmailLogAsync(
         Guid companyId,
+        EmailLogContext? logContext,
         string originalRecipient,
         string effectiveRecipient,
         string subject,
+        string messageBody,
         string deliveryMode,
         bool wasRedirected,
         string? redirectReason,
@@ -169,6 +186,12 @@ public sealed class SmtpEmailSender(
         _dbContext.EmailDispatchLogs.Add(new Domain.Entities.EmailDispatchLog
         {
             CompanyId = companyId,
+            NotificationType = string.IsNullOrWhiteSpace(logContext?.NotificationType) ? null : logContext.NotificationType.Trim(),
+            InvoiceId = logContext?.InvoiceId,
+            InvoiceNumber = string.IsNullOrWhiteSpace(logContext?.InvoiceNumber) ? null : logContext.InvoiceNumber.Trim(),
+            CustomerName = string.IsNullOrWhiteSpace(logContext?.CustomerName) ? null : logContext.CustomerName.Trim(),
+            MessageBody = string.IsNullOrWhiteSpace(messageBody) ? null : messageBody,
+            Status = succeeded ? "Sent" : "Failed",
             OriginalRecipient = originalRecipient,
             EffectiveRecipient = effectiveRecipient,
             Subject = subject,
@@ -183,9 +206,11 @@ public sealed class SmtpEmailSender(
 
     private async Task TryWriteEmailLogAsync(
         Guid companyId,
+        EmailLogContext? logContext,
         string originalRecipient,
         string effectiveRecipient,
         string subject,
+        string messageBody,
         string deliveryMode,
         bool wasRedirected,
         string? redirectReason,
@@ -195,7 +220,7 @@ public sealed class SmtpEmailSender(
     {
         try
         {
-            await WriteEmailLogAsync(companyId, originalRecipient, effectiveRecipient, subject, deliveryMode, wasRedirected, redirectReason, succeeded, errorMessage, cancellationToken);
+            await WriteEmailLogAsync(companyId, logContext, originalRecipient, effectiveRecipient, subject, messageBody, deliveryMode, wasRedirected, redirectReason, succeeded, errorMessage, cancellationToken);
         }
         catch
         {

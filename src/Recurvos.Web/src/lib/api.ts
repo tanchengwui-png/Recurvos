@@ -17,6 +17,42 @@ function toFriendlyFieldName(field: string) {
     .join(" ");
 }
 
+function toFriendlyFieldLabel(field: string) {
+  const normalized = toFriendlyFieldName(field);
+
+  if (normalized.toLowerCase() === "email") {
+    return "email address";
+  }
+
+  return normalized.toLowerCase();
+}
+
+function normalizeValidationMessage(field: string, message: string) {
+  const cleanedField = field === "request" || field === "$" ? "" : toFriendlyFieldName(field);
+  const friendlyFieldLabel = cleanedField ? toFriendlyFieldLabel(field) : "";
+  const normalizedMessage = message.trim();
+  const lowerMessage = normalizedMessage.toLowerCase();
+
+  if (lowerMessage.includes("field is required")) {
+    return friendlyFieldLabel ? `Enter ${friendlyFieldLabel}.` : "Complete this field.";
+  }
+
+  if (lowerMessage.includes("not a valid e-mail address") || lowerMessage.includes("not a valid email address")) {
+    return "Enter a valid email address.";
+  }
+
+  if (cleanedField) {
+    const cleanedPrefix = `${cleanedField.toLowerCase()}: `;
+    if (lowerMessage.startsWith(cleanedPrefix)) {
+      return normalizedMessage.slice(cleanedPrefix.length).trim();
+    }
+  }
+
+  return cleanedField && !lowerMessage.startsWith(cleanedField.toLowerCase())
+    ? `${cleanedField}: ${normalizedMessage}`
+    : normalizedMessage;
+}
+
 function formatApiError(payload: unknown, fallbackStatus: number) {
   if (!payload || typeof payload !== "object") {
     return `Request failed with ${fallbackStatus}`;
@@ -30,21 +66,22 @@ function formatApiError(payload: unknown, fallbackStatus: number) {
 
   if (typedPayload.errors) {
     const messages = Object.entries(typedPayload.errors)
-      .flatMap(([field, fieldErrors]) =>
-        fieldErrors.map((message) => {
-          const cleanedField = field === "request" || field === "$" ? "" : toFriendlyFieldName(field);
-          const normalizedMessage = message.startsWith("The field ")
-            ? message.replace("The field ", "")
-            : message;
+      .flatMap(([field, fieldErrors]) => {
+        const normalizedFieldErrors = fieldErrors.map((message) => normalizeValidationMessage(field, message));
+        const hasRequiredMessage = normalizedFieldErrors.some((message) => message.toLowerCase().startsWith("enter "));
 
-          return cleanedField && !normalizedMessage.toLowerCase().startsWith(cleanedField.toLowerCase())
-            ? `${cleanedField}: ${normalizedMessage}`
-            : normalizedMessage;
-        }))
+        return normalizedFieldErrors.filter((message) => {
+          if (!hasRequiredMessage) {
+            return true;
+          }
+
+          return !message.toLowerCase().startsWith("enter a valid ");
+        });
+      })
       .filter(Boolean);
 
     if (messages.length > 0) {
-      return messages.join("\n");
+      return Array.from(new Set(messages)).join("\n");
     }
   }
 

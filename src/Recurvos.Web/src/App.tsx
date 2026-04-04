@@ -3,13 +3,17 @@ import type { Location } from "react-router-dom";
 import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { getAuth } from "./lib/auth";
+import { isAppSiteHost } from "./lib/siteUrls";
 import { CompaniesPage } from "./pages/CompaniesPage";
+import { CompanyFormPage } from "./pages/CompanyFormPage";
+import { CustomerFormPage } from "./pages/CustomerFormPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { FinancePage } from "./pages/FinancePage";
 import { FeedbackPage } from "./pages/FeedbackPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
+import { LandingPage } from "./pages/LandingPage";
 import { InfoPage } from "./pages/InfoPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
@@ -27,15 +31,19 @@ import { PlatformWhatsAppSessionsPage } from "./pages/PlatformWhatsAppSessionsPa
 import { PublicPaymentConfirmationPage } from "./pages/PublicPaymentConfirmationPage";
 import { PublicPaymentSuccessPage } from "./pages/PublicPaymentSuccessPage";
 import { ProductDetailsPage } from "./pages/ProductDetailsPage";
+import { ProductFormPage } from "./pages/ProductFormPage";
 import { ProductPlansPage } from "./pages/ProductPlansPage";
+import { ProductPlanFormPage } from "./pages/ProductPlanFormPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import { PricingPage } from "./pages/PricingPage";
 import { QuickStartPage } from "./pages/QuickStartPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { NewSubscriptionPage } from "./pages/NewSubscriptionPage";
 import { SubscriberPackageBillingPage } from "./pages/SubscriberPackageBillingPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SubscriptionsPage } from "./pages/SubscriptionsPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
+import { WhatsAppMessagesPage } from "./pages/WhatsAppMessagesPage";
 
 function PrivateRoutes() {
   return getAuth() ? <AppShell /> : <Navigate to="/login" replace />;
@@ -44,6 +52,14 @@ function PrivateRoutes() {
 function HomeRoute() {
   const auth = getAuth();
   return auth?.isPlatformOwner ? <PlatformDashboardPage /> : <DashboardPage />;
+}
+
+function RootRoute() {
+  if (getAuth()) {
+    return <Navigate to="/app" replace />;
+  }
+
+  return isAppSiteHost() ? <Navigate to="/login" replace /> : <LandingPage />;
 }
 
 function TenantRoute({ children }: { children: ReactElement }) {
@@ -119,6 +135,7 @@ function AppRoutes() {
   return (
     <>
       <Routes location={backgroundLocation ?? location}>
+        <Route path="/" element={<RootRoute />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
@@ -132,7 +149,7 @@ function AppRoutes() {
         {renderInfoRoute("/terms")}
         {renderInfoRoute("/support")}
         <Route element={<PrivateRoutes />}>
-          <Route path="/" element={<HomeRoute />} />
+          <Route path="/app" element={<HomeRoute />} />
           <Route path="/subscribers" element={<PlatformRoute><PlatformSubscribersPage /></PlatformRoute>} />
           <Route path="/platform/users" element={<PlatformRoute><PlatformUsersPage /></PlatformRoute>} />
           <Route path="/platform/documents" element={<PlatformRoute><PlatformDocumentPreviewPage /></PlatformRoute>} />
@@ -143,14 +160,24 @@ function AppRoutes() {
           <Route path="/platform/settings" element={<PlatformRoute><PlatformSettingsPage /></PlatformRoute>} />
           <Route path="/platform/whatsapp-sessions" element={<PlatformRoute><PlatformWhatsAppSessionsPage /></PlatformRoute>} />
           <Route path="/companies" element={<TenantRoute><CompaniesPage /></TenantRoute>} />
+          <Route path="/companies/new" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
+          <Route path="/companies/:id/edit" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
           <Route path="/customers" element={<TenantRoute><CustomersPage /></TenantRoute>} />
+          <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
+          <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
           <Route path="/products" element={<TenantRoute><ProductsPage /></TenantRoute>} />
+          <Route path="/products/new" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
+          <Route path="/products/:id/edit" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
           <Route path="/products/:id" element={<TenantRoute><ProductDetailsPage /></TenantRoute>} />
           <Route path="/plans" element={<TenantRoute><ProductPlansPage /></TenantRoute>} />
+          <Route path="/plans/new" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
+          <Route path="/plans/:id/edit" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
           <Route path="/prices" element={<Navigate to="/plans" replace />} />
           <Route path="/subscriptions" element={<TenantRoute><SubscriptionsPage /></TenantRoute>} />
+          <Route path="/subscriptions/new" element={<TenantRoute><NewSubscriptionPage /></TenantRoute>} />
           <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
           <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
+          <Route path="/whatsapp-messages" element={<TenantRoute><WhatsAppMessagesPage /></TenantRoute>} />
           <Route path="/finance" element={<TenantRoute><FinancePage /></TenantRoute>} />
           <Route path="/feedback" element={<TenantRoute><FeedbackPage /></TenantRoute>} />
           <Route path="/package-billing" element={<TenantRoute><SubscriberPackageBillingPage /></TenantRoute>} />

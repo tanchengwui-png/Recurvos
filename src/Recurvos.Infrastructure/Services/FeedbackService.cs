@@ -255,7 +255,10 @@ public sealed class FeedbackService(
 
         try
         {
-            await emailSender.SendAsync(recipientEmail, $"New subscriber feedback: {item.Subject}", body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(recipientEmail, $"New subscriber feedback: {item.Subject}", body, logContext: new EmailLogContext(
+                CompanyId: item.CompanyId,
+                NotificationType: "Feedback",
+                CustomerName: item.SubmittedByName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -271,8 +274,8 @@ public sealed class FeedbackService(
 
         var actionUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/feedback";
         var intro = string.IsNullOrWhiteSpace(item.AdminNote)
-            ? $"There is an update on your feedback \"{item.Subject}\". Open Recurvo to view the latest status."
-            : $"There is a new platform reply on your feedback \"{item.Subject}\". Open Recurvo to read the reply and current status.";
+            ? $"There is an update on your feedback \"{item.Subject}\". Open Recurvos to view the latest status."
+            : $"There is a new platform reply on your feedback \"{item.Subject}\". Open Recurvos to read the reply and current status.";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "Feedback update",
             $"Update on {item.Subject}",
@@ -288,7 +291,10 @@ public sealed class FeedbackService(
 
         try
         {
-            await emailSender.SendAsync(item.SubmittedByEmail, $"Feedback update: {item.Subject}", body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(item.SubmittedByEmail, $"Feedback update: {item.Subject}", body, logContext: new EmailLogContext(
+                CompanyId: item.CompanyId,
+                NotificationType: "FeedbackUpdate",
+                CustomerName: item.SubmittedByName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {

@@ -29,6 +29,12 @@ public sealed record PlatformDashboardSummaryDto(
     int CompaniesUsingWhatsAppThisMonth);
 public sealed record EmailDispatchLogDto(
     Guid Id,
+    string? NotificationType,
+    Guid? InvoiceId,
+    string? InvoiceNumber,
+    string? CustomerName,
+    string? MessageBody,
+    string Status,
     string OriginalRecipient,
     string EffectiveRecipient,
     string Subject,
@@ -49,6 +55,21 @@ public sealed record FailedWhatsAppNotificationDto(
     bool IsReminder,
     string? ErrorMessage,
     DateTime CreatedAtUtc);
+public sealed record PlatformWhatsAppQueueItemDto(
+    Guid Id,
+    Guid CompanyId,
+    string CompanyName,
+    Guid InvoiceId,
+    string InvoiceNumber,
+    string CustomerName,
+    string RecipientPhoneNumber,
+    bool IsReminder,
+    string Status,
+    int AttemptCount,
+    DateTime CreatedAtUtc,
+    DateTime? LastAttemptAtUtc,
+    DateTime? NextAttemptAtUtc,
+    string? ErrorMessage);
 public sealed record AuditLogEntryDto(
     Guid Id,
     Guid CompanyId,
@@ -110,6 +131,34 @@ public sealed record UpdatePlatformPackageRequest(
     int DisplayOrder,
     IReadOnlyCollection<string> Features,
     IReadOnlyCollection<string> TrustPoints);
+public sealed record FactoryResetRequest(string ConfirmationText);
+public sealed record FactoryResetResult(DateTime ResetAtUtc, string Message);
+public sealed record PlatformJobTriggerResultDto(
+    string JobKey,
+    string JobName,
+    string HangfireJobId,
+    string Message,
+    DateTime TriggeredAtUtc);
+public sealed record PlatformJobHistoryEntryDto(
+    string StateName,
+    string? Reason,
+    DateTime CreatedAtUtc);
+public sealed record PlatformJobStatusDto(
+    string JobKey,
+    string JobName,
+    string Cron,
+    string Queue,
+    string TimeZoneId,
+    DateTime? NextExecutionAtUtc,
+    DateTime? LastExecutionAtUtc,
+    DateTime? LastManualTriggerAtUtc,
+    string? LastManualTriggerJobId,
+    string? LastJobId,
+    string? LastJobState,
+    string? Error,
+    int RetryAttempt,
+    DateTime? LastJobCreatedAtUtc,
+    IReadOnlyCollection<PlatformJobHistoryEntryDto> RecentHistory);
 public sealed record AssignSubscriberPackageRequest(string PackageCode);
 public sealed record CreatePlatformAdminRequest(string FullName, string Email, string Password);
 public sealed record UpdatePlatformUserRequest(string Role, bool IsActive);
@@ -174,6 +223,8 @@ public sealed record SubscriberPackageBillingSummaryDto(
     string? PendingUpgradePackageCode,
     string? PendingUpgradePackageName,
     DateTime? CurrentCycleEndUtc,
+    bool IsCompanyBillingAddressConfigured,
+    bool CanCancelPendingUpgrade,
     IReadOnlyCollection<SubscriberPackageUpgradeOptionDto> AvailableUpgrades,
     IReadOnlyCollection<SubscriberPackageBillingInvoiceDto> Invoices);
 
@@ -191,7 +242,11 @@ public interface IPlatformService
     Task<PlatformPackageDto> UpdatePackageAsync(Guid id, UpdatePlatformPackageRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<EmailDispatchLogDto>> GetEmailLogsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<FailedWhatsAppNotificationDto>> GetFailedWhatsAppNotificationsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<PlatformWhatsAppQueueItemDto>> GetWhatsAppQueueItemsAsync(CancellationToken cancellationToken = default);
+    Task<PlatformWhatsAppQueueItemDto> RetryWhatsAppQueueItemAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<PlatformWhatsAppQueueItemDto> CancelWhatsAppQueueItemAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<AuditLogEntryDto>> GetAuditLogsAsync(int take = 100, CancellationToken cancellationToken = default);
+    Task<FactoryResetResult> FactoryResetAsync(FactoryResetRequest request, CancellationToken cancellationToken = default);
 }
 
 public interface ISubscriberPackageBillingService
@@ -200,6 +255,9 @@ public interface ISubscriberPackageBillingService
     Task<SubscriberPackageBillingSummaryDto> GetCurrentAsync(CancellationToken cancellationToken = default);
     Task<SubscriberPackageUpgradePreviewDto> PreviewUpgradeAsync(string packageCode, CancellationToken cancellationToken = default);
     Task<SubscriberPackageBillingInvoiceDto> CreateUpgradeInvoiceAsync(string packageCode, CancellationToken cancellationToken = default);
+    Task<SubscriberPackageBillingSummaryDto> CancelPendingUpgradeAsync(CancellationToken cancellationToken = default);
+    Task<int> GenerateDueRenewalInvoicesAsync(CancellationToken cancellationToken = default);
+    Task<int> ReconcileExpiredPackageStatusesAsync(CancellationToken cancellationToken = default);
     Task<SubscriberPackageReactivationPreviewDto> PreviewReactivationAsync(string packageCode, CancellationToken cancellationToken = default);
     Task<SubscriberPackageBillingInvoiceDto> CreateReactivationInvoiceAsync(string packageCode, CancellationToken cancellationToken = default);
     Task<SubscriberPackageBillingInvoiceDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default);

@@ -81,6 +81,9 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Industry")
+                        .HasColumnType("text");
+
                     b.Property<int>("InvoiceSequence")
                         .HasColumnType("integer");
 
@@ -97,10 +100,20 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("NatureOfBusiness")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PackageBillingCycleStartUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("PackageGracePeriodEndsAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PackageStatus")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PendingPackageCode")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
@@ -137,6 +150,16 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CompanyId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AutoCompressUploads")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("AutoSendInvoices")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("BankAccount")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -149,14 +172,92 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("BillplzApiKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("BillplzBaseUrl")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("BillplzCollectionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool?>("BillplzRequireSignatureVerification")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("BillplzXSignatureKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("CcSubscriberOnCustomerEmails")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<int?>("CreditNoteLastResetYear")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CreditNoteNextNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CreditNotePadding")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CreditNotePrefix")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<bool>("CreditNoteResetYearly")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("EmailShieldAddress")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("EmailShieldEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FeedbackNotificationEmail")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsTaxEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<int?>("LastResetYear")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("LocalEmailCaptureEnabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<int>("NextNumber")
                         .HasColumnType("integer");
 
                     b.Property<int>("Padding")
                         .HasColumnType("integer");
+
+                    b.Property<int>("PaymentDueDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(7);
+
+                    b.Property<string>("PaymentGatewayProvider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("none");
+
+                    b.Property<bool>("PaymentGatewayTermsAccepted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("PaymentGatewayTermsAcceptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PaymentLink")
                         .HasMaxLength(500)
@@ -166,13 +267,266 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("PlatformPaymentGatewayProvider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("billplz");
+
                     b.Property<string>("Prefix")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("ProductionBillplzApiKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProductionBillplzBaseUrl")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProductionBillplzCollectionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool?>("ProductionBillplzRequireSignatureVerification")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProductionBillplzXSignatureKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProductionEmailShieldAddress")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("ProductionEmailShieldEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProductionIssuerAddress")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ProductionIssuerBillingEmail")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProductionIssuerCompanyName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("ProductionIssuerPhone")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ProductionIssuerRegistrationNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("ProductionLocalEmailCaptureEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProductionPlatformPaymentGatewayProvider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasDefaultValue("billplz");
+
+                    b.Property<string>("ProductionSmtpFromEmail")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProductionSmtpFromName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProductionSmtpHost")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProductionSmtpPassword")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ProductionSmtpPort")
+                        .HasColumnType("integer");
+
+                    b.Property<bool?>("ProductionSmtpUseSsl")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProductionSmtpUsername")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ProductionStripePublishableKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProductionStripeSecretKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ProductionStripeWebhookSecret")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("ReceiptLastResetYear")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ReceiptNextNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ReceiptPadding")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReceiptPrefix")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("ReceiptResetYearly")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("ResetYearly")
                         .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowCompanyAddressOnInvoice")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowCompanyAddressOnReceipt")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SmtpFromEmail")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SmtpFromName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("SmtpHost")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SmtpPassword")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int?>("SmtpPort")
+                        .HasColumnType("integer");
+
+                    b.Property<bool?>("SmtpUseSsl")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SmtpUsername")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("StripePublishableKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("StripeSecretKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("StripeWebhookSecret")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SubscriberBillplzApiKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SubscriberBillplzBaseUrl")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SubscriberBillplzCollectionId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool?>("SubscriberBillplzRequireSignatureVerification")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("SubscriberBillplzXSignatureKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TaxName")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasDefaultValue("SST");
+
+                    b.Property<decimal?>("TaxRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<string>("TaxRegistrationNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("UploadImageMaxDimension")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1600);
+
+                    b.Property<int>("UploadImageQuality")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(80);
+
+                    b.Property<int>("UploadMaxBytes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2097152);
+
+                    b.Property<bool>("UseProductionPlatformSettings")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("WhatsAppAccessToken")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("WhatsAppApiUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("WhatsAppEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("WhatsAppProvider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("WhatsAppSenderId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("WhatsAppSendWindowEndHourUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(18);
+
+                    b.Property<int>("WhatsAppSendWindowStartHourUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(9);
+
+                    b.Property<DateTime?>("WhatsAppSessionLastSyncedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WhatsAppSessionPhone")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("WhatsAppSessionStatus")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("WhatsAppTemplate")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
 
                     b.HasKey("CompanyId");
 
@@ -194,6 +548,11 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CreditNoteNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("Currency")
                         .IsRequired()
                         .HasColumnType("text");
@@ -206,6 +565,10 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime>("IssuedAtUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PdfPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("Reason")
                         .IsRequired()
@@ -234,6 +597,9 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.HasIndex("CustomerId");
 
                     b.HasIndex("InvoiceId");
+
+                    b.HasIndex("CompanyId", "CreditNoteNumber")
+                        .IsUnique();
 
                     b.HasIndex("CompanyId", "InvoiceId");
 
@@ -476,6 +842,62 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.ToTable("DunningRules");
                 });
 
+            modelBuilder.Entity("Recurvos.Domain.Entities.EmailDispatchLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeliveryMode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("EffectiveRecipient")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("OriginalRecipient")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("RedirectReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("WasRedirected")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId", "CreatedAtUtc");
+
+                    b.ToTable("EmailDispatchLogs");
+                });
+
             modelBuilder.Entity("Recurvos.Domain.Entities.EmailVerificationToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -510,6 +932,112 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("EmailVerificationTokens");
+                });
+
+            modelBuilder.Entity("Recurvos.Domain.Entities.FeedbackItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActualResult")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AdminNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("BrowserInfo")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExpectedResult")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastPlatformResponseAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("PageUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("ReviewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReviewedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ScreenshotContentType")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ScreenshotFileName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ScreenshotPath")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("StepsToReproduce")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("SubmittedByEmail")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SubmittedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<Guid?>("SubmittedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("SubscriberLastViewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.HasIndex("SubmittedByUserId");
+
+                    b.HasIndex("CompanyId", "LastPlatformResponseAtUtc");
+
+                    b.HasIndex("CompanyId", "Status", "CreatedAtUtc");
+
+                    b.ToTable("FeedbackItems");
                 });
 
             modelBuilder.Entity("Recurvos.Domain.Entities.Invoice", b =>
@@ -549,6 +1077,9 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsTaxEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("IssueDateUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -583,6 +1114,22 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<decimal>("Subtotal")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("TaxName")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal?>("TaxRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<string>("TaxRegistrationNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<decimal>("Total")
                         .HasPrecision(18, 2)
@@ -798,6 +1345,9 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("ReceiptPdfPath")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("ReceiptEmailedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -1027,8 +1577,18 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<int>("MaxCustomers")
                         .HasColumnType("integer");
 
+                    b.Property<int>("MaxPlans")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("MaxProducts")
                         .HasColumnType("integer");
+
+                    b.Property<int>("MaxWhatsAppRemindersPerMonth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1216,9 +1776,6 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("TrialDays")
-                        .HasColumnType("integer");
-
                     b.Property<decimal>("UnitAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -1232,6 +1789,11 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CompanyId", "PlanCode")
                         .IsUnique();
+
+                    b.HasIndex("ProductId", "IsDefault")
+                        .IsUnique()
+                        .HasDatabaseName("IX_product_plans_ProductId_IsDefault_True")
+                        .HasFilter("\"IsDefault\" = TRUE");
 
                     b.ToTable("product_plans", (string)null);
                 });
@@ -1396,11 +1958,19 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<Guid>("DunningRuleId")
+                    b.Property<Guid?>("DunningRuleId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("InvoiceId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("OffsetDays")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReminderName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime>("ScheduledAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -1417,7 +1987,7 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("InvoiceId");
 
-                    b.HasIndex("CompanyId", "InvoiceId", "DunningRuleId")
+                    b.HasIndex("CompanyId", "InvoiceId", "OffsetDays")
                         .IsUnique();
 
                     b.ToTable("ReminderSchedules");
@@ -1668,6 +2238,11 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<bool>("IsEmailVerified")
                         .HasColumnType("boolean");
 
@@ -1758,6 +2333,133 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("WebhookEvents");
+                });
+
+            modelBuilder.Entity("Recurvos.Domain.Entities.WhatsAppNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ExternalMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RecipientPhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid?>("ReminderScheduleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("ReminderScheduleId");
+
+                    b.HasIndex("CompanyId", "CreatedAtUtc");
+
+                    b.ToTable("WhatsAppNotifications");
+                });
+
+            modelBuilder.Entity("Recurvos.Domain.Entities.WhatsAppOutboundQueue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ExternalMessageId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("LastAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("NotBeforeUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecipientPhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ReminderScheduleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Template")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId");
+
+                    b.HasIndex("ReminderScheduleId");
+
+                    b.HasIndex("CompanyId", "Status", "NextAttemptAtUtc");
+
+                    b.HasIndex("CompanyId", "Status", "NotBeforeUtc");
+
+                    b.ToTable("WhatsAppOutboundQueues");
                 });
 
             modelBuilder.Entity("Recurvos.Domain.Entities.Company", b =>
@@ -1877,6 +2579,31 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Recurvos.Domain.Entities.FeedbackItem", b =>
+                {
+                    b.HasOne("Recurvos.Domain.Entities.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Recurvos.Domain.Entities.User", "ReviewedByUser")
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Recurvos.Domain.Entities.User", "SubmittedByUser")
+                        .WithMany()
+                        .HasForeignKey("SubmittedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Company");
+
+                    b.Navigation("ReviewedByUser");
+
+                    b.Navigation("SubmittedByUser");
                 });
 
             modelBuilder.Entity("Recurvos.Domain.Entities.Invoice", b =>
@@ -2060,8 +2787,7 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.HasOne("Recurvos.Domain.Entities.DunningRule", "DunningRule")
                         .WithMany()
                         .HasForeignKey("DunningRuleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Recurvos.Domain.Entities.Invoice", "Invoice")
                         .WithMany()
@@ -2146,6 +2872,42 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Company");
+                });
+
+            modelBuilder.Entity("Recurvos.Domain.Entities.WhatsAppNotification", b =>
+                {
+                    b.HasOne("Recurvos.Domain.Entities.Invoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Recurvos.Domain.Entities.ReminderSchedule", "ReminderSchedule")
+                        .WithMany()
+                        .HasForeignKey("ReminderScheduleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Invoice");
+
+                    b.Navigation("ReminderSchedule");
+                });
+
+            modelBuilder.Entity("Recurvos.Domain.Entities.WhatsAppOutboundQueue", b =>
+                {
+                    b.HasOne("Recurvos.Domain.Entities.Invoice", "Invoice")
+                        .WithMany()
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Recurvos.Domain.Entities.ReminderSchedule", "ReminderSchedule")
+                        .WithMany()
+                        .HasForeignKey("ReminderScheduleId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Invoice");
+
+                    b.Navigation("ReminderSchedule");
                 });
 
             modelBuilder.Entity("Recurvos.Domain.Entities.Company", b =>

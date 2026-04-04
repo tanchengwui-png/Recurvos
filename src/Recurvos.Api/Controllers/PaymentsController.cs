@@ -47,4 +47,18 @@ public sealed class PaymentsController(IPaymentService paymentService) : Control
         var file = await paymentService.DownloadReceiptAsync(id, cancellationToken);
         return file is null ? NotFound() : File(file.Value.Content, file.Value.ContentType, file.Value.FileName);
     }
+
+    [HttpPost("{id:guid}/send-receipt")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<IActionResult> SendReceipt(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await paymentService.SendReceiptAsync(id, cancellationToken) ? Accepted() : NotFound();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
 }

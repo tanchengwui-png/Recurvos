@@ -38,6 +38,7 @@ public static class DependencyInjection
         services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.Configure<BillplzOptions>(configuration.GetSection(BillplzOptions.SectionName));
+        services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
         services.Configure<AppUrlOptions>(configuration.GetSection(AppUrlOptions.SectionName));
         services.Configure<WhatsAppWebJsOptions>(configuration.GetSection(WhatsAppWebJsOptions.SectionName));
 
@@ -45,7 +46,13 @@ public static class DependencyInjection
             ?? "Host=localhost;Port=5432;Database=recurvos;Username=postgres;Password=postgres";
 
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
-        services.AddHangfire(config => config.UsePostgreSqlStorage(options => options.UseNpgsqlConnection(connectionString)));
+        services.AddHangfire(config => config.UsePostgreSqlStorage(
+            connectionString,
+            new PostgreSqlStorageOptions
+            {
+                SchemaName = "hangfire",
+                PrepareSchemaIfNecessary = true
+            }));
         services.AddHangfireServer();
         services.AddHttpContextAccessor();
         services.AddMemoryCache();
@@ -55,11 +62,14 @@ public static class DependencyInjection
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IAuditService, AuditService>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();
+        services.AddScoped<PlatformOwnerNotificationService>();
         services.AddHttpClient<IWhatsAppSender, GenericWhatsAppSender>();
         services.AddHttpClient<IPlatformWhatsAppGateway, PlatformWhatsAppGateway>();
         services.AddScoped<IInvoiceStorage, LocalInvoiceStorage>();
         services.AddHttpClient<BillplzPaymentGateway>();
+        services.AddHttpClient<StripePaymentGateway>();
         services.AddScoped<IPaymentGateway, BillplzPaymentGateway>();
+        services.AddScoped<IPaymentGateway, StripePaymentGateway>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IRegistrationGuardService, RegistrationGuardService>();
         services.AddScoped<ICompanyService, CompanyService>();
@@ -86,9 +96,17 @@ public static class DependencyInjection
         services.AddScoped<IWebhookService, WebhookService>();
         services.AddScoped<StaleSignupCleanupService>();
         services.AddScoped<DbSeeder>();
+        services.AddScoped<LegacySchemaRepairService>();
+        services.AddScoped<StorageResetService>();
+        services.AddScoped<HangfireBootstrapService>();
+        services.AddScoped<WhatsAppQueueProcessorService>();
         services.AddScoped<GenerateInvoicesJob>();
+        services.AddScoped<GenerateSubscriberPackageInvoicesJob>();
+        services.AddScoped<ReconcileSubscriberPackageStatusesJob>();
         services.AddScoped<SendInvoiceRemindersJob>();
+        services.AddScoped<ProcessWhatsAppQueueJob>();
         services.AddScoped<RetryFailedPaymentsJob>();
+        services.AddScoped<RecoverMissedReceiptEmailsJob>();
         services.AddScoped<CleanupStaleSignupsJob>();
 
         return services;

@@ -18,6 +18,7 @@ public sealed class Payment : CompanyOwnedEntity
     public string? ProofFileName { get; set; }
     public string? ProofContentType { get; set; }
     public string? ReceiptPdfPath { get; set; }
+    public DateTime? ReceiptEmailedAtUtc { get; set; }
     public DateTime? PaidAtUtc { get; set; }
     public Invoice? Invoice { get; set; }
     public ICollection<PaymentAttempt> Attempts { get; set; } = new List<PaymentAttempt>();

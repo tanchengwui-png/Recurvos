@@ -163,6 +163,7 @@ public interface IInvoiceService
     Task<InvoiceDto?> RecordPaymentAsync(Guid id, RecordInvoicePaymentRequest request, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> RecordPaymentWithProofAsync(Guid id, RecordInvoicePaymentRequest request, PaymentProofUpload? proof, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> ReverseLatestManualPaymentAsync(Guid id, ReverseInvoicePaymentRequest request, CancellationToken cancellationToken = default);
+    Task<InvoiceDto?> RefundLatestManualPaymentAsync(Guid id, RecordRefundRequest request, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> CancelAsync(Guid id, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadPdfAsync(Guid id, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid id, CancellationToken cancellationToken = default);
@@ -176,4 +177,5 @@ public interface IInvoiceService
     Task<int> SendRemindersAsync(CancellationToken cancellationToken = default);
     Task<WhatsAppRetryResultDto> RetryFailedWhatsAppNotificationAsync(Guid notificationId, CancellationToken cancellationToken = default);
     Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<InvoiceWhatsAppLinkOptionsDto?> GetWhatsAppLinkOptionsForCompanyAsync(Guid companyId, Guid id, CancellationToken cancellationToken = default);
 }

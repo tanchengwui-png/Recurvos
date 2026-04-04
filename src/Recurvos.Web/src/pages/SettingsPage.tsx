@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { TablePagination } from "../components/TablePagination";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
-import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy } from "../types";
+import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy, ReminderHistoryItem, ReminderHistoryPage } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
+const DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL = "https://www.billplz.com";
 
 function formatDocumentNumber(prefix: string, sequence: number, padding: number) {
   const now = new Date();
@@ -36,20 +38,63 @@ function clampMinimumDigits(value: string) {
   return Math.min(12, Math.max(1, Math.trunc(parsed)));
 }
 
+function formatReminderDateTime(value?: string | null) {
+  if (!value) {
+    return "Not sent";
+  }
+
+  const rounded = new Date(value);
+  rounded.setSeconds(0, 0);
+  return rounded.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatReminderStatus(status: ReminderHistoryItem["status"]) {
+  return status === "sent"
+    ? "Sent"
+    : status === "cancelled"
+      ? "Cancelled"
+      : "Pending";
+}
+
+function buildWhatsAppPreviewMessage(template: string, companyName: string) {
+  return template
+    .replaceAll("{CustomerName}", "Aina Syuhada")
+    .replaceAll("{CompanyName}", companyName)
+    .replaceAll("{InvoiceNumber}", "INV-2026-001007")
+    .replaceAll("{AmountDue}", "MYR 99.00")
+    .replaceAll("{Currency}", "MYR")
+    .replaceAll("{DueDate}", "04 Apr 2026")
+    .replaceAll("{ActionLink}", "https://app.recurvos.com/payment-confirmation?token=sample")
+    .replaceAll("{PaymentGatewayLink}", "https://pay.example.com/invoice/INV-2026-001007")
+    .replaceAll("{PaymentConfirmationLink}", "https://app.recurvos.com/payment-confirmation?token=sample")
+    .replaceAll("{PaymentLink}", "https://app.recurvos.com/payment-confirmation?token=sample");
+}
+
 const DEFAULT_WHATSAPP_TEMPLATE = [
   "Hi {CustomerName},",
   "",
   "This is a friendly reminder from {CompanyName}.",
   "Invoice {InvoiceNumber} for {AmountDue} is due on {DueDate}.",
-  "Payment link: {ActionLink}",
+  "Payment confirmation link: {ActionLink}",
   "",
   "If payment has already been made, please ignore this message. Thank you.",
 ].join("\n");
 
 type SettingsTab = "documents" | "payment" | "whatsapp" | "reminders";
+type DocumentSettingsTab = "invoice" | "receipt" | "creditNote" | "delivery";
+type PaymentSettingsTab = "manual" | "qr" | "gateway" | "tax";
+
+const PAYMENT_QR_RESPONSIBILITY_STATEMENT = "I acknowledge that this payment QR code has been verified for this subscriber, and the subscriber accepts full responsibility for any loss, misdirection of funds, or dispute arising from an incorrect QR upload.";
 
 export function SettingsPage() {
   const [rules, setRules] = useState<DunningRule[]>([]);
+  const [reminderHistory, setReminderHistory] = useState<ReminderHistoryItem[]>([]);
   const [invoiceSettings, setInvoiceSettings] = useState<CompanyInvoiceSettings | null>(null);
   const [savedInvoiceSettings, setSavedInvoiceSettings] = useState<CompanyInvoiceSettings | null>(null);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
@@ -61,9 +106,19 @@ export function SettingsPage() {
   const [paymentGatewayTestMessage, setPaymentGatewayTestMessage] = useState("");
   const [paymentGatewayTestTone, setPaymentGatewayTestTone] = useState<"default" | "error">("default");
   const [testingPaymentGateway, setTestingPaymentGateway] = useState(false);
+  const [reminderHistoryError, setReminderHistoryError] = useState("");
+  const [loadingReminderHistory, setLoadingReminderHistory] = useState(false);
+  const [reminderHistoryCurrentPage, setReminderHistoryCurrentPage] = useState(1);
+  const [reminderHistoryPageSize, setReminderHistoryPageSize] = useState(10);
+  const [reminderHistoryTotalCount, setReminderHistoryTotalCount] = useState(0);
   const [paymentQrFile, setPaymentQrFile] = useState<File | null>(null);
+  const [paymentQrResponsibilityAccepted, setPaymentQrResponsibilityAccepted] = useState(false);
+  const [paymentQrError, setPaymentQrError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
+  const paymentQrSectionRef = useRef<HTMLElement | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>("documents");
+  const [activeDocumentTab, setActiveDocumentTab] = useState<DocumentSettingsTab>("invoice");
+  const [activePaymentTab, setActivePaymentTab] = useState<PaymentSettingsTab>("manual");
 
   const invoiceSettingsDirty = invoiceSettings !== null
     && savedInvoiceSettings !== null
@@ -79,6 +134,10 @@ export function SettingsPage() {
       || invoiceSettings.receiptPadding !== savedInvoiceSettings.receiptPadding
       || invoiceSettings.receiptNextNumber !== savedInvoiceSettings.receiptNextNumber
       || invoiceSettings.receiptResetYearly !== savedInvoiceSettings.receiptResetYearly
+      || invoiceSettings.creditNotePrefix !== savedInvoiceSettings.creditNotePrefix
+      || invoiceSettings.creditNotePadding !== savedInvoiceSettings.creditNotePadding
+      || invoiceSettings.creditNoteNextNumber !== savedInvoiceSettings.creditNoteNextNumber
+      || invoiceSettings.creditNoteResetYearly !== savedInvoiceSettings.creditNoteResetYearly
     );
   const documentOptionsDirty = invoiceSettings !== null
     && savedInvoiceSettings !== null
@@ -86,6 +145,7 @@ export function SettingsPage() {
       invoiceSettings.showCompanyAddressOnInvoice !== savedInvoiceSettings.showCompanyAddressOnInvoice
       || invoiceSettings.showCompanyAddressOnReceipt !== savedInvoiceSettings.showCompanyAddressOnReceipt
       || invoiceSettings.autoSendInvoices !== savedInvoiceSettings.autoSendInvoices
+      || invoiceSettings.ccSubscriberOnCustomerEmails !== savedInvoiceSettings.ccSubscriberOnCustomerEmails
     );
   const paymentDetailsDirty = invoiceSettings !== null
     && savedInvoiceSettings !== null
@@ -115,6 +175,7 @@ export function SettingsPage() {
     );
   const invoiceNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.prefix, invoiceSettings.nextNumber, invoiceSettings.padding) : "";
   const receiptNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.receiptPrefix, invoiceSettings.receiptNextNumber, invoiceSettings.receiptPadding) : "";
+  const creditNoteNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.creditNotePrefix, invoiceSettings.creditNoteNextNumber, invoiceSettings.creditNotePadding) : "";
   const configurableWhatsAppEnabled = featureAccess?.featureKeys.includes("configurable_whatsapp") ?? false;
   const configurableWhatsAppHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "configurable_whatsapp");
   const emailRemindersEnabled = featureAccess?.featureKeys.includes("email_reminders") ?? false;
@@ -143,6 +204,55 @@ export function SettingsPage() {
       intro: "Manage the reminder schedule that follows the invoice due date for unpaid invoices.",
     },
   }[activeTab];
+  const activePaymentTabMeta = {
+    manual: {
+      eyebrow: "Manual collection",
+      title: "Banking and due dates",
+      intro: "Keep the basic payment instructions in one place for bank transfer or manual collection.",
+    },
+    qr: {
+      eyebrow: "Invoice QR",
+      title: "QR upload",
+      intro: "Upload the QR image shown on invoices so customers can scan instead of typing account details.",
+    },
+    gateway: {
+      eyebrow: "Online payment",
+      title: "Gateway setup",
+      intro: "Configure subscriber-owned online checkout without mixing it into the manual payment fields.",
+    },
+    tax: {
+      eyebrow: "Tax",
+      title: "Invoice tax settings",
+      intro: "Control whether tax is shown and what label and rate appear on invoices.",
+    },
+  }[activePaymentTab];
+  const activeDocumentTabMeta = {
+    invoice: {
+      eyebrow: "Invoice numbering",
+      title: "Invoice number format",
+      intro: "Set the invoice prefix, digit count, next running number, and reset behavior.",
+    },
+    receipt: {
+      eyebrow: "Receipt numbering",
+      title: "Receipt number format",
+      intro: "Manage receipt prefix, digit count, next running number, and yearly reset separately.",
+    },
+    creditNote: {
+      eyebrow: "Credit note numbering",
+      title: "Credit note number format",
+      intro: "Manage credit note prefix, digit count, next running number, and yearly reset separately.",
+    },
+    delivery: {
+      eyebrow: "Document delivery",
+      title: "Invoice and receipt options",
+      intro: "Control what appears on documents and whether invoices are sent automatically by email.",
+    },
+  }[activeDocumentTab];
+  const reminderHistoryTotalPages = Math.max(1, Math.ceil(reminderHistoryTotalCount / reminderHistoryPageSize));
+  const reminderHistoryRangeStart = reminderHistoryTotalCount === 0 ? 0 : (reminderHistoryCurrentPage - 1) * reminderHistoryPageSize + 1;
+  const reminderHistoryRangeEnd = reminderHistoryTotalCount === 0 ? 0 : Math.min(reminderHistoryTotalCount, reminderHistoryCurrentPage * reminderHistoryPageSize);
+  const selectedCompanyName = companies.find((item) => item.id === selectedCompanyId)?.name ?? "Blue Oak Pilates Studio Sdn Bhd";
+  const whatsAppPreviewMessage = buildWhatsAppPreviewMessage(invoiceSettings?.whatsAppTemplate ?? DEFAULT_WHATSAPP_TEMPLATE, selectedCompanyName);
 
   function buildInvoiceSettingsPayload(settings: CompanyInvoiceSettings) {
     return {
@@ -154,6 +264,10 @@ export function SettingsPage() {
       receiptNextNumber: settings.receiptNextNumber,
       receiptPadding: settings.receiptPadding,
       receiptResetYearly: settings.receiptResetYearly,
+      creditNotePrefix: settings.creditNotePrefix,
+      creditNoteNextNumber: settings.creditNoteNextNumber,
+      creditNotePadding: settings.creditNotePadding,
+      creditNoteResetYearly: settings.creditNoteResetYearly,
       bankName: settings.bankName,
       bankAccountName: settings.bankAccountName,
       bankAccount: settings.bankAccount,
@@ -164,8 +278,12 @@ export function SettingsPage() {
       subscriberBillplzApiKey: settings.subscriberBillplzApiKey,
       subscriberBillplzCollectionId: settings.subscriberBillplzCollectionId,
       subscriberBillplzXSignatureKey: settings.subscriberBillplzXSignatureKey,
-      subscriberBillplzBaseUrl: settings.subscriberBillplzBaseUrl,
-      subscriberBillplzRequireSignatureVerification: settings.subscriberBillplzRequireSignatureVerification,
+      subscriberBillplzBaseUrl: settings.paymentGatewayProvider === "billplz"
+        ? (settings.subscriberBillplzBaseUrl?.trim() || DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL)
+        : settings.subscriberBillplzBaseUrl,
+      subscriberBillplzRequireSignatureVerification: settings.paymentGatewayProvider === "billplz"
+        ? true
+        : settings.subscriberBillplzRequireSignatureVerification,
       isTaxEnabled: settings.isTaxEnabled,
       taxName: settings.taxName,
       taxRate: settings.taxRate,
@@ -173,6 +291,7 @@ export function SettingsPage() {
       showCompanyAddressOnInvoice: settings.showCompanyAddressOnInvoice,
       showCompanyAddressOnReceipt: settings.showCompanyAddressOnReceipt,
       autoSendInvoices: settings.autoSendInvoices,
+      ccSubscriberOnCustomerEmails: settings.ccSubscriberOnCustomerEmails,
       whatsAppEnabled: settings.whatsAppEnabled,
       whatsAppTemplate: settings.whatsAppTemplate,
     };
@@ -196,8 +315,8 @@ export function SettingsPage() {
         return "Billplz base URL is required.";
       }
 
-      if (settings.subscriberBillplzRequireSignatureVerification && !(settings.subscriberBillplzXSignatureKey ?? "").trim()) {
-        return "Billplz x signature key is required when signature verification is enabled.";
+      if (!(settings.subscriberBillplzXSignatureKey ?? "").trim()) {
+        return "Billplz x signature key is required.";
       }
     }
 
@@ -231,28 +350,62 @@ export function SettingsPage() {
       return;
     }
 
-    const nextFeatureAccess = featureAccess ?? await api.get<FeatureAccess>("/settings/feature-access");
-    if (!featureAccess) {
-      setFeatureAccess(nextFeatureAccess);
+    try {
+      const nextFeatureAccess = featureAccess ?? await api.get<FeatureAccess>("/settings/feature-access");
+      if (!featureAccess) {
+        setFeatureAccess(nextFeatureAccess);
+      }
+
+      const [invoiceConfig, readiness, ruleList, policy] = await Promise.all([
+        api.get<CompanyInvoiceSettings>(`/settings/invoice-settings?companyId=${companyId}`),
+        api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyId}`).catch(() => null),
+        nextFeatureAccess.featureKeys.includes("dunning_workflows")
+          ? api.get<DunningRule[]>(`/settings/dunning-rules?companyId=${companyId}`)
+          : Promise.resolve([]),
+        api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
+      ]);
+
+      setRules(ruleList);
+      setInvoiceSettings(invoiceConfig);
+      setSavedInvoiceSettings(invoiceConfig);
+      setBillingReadiness(readiness);
+      setUploadPolicy(policy);
+      setPaymentQrFile(null);
+      setPaymentQrError("");
+      setPaymentGatewayTestMessage("");
+      setPaymentGatewayTestTone("default");
+    } catch (loadError) {
+      setFormError(loadError instanceof Error ? loadError.message : "Unable to load subscriber settings.");
+    }
+  }
+
+  async function loadReminderHistory(
+    companyId = selectedCompanyId,
+    currentFeatureAccess = featureAccess,
+    page = reminderHistoryCurrentPage,
+    pageSize = reminderHistoryPageSize,
+  ) {
+    if (!companyId || !currentFeatureAccess?.featureKeys.includes("dunning_workflows")) {
+      setReminderHistory([]);
+      setReminderHistoryTotalCount(0);
+      setReminderHistoryError("");
+      return;
     }
 
-    const [invoiceConfig, readiness, ruleList, policy] = await Promise.all([
-      api.get<CompanyInvoiceSettings>(`/settings/invoice-settings?companyId=${companyId}`),
-      api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyId}`),
-      nextFeatureAccess.featureKeys.includes("dunning_workflows")
-        ? api.get<DunningRule[]>(`/settings/dunning-rules?companyId=${companyId}`)
-        : Promise.resolve([]),
-      api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
-    ]);
+    setLoadingReminderHistory(true);
+    setReminderHistoryError("");
 
-    setRules(ruleList);
-    setInvoiceSettings(invoiceConfig);
-    setSavedInvoiceSettings(invoiceConfig);
-    setBillingReadiness(readiness);
-    setUploadPolicy(policy);
-    setPaymentQrFile(null);
-    setPaymentGatewayTestMessage("");
-    setPaymentGatewayTestTone("default");
+    try {
+      const result = await api.get<ReminderHistoryPage>(`/settings/reminder-history?companyId=${companyId}&page=${page}&pageSize=${pageSize}`);
+      setReminderHistory(result.items);
+      setReminderHistoryTotalCount(result.totalCount);
+    } catch (error) {
+      setReminderHistory([]);
+      setReminderHistoryTotalCount(0);
+      setReminderHistoryError(error instanceof Error ? error.message : "Unable to load reminder history.");
+    } finally {
+      setLoadingReminderHistory(false);
+    }
   }
 
   async function testPaymentGateway(currentSettings: CompanyInvoiceSettings) {
@@ -266,8 +419,8 @@ export function SettingsPage() {
         subscriberBillplzApiKey: currentSettings.subscriberBillplzApiKey,
         subscriberBillplzCollectionId: currentSettings.subscriberBillplzCollectionId,
         subscriberBillplzXSignatureKey: currentSettings.subscriberBillplzXSignatureKey,
-        subscriberBillplzBaseUrl: currentSettings.subscriberBillplzBaseUrl,
-        subscriberBillplzRequireSignatureVerification: currentSettings.subscriberBillplzRequireSignatureVerification,
+        subscriberBillplzBaseUrl: currentSettings.subscriberBillplzBaseUrl?.trim() || DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL,
+        subscriberBillplzRequireSignatureVerification: true,
       });
       setPaymentGatewayTestTone("default");
       setPaymentGatewayTestMessage(result.message);
@@ -298,6 +451,10 @@ export function SettingsPage() {
     void load();
   }, [selectedCompanyId]);
 
+  useEffect(() => {
+    void loadReminderHistory();
+  }, [selectedCompanyId, reminderHistoryCurrentPage, reminderHistoryPageSize, featureAccess]);
+
   return (
     <div className="page">
       <header className="page-header">
@@ -307,12 +464,40 @@ export function SettingsPage() {
           <p className="muted">Manage invoice numbering, payment instructions, and billing rules for the selected company.</p>
         </div>
         <div className="catalog-toolbar" style={{ gridTemplateColumns: "minmax(0, 280px)" }}>
-          <select value={selectedCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)}>
+          <select value={selectedCompanyId} onChange={(event) => {
+            setSelectedCompanyId(event.target.value);
+            setReminderHistoryCurrentPage(1);
+          }}>
             {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
           </select>
         </div>
       </header>
-      {formError ? <HelperText tone="error">{formError}</HelperText> : null}
+      <section id="install-help" className="card settings-install-help">
+        <div className="settings-panel-header">
+          <div>
+            <p className="eyebrow">Home screen</p>
+            <h4>Add Recurvos to your home screen</h4>
+            <p className="muted">Use the browser install option when available, or save Recurvos from Safari on iPhone for faster access.</p>
+          </div>
+        </div>
+        <div className="settings-install-help-grid">
+          <div className="settings-install-help-step">
+            <span className="settings-stat-label">Chrome or Edge</span>
+            <strong>Use the install button</strong>
+            <p className="muted">When Recurvos is ready to install, use the in-app prompt or the browser install action in the address bar menu.</p>
+          </div>
+          <div className="settings-install-help-step">
+            <span className="settings-stat-label">iPhone Safari</span>
+            <strong>Use Share, then Add to Home Screen</strong>
+            <p className="muted">Open the Share menu in Safari, choose Add to Home Screen, then confirm the shortcut name.</p>
+          </div>
+          <div className="settings-install-help-step">
+            <span className="settings-stat-label">Already installed</span>
+            <strong>Open it like an app</strong>
+            <p className="muted">Once installed, Recurvos opens without the browser chrome and the reminder card stops appearing.</p>
+          </div>
+        </div>
+      </section>
       {billingReadiness && !billingReadiness.isReady ? (
         <HelperText>
           {`Required before billing starts: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
@@ -333,6 +518,10 @@ export function SettingsPage() {
             <div className="settings-overview-stat">
               <span className="settings-stat-label">Receipt format</span>
               <strong>{receiptNumberExample}</strong>
+            </div>
+            <div className="settings-overview-stat">
+              <span className="settings-stat-label">Credit note format</span>
+              <strong>{creditNoteNumberExample}</strong>
             </div>
             <div className="settings-overview-stat">
               <span className="settings-stat-label">Payment QR</span>
@@ -364,25 +553,52 @@ export function SettingsPage() {
             {invoiceSettingsDirty ? "Unsaved edits" : "Saved"}
           </span>
         </div>
+        {formError && !(activeTab === "payment" && activePaymentTab === "gateway") ? <HelperText tone="error">{formError}</HelperText> : null}
         {invoiceSettings ? (
           <div className="form-stack">
             {activeTab === "documents" ? (
               <>
                 <HelperText>
-                  Set the invoice and receipt code, minimum digits, and next running number in one place.
+                  Set the invoice, receipt, and credit note code, minimum digits, and next running number in one place.
                 </HelperText>
+                <div className="settings-document-summary-grid">
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "invoice" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>
+                    <span className="settings-stat-label">Invoice</span>
+                    <strong>{invoiceNumberExample}</strong>
+                  </button>
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "receipt" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("receipt")}>
+                    <span className="settings-stat-label">Receipt</span>
+                    <strong>{receiptNumberExample}</strong>
+                  </button>
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "creditNote" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("creditNote")}>
+                    <span className="settings-stat-label">Credit note</span>
+                    <strong>{creditNoteNumberExample}</strong>
+                  </button>
+                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "delivery" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>
+                    <span className="settings-stat-label">Delivery</span>
+                    <strong>{documentOptionsDirty ? "Unsaved options" : "Options saved"}</strong>
+                  </button>
+                </div>
+                <div className="settings-subtab-strip" role="tablist" aria-label="Document settings sections">
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "invoice" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>Invoice</button>
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "receipt" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("receipt")}>Receipt</button>
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "creditNote" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("creditNote")}>Credit note</button>
+                  <button type="button" className={`settings-subtab-button ${activeDocumentTab === "delivery" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>Delivery</button>
+                </div>
+                <p className="muted settings-subtab-intro">{activeDocumentTabMeta.intro}</p>
+                {activeDocumentTab === "invoice" ? (
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">Numbering</p>
-                      <h4>Document numbering</h4>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
                     </div>
                     <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
                       {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
                     </span>
                   </div>
                   <div className="settings-numbering-workspace">
-                    <section className="settings-subpanel settings-numbering-card">
+                    <section className="settings-subpanel settings-numbering-card" ref={paymentQrSectionRef}>
                       <div className="settings-subpanel-header">
                         <div>
                           <p className="eyebrow">Invoice</p>
@@ -412,6 +628,126 @@ export function SettingsPage() {
                         <span>Reset invoice numbering every year</span>
                       </label>
                     </section>
+                  </div>
+                  <HelperText>The document code stays fixed while the running number increases automatically.</HelperText>
+                  <div className="settings-action-row settings-action-row-sticky">
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      disabled={!numberingDirty}
+                      onClick={() => setConfirmState({
+                        title: "Save document numbering",
+                        description: "Save the current invoice and receipt numbering settings for this company?",
+                        action: async () => {
+                          if (!invoiceSettings) {
+                            return;
+                          }
+
+                          try {
+                            await saveInvoiceSettings(invoiceSettings);
+                            setConfirmState(null);
+                            setFormError("");
+                            await load();
+                          } catch (error) {
+                            const nextError = error instanceof Error ? error.message : "Unable to save document numbering.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
+                          }
+                        },
+                      })}
+                    >
+                      Save numbering
+                    </button>
+                  </div>
+                </div>
+                ) : null}
+                {activeDocumentTab === "creditNote" ? (
+                <div className="settings-panel">
+                  <div className="settings-panel-header">
+                    <div>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
+                    </div>
+                    <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
+                      {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
+                    </span>
+                  </div>
+                  <div className="settings-numbering-workspace">
+                    <section className="settings-subpanel settings-numbering-card">
+                      <div className="settings-subpanel-header">
+                        <div>
+                          <p className="eyebrow">Credit note</p>
+                          <strong>Credit note number</strong>
+                        </div>
+                        <div className="settings-number-preview">
+                          <span className="settings-number-preview-label">Next output</span>
+                          <strong>{creditNoteNumberExample}</strong>
+                        </div>
+                      </div>
+                      <div className="settings-numbering-fields">
+                        <label className="form-label">
+                          Document code
+                          <input className="text-input" value={invoiceSettings.creditNotePrefix} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNotePrefix: event.target.value } : current)} />
+                        </label>
+                        <label className="form-label">
+                          Minimum digits
+                          <input className="text-input" type="number" min="1" max="12" value={String(invoiceSettings.creditNotePadding)} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNotePadding: clampMinimumDigits(event.target.value) } : current)} />
+                        </label>
+                        <label className="form-label settings-numbering-wide-field">
+                          Next running number
+                          <input className="text-input" type="number" min="1" value={String(invoiceSettings.creditNoteNextNumber)} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNoteNextNumber: Number(event.target.value) } : current)} />
+                        </label>
+                      </div>
+                      <label className="checkbox-row settings-checkbox-row">
+                        <input type="checkbox" checked={invoiceSettings.creditNoteResetYearly} onChange={(event) => setInvoiceSettings((current) => current ? { ...current, creditNoteResetYearly: event.target.checked } : current)} />
+                        <span>Reset credit note numbering every year</span>
+                      </label>
+                    </section>
+                  </div>
+                  <HelperText>The document code stays fixed while the running number increases automatically.</HelperText>
+                  <div className="settings-action-row settings-action-row-sticky">
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      disabled={!numberingDirty}
+                      onClick={() => setConfirmState({
+                        title: "Save document numbering",
+                        description: "Save the current invoice, receipt, and credit note numbering settings for this company?",
+                        action: async () => {
+                          if (!invoiceSettings) {
+                            return;
+                          }
+
+                          try {
+                            await saveInvoiceSettings(invoiceSettings);
+                            setConfirmState(null);
+                            setFormError("");
+                            await load();
+                          } catch (error) {
+                            const nextError = error instanceof Error ? error.message : "Unable to save document numbering.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
+                          }
+                        },
+                      })}
+                    >
+                      Save numbering
+                    </button>
+                  </div>
+                </div>
+                ) : null}
+                {activeDocumentTab === "receipt" ? (
+                <div className="settings-panel">
+                  <div className="settings-panel-header">
+                    <div>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
+                    </div>
+                    <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
+                      {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
+                    </span>
+                  </div>
+                  <div className="settings-numbering-workspace">
                     <section className="settings-subpanel settings-numbering-card">
                       <div className="settings-subpanel-header">
                         <div>
@@ -444,7 +780,7 @@ export function SettingsPage() {
                     </section>
                   </div>
                   <HelperText>The document code stays fixed while the running number increases automatically.</HelperText>
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-primary"
@@ -463,7 +799,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save document numbering.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save document numbering.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -472,11 +810,13 @@ export function SettingsPage() {
                     </button>
                   </div>
                 </div>
+                ) : null}
+                {activeDocumentTab === "delivery" ? (
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">Delivery</p>
-                      <h4>Document delivery options</h4>
+                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
+                      <h4>{activeDocumentTabMeta.title}</h4>
                     </div>
                   </div>
                   <div className="settings-toggle-group">
@@ -497,12 +837,22 @@ export function SettingsPage() {
                       />
                       <span>Auto-send new invoices by email</span>
                     </label>
+                    <label className="checkbox-row settings-checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={invoiceSettings.ccSubscriberOnCustomerEmails}
+                        onChange={(event) => setInvoiceSettings((current) => current ? { ...current, ccSubscriberOnCustomerEmails: event.target.checked } : current)}
+                      />
+                      <span>CC my account email on customer emails</span>
+                    </label>
                     {!emailRemindersEnabled ? (
                       <HelperText tone="error">{emailRemindersHint ? `Available on ${emailRemindersHint.packageName} and above.` : "Available on a higher package."}</HelperText>
-                    ) : null}
+                    ) : (
+                      <HelperText>When enabled, your subscriber account email is copied on customer invoice emails and reminders.</HelperText>
+                    )}
                   </div>
                   {documentOptionsDirty ? <HelperText tone="error">You have unsaved changes in document delivery settings.</HelperText> : null}
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-secondary"
@@ -521,7 +871,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save document delivery settings.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save document delivery settings.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -530,6 +882,7 @@ export function SettingsPage() {
                     </button>
                   </div>
                 </div>
+                ) : null}
               </>
             ) : null}
             {activeTab === "payment" ? (
@@ -547,7 +900,33 @@ export function SettingsPage() {
                       {paymentSectionDirty ? "Unsaved payment setup" : "Payment setup saved"}
                     </span>
                   </div>
+                  <div className="settings-payment-summary-grid">
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "manual" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("manual")}>
+                      <span className="settings-stat-label">Manual</span>
+                      <strong>{invoiceSettings.bankName ? invoiceSettings.bankName : "Bank details"}</strong>
+                    </button>
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "qr" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("qr")}>
+                      <span className="settings-stat-label">QR</span>
+                      <strong>{invoiceSettings.hasPaymentQr || paymentQrFile ? "QR ready" : "Optional"}</strong>
+                    </button>
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "gateway" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("gateway")}>
+                      <span className="settings-stat-label">Gateway</span>
+                      <strong>{invoiceSettings.paymentGatewayReady ? "Configured" : "Not configured"}</strong>
+                    </button>
+                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "tax" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("tax")}>
+                      <span className="settings-stat-label">Tax</span>
+                      <strong>{invoiceSettings.isTaxEnabled ? `${invoiceSettings.taxName || "Tax"} ${invoiceSettings.taxRate ?? ""}%` : "Disabled"}</strong>
+                    </button>
+                  </div>
+                  <div className="settings-subtab-strip" role="tablist" aria-label="Payment setup sections">
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "manual" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("manual")}>Manual</button>
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "qr" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("qr")}>QR</button>
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "gateway" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("gateway")}>Gateway</button>
+                    <button type="button" className={`settings-subtab-button ${activePaymentTab === "tax" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("tax")}>Tax</button>
+                  </div>
+                  <p className="muted settings-subtab-intro">{activePaymentTabMeta.intro}</p>
                   <div className="settings-numbering-workspace">
+                    {activePaymentTab === "manual" ? (
                     <section className="settings-subpanel settings-numbering-card">
                       <div className="settings-subpanel-header">
                         <div>
@@ -594,6 +973,8 @@ export function SettingsPage() {
                       </div>
                       <HelperText>Auto-generated invoices will be due this many days after the issue date.</HelperText>
                     </section>
+                    ) : null}
+                    {activePaymentTab === "qr" ? (
                     <section className="settings-subpanel settings-numbering-card">
                       <div className="settings-subpanel-header">
                         <div>
@@ -615,6 +996,8 @@ export function SettingsPage() {
                             const file = event.target.files?.[0] ?? null;
                             if (!file) {
                               setPaymentQrFile(null);
+                              setPaymentQrResponsibilityAccepted(false);
+                              setPaymentQrError("");
                               return;
                             }
 
@@ -622,11 +1005,14 @@ export function SettingsPage() {
                               try {
                                 const prepared = await prepareImageUpload(file, uploadPolicy);
                                 setFormError("");
+                                setPaymentQrError("");
                                 setPaymentQrFile(prepared);
+                                setPaymentQrResponsibilityAccepted(false);
                               } catch (uploadError) {
-                                setFormError(uploadError instanceof Error ? uploadError.message : `Payment QR must be ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} or smaller.`);
+                                setPaymentQrError(uploadError instanceof Error ? uploadError.message : `Payment QR must be ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} or smaller.`);
                                 event.target.value = "";
                                 setPaymentQrFile(null);
+                                setPaymentQrResponsibilityAccepted(false);
                               }
                             })();
                           }}
@@ -635,8 +1021,27 @@ export function SettingsPage() {
                       <HelperText>{invoiceSettings.hasPaymentQr ? "QR uploaded and ready to print on invoices." : "Optional. Upload a QR image to print it on invoices."}</HelperText>
                       <HelperText>{`PNG, JPG, JPEG, and WEBP images up to ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} are allowed.${uploadPolicy.autoCompressUploads ? " Large images are compressed automatically before upload." : ""}`}</HelperText>
                       {paymentQrFile ? <HelperText>{`Selected file: ${paymentQrFile.name}`}</HelperText> : null}
+                      {paymentQrFile ? (
+                        <label className="checkbox-row settings-checkbox-row settings-risk-checkbox">
+                          <input
+                            type="checkbox"
+                            checked={paymentQrResponsibilityAccepted}
+                            onChange={(event) => {
+                              setPaymentQrResponsibilityAccepted(event.target.checked);
+                              if (event.target.checked) {
+                                setPaymentQrError("");
+                              }
+                            }}
+                          />
+                          <span>{PAYMENT_QR_RESPONSIBILITY_STATEMENT}</span>
+                        </label>
+                      ) : null}
+                      {paymentQrError ? <HelperText tone="error">{paymentQrError}</HelperText> : null}
                     </section>
+                    ) : null}
                   </div>
+                  {activePaymentTab === "gateway" ? (
+                  <>
                   {!paymentGatewayConfigurationEnabled ? (
                     <div className="settings-feature-lock-card">
                       <p className="eyebrow">Upgrade required</p>
@@ -664,6 +1069,12 @@ export function SettingsPage() {
                             ...current,
                             paymentGatewayProvider: event.target.value as CompanyInvoiceSettings["paymentGatewayProvider"],
                             paymentGatewayTermsAccepted: event.target.value === "none" ? false : current.paymentGatewayTermsAccepted,
+                            subscriberBillplzBaseUrl: event.target.value === "billplz"
+                              ? (current.subscriberBillplzBaseUrl?.trim() || DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL)
+                              : current.subscriberBillplzBaseUrl,
+                            subscriberBillplzRequireSignatureVerification: event.target.value === "billplz"
+                              ? true
+                              : current.subscriberBillplzRequireSignatureVerification,
                           } : current)}
                         >
                           <option value="none">Not configured</option>
@@ -700,7 +1111,7 @@ export function SettingsPage() {
                               disabled={!paymentGatewayConfigurationEnabled}
                               value={invoiceSettings.subscriberBillplzBaseUrl ?? ""}
                               onChange={(event) => setInvoiceSettings((current) => current ? { ...current, subscriberBillplzBaseUrl: event.target.value } : current)}
-                              placeholder="https://www.billplz-sandbox.com"
+                              placeholder={DEFAULT_SUBSCRIBER_BILLPLZ_BASE_URL}
                             />
                           </label>
                         </div>
@@ -715,15 +1126,7 @@ export function SettingsPage() {
                             />
                           </label>
                         </div>
-                        <label className="checkbox-row settings-checkbox-row">
-                          <input
-                            type="checkbox"
-                            disabled={!paymentGatewayConfigurationEnabled}
-                            checked={invoiceSettings.subscriberBillplzRequireSignatureVerification}
-                            onChange={(event) => setInvoiceSettings((current) => current ? { ...current, subscriberBillplzRequireSignatureVerification: event.target.checked } : current)}
-                          />
-                          <span>Require webhook signature verification</span>
-                        </label>
+                        <HelperText>Webhook signature verification is required and always enforced for Billplz.</HelperText>
                         <label className="checkbox-row settings-checkbox-row settings-risk-checkbox">
                           <input
                             type="checkbox"
@@ -733,6 +1136,7 @@ export function SettingsPage() {
                           />
                           <span>I understand this payment gateway is configured and operated under my own Billplz account, and I use it at my own risk.</span>
                         </label>
+                        {formError ? <HelperText tone="error">{formError}</HelperText> : null}
                         <HelperText>Only save this after you have confirmed the keys belong to this subscriber’s own Billplz account. The platform does not take responsibility for the subscriber’s gateway account setup, settlement, or disputes.</HelperText>
                         <div className="settings-action-row settings-action-row-wide">
                           <button
@@ -752,6 +1156,9 @@ export function SettingsPage() {
                       <HelperText>Leave this as not configured if the subscriber will collect payment outside the system.</HelperText>
                     )}
                   </div>
+                  </>
+                  ) : null}
+                  {activePaymentTab === "tax" ? (
                   <div className="settings-tax-card">
                     <div className="settings-panel-header">
                       <div>
@@ -807,7 +1214,8 @@ export function SettingsPage() {
                       <HelperText>When disabled, invoices hide the tax section completely.</HelperText>
                     )}
                   </div>
-                  <div className="settings-action-row">
+                  ) : null}
+                  <div className="settings-action-row settings-action-row-sticky">
                   <button
                     type="button"
                     className="button button-primary"
@@ -823,6 +1231,12 @@ export function SettingsPage() {
                         return;
                       }
 
+                      if (paymentQrFile && !paymentQrResponsibilityAccepted) {
+                        setPaymentQrError("Acknowledge QR upload responsibility before saving a new payment QR.");
+                        paymentQrSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                        return;
+                      }
+
                       setConfirmState({
                         title: "Save subscriber payment details",
                         description: paymentQrFile ? "Save the payment details, payment gateway setup, and upload the selected QR image for this company?" : "Save the payment details and payment gateway setup for this subscriber company?",
@@ -835,6 +1249,8 @@ export function SettingsPage() {
                               const auth = getAuth();
                               const formData = new FormData();
                               formData.append("file", paymentQrFile);
+                              formData.append("responsibilityAccepted", paymentQrResponsibilityAccepted ? "true" : "false");
+                              formData.append("responsibilityStatement", PAYMENT_QR_RESPONSIBILITY_STATEMENT);
 
                               const response = await fetch(`${API_BASE_URL}/settings/invoice-settings/payment-qr?companyId=${selectedCompanyId}`, {
                                 method: "POST",
@@ -845,7 +1261,8 @@ export function SettingsPage() {
                               if (!response.ok) {
                                 const message = await response.text();
                                 setConfirmState(null);
-                                setFormError(message && !message.startsWith("<") ? message : "Unable to upload payment QR.");
+                                setPaymentQrError(message && !message.startsWith("<") ? message : "Unable to upload payment QR.");
+                                paymentQrSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
                                 return;
                               }
                             }
@@ -854,6 +1271,8 @@ export function SettingsPage() {
                               input.value = "";
                             }
                             setPaymentQrFile(null);
+                            setPaymentQrResponsibilityAccepted(false);
+                            setPaymentQrError("");
                             setConfirmState(null);
                             setFormError("");
                             await load();
@@ -892,8 +1311,8 @@ export function SettingsPage() {
                       <p className="muted">This subscriber can view the WhatsApp setup, but editing and enabling WhatsApp reminders requires a higher package.</p>
                     </div>
                   ) : null}
-                  <div className={`settings-numbering-workspace ${!configurableWhatsAppEnabled ? "settings-disabled-workspace" : ""}`}>
-                    <section className="settings-subpanel settings-numbering-card">
+                  <div className={`settings-numbering-workspace settings-whatsapp-workspace ${!configurableWhatsAppEnabled ? "settings-disabled-workspace" : ""}`}>
+                    <section className="settings-subpanel settings-numbering-card settings-whatsapp-card">
                       <div className="settings-subpanel-header">
                         <div>
                           <p className="eyebrow">Usage</p>
@@ -920,7 +1339,7 @@ export function SettingsPage() {
                         <span>Enable WhatsApp reminders for this company</span>
                       </label>
                     </section>
-                    <section className="settings-subpanel settings-numbering-card">
+                    <section className="settings-subpanel settings-numbering-card settings-whatsapp-card settings-whatsapp-template-card">
                       <div className="settings-subpanel-header">
                         <div>
                           <p className="eyebrow">Message</p>
@@ -946,7 +1365,19 @@ export function SettingsPage() {
                   <HelperText>
                     Customer phone numbers come from the customer record. The platform owner manages the shared API connection. Use {"{ActionLink}"} for the best available link, {"{PaymentGatewayLink}"} only for online gateway checkout, and {"{PaymentConfirmationLink}"} for manual payment proof submission. Existing {"{PaymentLink}"} still works as a legacy alias for {"{ActionLink}"}.
                   </HelperText>
-                  <div className="settings-action-row">
+                  <div className="settings-numbering-workspace settings-whatsapp-workspace">
+                    <section className="settings-subpanel settings-numbering-card settings-whatsapp-card settings-whatsapp-preview-card">
+                      <div className="settings-subpanel-header">
+                        <div>
+                          <p className="eyebrow">Preview</p>
+                          <strong>Message that will be sent</strong>
+                        </div>
+                      </div>
+                      <HelperText>Sample preview using placeholder values so this subscriber can see the final message format.</HelperText>
+                      <pre className="settings-message-template" style={{ whiteSpace: "pre-wrap", margin: 0 }}>{whatsAppPreviewMessage}</pre>
+                    </section>
+                  </div>
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-secondary"
@@ -973,7 +1404,9 @@ export function SettingsPage() {
                             setFormError("");
                             await load();
                           } catch (error) {
-                            setFormError(error instanceof Error ? error.message : "Unable to save WhatsApp settings.");
+                            const nextError = error instanceof Error ? error.message : "Unable to save WhatsApp settings.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
                           }
                         },
                       })}
@@ -993,7 +1426,7 @@ export function SettingsPage() {
                       <h4>Payment reminder schedule</h4>
                     </div>
                   </div>
-                  <HelperText>These rules are based on the invoice due date and only apply to unpaid invoices.</HelperText>
+                  <HelperText>These rules are based on the invoice due date and only apply to unpaid invoices. Use `0` for the due date, negative values before the due date, and positive values after the due date.</HelperText>
                   <div className="settings-reminder-list">
                     {rules.map((rule, index) => (
                       <div className="settings-reminder-row" key={rule.id}>
@@ -1003,7 +1436,7 @@ export function SettingsPage() {
                         </label>
                         <div className="settings-reminder-row-actions">
                           <label className="form-label">
-                            Send after due date (days)
+                            Send relative to due date (days)
                             <input className="text-input" value={String(rule.offsetDays)} onChange={(event) => setRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, offsetDays: Number(event.target.value) } : item))} />
                           </label>
                           <button
@@ -1018,7 +1451,7 @@ export function SettingsPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="settings-action-row">
+                  <div className="settings-action-row settings-action-row-sticky">
                     <button
                       type="button"
                       className="button button-secondary"
@@ -1033,15 +1466,97 @@ export function SettingsPage() {
                         title: "Save payment reminders",
                         description: "Save the current payment reminder schedule?",
                         action: async () => {
-                          await api.put(`/settings/dunning-rules?companyId=${selectedCompanyId}`, { rules: rules.map((rule) => ({ name: rule.name, offsetDays: rule.offsetDays, isActive: rule.isActive })) });
-                          setConfirmState(null);
-                          await load();
+                          try {
+                            setFormError("");
+                            await api.put(`/settings/dunning-rules?companyId=${selectedCompanyId}`, {
+                              rules: rules.map((rule) => ({
+                                name: rule.name.trim(),
+                                offsetDays: rule.offsetDays,
+                                isActive: rule.isActive,
+                              })),
+                            });
+                            setConfirmState(null);
+                            await load();
+                            await loadReminderHistory();
+                          } catch (error) {
+                            const nextError = error instanceof Error ? error.message : "Unable to save payment reminders.";
+                            setFormError(nextError);
+                            throw new Error(nextError);
+                          }
                         },
                       })}
                     >
                       Save rules
                     </button>
                   </div>
+                  <section className="settings-subpanel settings-numbering-card" style={{ marginTop: "1.5rem" }}>
+                    <div className="settings-subpanel-header">
+                      <div>
+                        <p className="eyebrow">History</p>
+                        <strong>Recent reminder activity</strong>
+                      </div>
+                      <span className={`status-pill ${reminderHistoryTotalCount > 0 ? "status-pill-active" : "status-pill-inactive"}`}>
+                        {reminderHistoryTotalCount} record{reminderHistoryTotalCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <HelperText>Latest scheduled reminders and whether they have already been sent.</HelperText>
+                    {reminderHistoryError ? <HelperText tone="error">{reminderHistoryError}</HelperText> : null}
+                    {loadingReminderHistory ? (
+                      <HelperText>Loading recent reminder activity...</HelperText>
+                    ) : reminderHistory.length > 0 ? (
+                      <>
+                        <div className="table-scroll">
+                          <table className="catalog-table">
+                            <thead>
+                              <tr>
+                                <th>Reminder details</th>
+                                <th>Scheduled</th>
+                                <th>Sent</th>
+                                <th>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {reminderHistory.map((item) => (
+                                <tr key={item.id}>
+                                  <td className="table-primary-cell">
+                                    <div className="table-primary-cell-stack">
+                                      <div>
+                                        <strong className="table-primary-title">{item.reminderName}</strong>
+                                        <div className="table-meta">
+                                          <span className="table-meta-item">{item.invoiceNumber}</span>
+                                          <span className="table-meta-item">{item.customerName}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td>{formatReminderDateTime(item.scheduledAtUtc)}</td>
+                                  <td>{formatReminderDateTime(item.sentAtUtc)}</td>
+                                  <td>
+                                    <span className={`status-pill ${item.status === "sent" ? "status-pill-active" : "status-pill-inactive"}`}>
+                                      {formatReminderStatus(item.status)}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <TablePagination
+                          currentPage={reminderHistoryCurrentPage}
+                          pageSize={reminderHistoryPageSize}
+                          totalItems={reminderHistoryTotalCount}
+                          totalPages={reminderHistoryTotalPages}
+                          rangeStart={reminderHistoryRangeStart}
+                          rangeEnd={reminderHistoryRangeEnd}
+                          onPageChange={setReminderHistoryCurrentPage}
+                          onPageSizeChange={setReminderHistoryPageSize}
+                          pageSizeOptions={[10, 20, 50]}
+                        />
+                      </>
+                    ) : (
+                      <HelperText>No reminder activity yet for this company.</HelperText>
+                    )}
+                  </section>
                 </div>
               ) : (
                 <HelperText>Your current package does not include payment reminder workflows.</HelperText>

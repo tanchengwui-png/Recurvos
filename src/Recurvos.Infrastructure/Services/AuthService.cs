@@ -21,6 +21,7 @@ public sealed class AuthService(
     ISubscriberPackageBillingService subscriberPackageBillingService,
     IRegistrationGuardService registrationGuardService,
     IEmailSender emailSender,
+    PlatformOwnerNotificationService platformOwnerNotificationService,
     IOptions<AppUrlOptions> appUrlOptions) : IAuthService
 {
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
@@ -42,7 +43,7 @@ public sealed class AuthService(
         var normalizedPackageCode = request.PackageCode.Trim().ToLowerInvariant();
         var normalizedRegistrationNumber = request.RegistrationNumber.Trim().ToUpperInvariant();
 
-        if (await dbContext.Users.AnyAsync(x => x.Email == normalizedUserEmail, cancellationToken))
+        if (await dbContext.Users.AnyAsync(x => x.Email.ToLower() == normalizedUserEmail, cancellationToken))
         {
             throw new InvalidOperationException("A user with this email already exists.");
         }
@@ -61,7 +62,7 @@ public sealed class AuthService(
             RegistrationNumber = normalizedRegistrationNumber,
             Email = normalizedCompanyEmail,
             Phone = string.Empty,
-            Address = string.Empty,
+            Address = string.IsNullOrWhiteSpace(request.BillingAddress) ? string.Empty : request.BillingAddress.Trim(),
             IsActive = true,
             IsPlatformAccount = false,
             SelectedPackage = normalizedPackageCode,
@@ -91,6 +92,7 @@ public sealed class AuthService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         company.SubscriberId = user.Id;
+        await platformOwnerNotificationService.TryNotifyNewSignupAsync(user, company, cancellationToken);
         await CreateVerificationTokenAsync(user, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -114,7 +116,7 @@ public sealed class AuthService(
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken)
+        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken)
             ?? throw new UnauthorizedAccessException("Invalid credentials.");
 
         if (!passwordHasher.Verify(request.Password, user.PasswordHash))
@@ -185,7 +187,7 @@ public sealed class AuthService(
     public async Task ResendVerificationAsync(ResendVerificationRequest request, CancellationToken cancellationToken = default)
     {
         var normalizedEmail = NormalizeEmail(request.Email);
-        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken);
+        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken);
         if (user is null || user.IsEmailVerified)
         {
             return;
@@ -202,9 +204,9 @@ public sealed class AuthService(
         var normalizedEmail = NormalizeEmail(request.Email);
         var user = await dbContext.Users
             .Include(x => x.Company)
-            .FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken);
+            .FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail, cancellationToken);
 
-        if (user is null || user.Company is null)
+        if (user is null || user.Company is null || !user.IsEmailVerified)
         {
             return;
         }
@@ -353,13 +355,13 @@ public sealed class AuthService(
         }
 
         var verificationUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/verify-email?token={Uri.EscapeDataString(_pendingRawToken)}";
-        var subject = "Verify your Recurvo account";
+        var subject = "Verify your Recurvos account";
         var accountReference = string.Equals(user.FullName.Trim(), company.Name.Trim(), StringComparison.OrdinalIgnoreCase)
             ? "your company billing workspace"
             : $"{company.Name} and start using your billing workspace";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "Email verification",
-            "Activate your Recurvo account",
+            "Activate your Recurvos account",
             $"Hi {user.FullName}, please verify your email to activate {accountReference}.",
             "Verify email",
             verificationUrl,
@@ -368,12 +370,15 @@ public sealed class AuthService(
                 "Your account will stay inactive until the email is verified.",
                 "If you did not create this account, you can safely ignore this email."
             ],
-            "This email was sent because a new Recurvo account was created with this address.");
+            "This email was sent because a new Recurvos account was created with this address.");
 
         _pendingRawToken = null;
         try
         {
-            await emailSender.SendAsync(user.Email, subject, body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(user.Email, subject, body, logContext: new EmailLogContext(
+                CompanyId: company.Id,
+                NotificationType: "Verification",
+                CustomerName: user.FullName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {
@@ -393,10 +398,10 @@ public sealed class AuthService(
         }
 
         var resetUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(_pendingPasswordResetToken)}";
-        var subject = "Reset your Recurvo password";
+        var subject = "Reset your Recurvos password";
         var body = EmailTemplateRenderer.RenderActionEmail(
             "Password reset",
-            "Reset your Recurvo password",
+            "Reset your Recurvos password",
             $"Hi {user.FullName}, we received a request to reset the password for {company.Name}. Use the secure link below to choose a new password.",
             "Reset password",
             resetUrl,
@@ -405,12 +410,15 @@ public sealed class AuthService(
                 "If you did not request a password reset, you can ignore this email.",
                 "Signing in again will require your new password."
             ],
-            "This email was sent because a password reset was requested for your Recurvo account.");
+            "This email was sent because a password reset was requested for your Recurvos account.");
 
         _pendingPasswordResetToken = null;
         try
         {
-            await emailSender.SendAsync(user.Email, subject, body, cancellationToken: cancellationToken);
+            await emailSender.SendAsync(user.Email, subject, body, logContext: new EmailLogContext(
+                CompanyId: company.Id,
+                NotificationType: "PasswordReset",
+                CustomerName: user.FullName), cancellationToken: cancellationToken);
         }
         catch (InvalidOperationException)
         {

@@ -53,4 +53,36 @@ public sealed class WebhooksController(IWebhookService webhookService) : Control
         await webhookService.ConfirmAsync("billplz", paymentId, payload, cancellationToken);
         return Ok();
     }
+
+    [HttpPost("stripe/complete")]
+    [RequestSizeLimit(16 * 1024)]
+    public async Task<IActionResult> CompleteStripeReturn(CancellationToken cancellationToken)
+    {
+        using var reader = new StreamReader(Request.Body);
+        var payload = await reader.ReadToEndAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(payload) && Request.QueryString.HasValue)
+        {
+            payload = Request.QueryString.Value?.TrimStart('?') ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return BadRequest("Missing Stripe return payload.");
+        }
+
+        var parsed = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(payload);
+        var sessionId = parsed.TryGetValue("session_id", out var wrappedSessionId)
+            ? wrappedSessionId.ToString()
+            : parsed.TryGetValue("sessionId", out var plainSessionId)
+                ? plainSessionId.ToString()
+                : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return BadRequest("Stripe return is missing the session id.");
+        }
+
+        await webhookService.ConfirmAsync("stripe", sessionId, payload, cancellationToken);
+        return Ok();
+    }
 }

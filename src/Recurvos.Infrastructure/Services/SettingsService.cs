@@ -13,6 +13,9 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using MailKit;
 using MimeKit;
+using StripeBalanceService = Stripe.BalanceService;
+using StripeClient = Stripe.StripeClient;
+using StripeException = Stripe.StripeException;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -26,12 +29,14 @@ public sealed class SettingsService(
     IFeatureEntitlementService featureEntitlementService,
     IPlatformWhatsAppGateway platformWhatsAppGateway,
     IOptions<BillplzOptions> billplzOptions,
+    IOptions<StripeOptions> stripeOptions,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment) : ISettingsService
 {
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
-    private const int DefaultMinimumDigits = 6;
+    private const int DefaultMinimumDigits = 4;
     private readonly BillplzOptions _billplzOptions = billplzOptions.Value;
+    private readonly StripeOptions _stripeOptions = stripeOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
 
@@ -50,6 +55,18 @@ public sealed class SettingsService(
     {
         var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
         await featureEntitlementService.EnsureCompanyHasFeatureAsync(resolvedCompanyId, PlatformFeatureKeys.DunningWorkflows, cancellationToken);
+        var duplicateActiveOffsets = request.Rules
+            .Where(x => x.IsActive)
+            .GroupBy(x => x.OffsetDays)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(x => x)
+            .ToList();
+        if (duplicateActiveOffsets.Count > 0)
+        {
+            throw new InvalidOperationException($"Only one active reminder is allowed for each day offset. Duplicate offsets: {string.Join(", ", duplicateActiveOffsets)}.");
+        }
+
         var existing = await dbContext.DunningRules.Where(x => x.CompanyId == resolvedCompanyId).ToListAsync(cancellationToken);
         dbContext.DunningRules.RemoveRange(existing);
 
@@ -66,6 +83,178 @@ public sealed class SettingsService(
         await RebuildReminderSchedulesAsync(resolvedCompanyId, rules, cancellationToken);
         await auditService.WriteAsync("settings.dunning.updated", nameof(DunningRule), resolvedCompanyId.ToString(), $"rules={rules.Count}", cancellationToken);
         return rules.OrderBy(x => x.OffsetDays).Select(x => new DunningRuleDto(x.Id, x.Name, x.OffsetDays, x.IsActive)).ToList();
+    }
+
+    public async Task<ReminderHistoryPageDto> GetReminderHistoryAsync(Guid? companyId, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+        await featureEntitlementService.EnsureCompanyHasFeatureAsync(resolvedCompanyId, PlatformFeatureKeys.DunningWorkflows, cancellationToken);
+
+        var safePage = page < 1 ? 1 : page;
+        var safePageSize = pageSize switch
+        {
+            <= 0 => 20,
+            > 100 => 100,
+            _ => pageSize
+        };
+
+        var query = dbContext.ReminderSchedules
+            .AsNoTracking()
+            .Include(x => x.Invoice)
+                .ThenInclude(x => x!.Customer)
+            .Include(x => x.DunningRule)
+            .Where(x => x.CompanyId == resolvedCompanyId)
+            .OrderByDescending(x => x.ScheduledAtUtc)
+            .ThenByDescending(x => x.CreatedAtUtc);
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .Select(x => new ReminderHistoryItemDto(
+                x.Id,
+                !string.IsNullOrWhiteSpace(x.ReminderName)
+                    ? x.ReminderName
+                    : x.DunningRule != null && !string.IsNullOrWhiteSpace(x.DunningRule.Name)
+                        ? x.DunningRule.Name
+                        : "Reminder",
+                x.InvoiceId,
+                x.Invoice != null ? x.Invoice.InvoiceNumber : string.Empty,
+                x.Invoice != null && x.Invoice.Customer != null ? x.Invoice.Customer.Name : string.Empty,
+                x.ScheduledAtUtc,
+                x.SentAtUtc,
+                x.Cancelled,
+                x.Cancelled
+                    ? "cancelled"
+                    : x.SentAtUtc.HasValue
+                        ? "sent"
+                        : "pending"))
+            .ToListAsync(cancellationToken);
+
+        return new ReminderHistoryPageDto(items, safePage, safePageSize, totalCount);
+    }
+
+    public async Task<IReadOnlyCollection<SubscriberWhatsAppQueueItemDto>> GetCompanyWhatsAppQueueItemsAsync(Guid? companyId, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+
+        return await dbContext.WhatsAppOutboundQueues
+            .AsNoTracking()
+            .Include(x => x.Invoice)
+                .ThenInclude(x => x!.Customer)
+            .Where(x => x.CompanyId == resolvedCompanyId)
+            .OrderBy(x => x.Status == "Pending" ? 0
+                : x.Status == "Deferred" ? 1
+                : x.Status == "Failed" ? 2
+                : x.Status == "Sending" ? 3
+                : x.Status == "Cancelled" ? 4
+                : 5)
+            .ThenByDescending(x => x.NextAttemptAtUtc ?? x.CreatedAtUtc)
+            .Take(5)
+            .Select(x => new SubscriberWhatsAppQueueItemDto(
+                x.Id,
+                x.InvoiceId,
+                x.Invoice != null ? x.Invoice.InvoiceNumber : string.Empty,
+                x.Invoice != null && x.Invoice.Customer != null ? x.Invoice.Customer.Name : string.Empty,
+                x.RecipientPhoneNumber,
+                x.Status,
+                x.AttemptCount,
+                x.CreatedAtUtc,
+                x.LastAttemptAtUtc,
+                x.NextAttemptAtUtc,
+                x.ErrorMessage))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<SubscriberWhatsAppMessagePageDto> GetCompanyWhatsAppMessagesAsync(Guid? companyId, string? status, string? source, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+        var normalizedStatus = string.IsNullOrWhiteSpace(status) ? "all" : status.Trim().ToLowerInvariant();
+        var normalizedSource = string.IsNullOrWhiteSpace(source) ? "all" : source.Trim().ToLowerInvariant();
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Clamp(pageSize, 10, 100);
+
+        var query = dbContext.WhatsAppOutboundQueues
+            .AsNoTracking()
+            .Include(x => x.Invoice)
+                .ThenInclude(x => x!.Customer)
+            .Include(x => x.ReminderSchedule)
+            .Where(x => x.CompanyId == resolvedCompanyId);
+
+        query = normalizedStatus switch
+        {
+            "queued" => query.Where(x => x.Status == "Pending" || x.Status == "Deferred" || x.Status == "Sending"),
+            "sent" => query.Where(x => x.Status == "Sent"),
+            "failed" => query.Where(x => x.Status == "Failed"),
+            "cancelled" => query.Where(x => x.Status == "Cancelled"),
+            _ => query,
+        };
+
+        query = normalizedSource switch
+        {
+            "invoice" => query.Where(x => x.ReminderScheduleId == null),
+            "reminder" => query.Where(x => x.ReminderScheduleId != null),
+            _ => query,
+        };
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .Select(x => new SubscriberWhatsAppMessageItemDto(
+                x.Id,
+                x.InvoiceId,
+                x.Invoice != null ? x.Invoice.InvoiceNumber : string.Empty,
+                x.Invoice != null && x.Invoice.Customer != null ? x.Invoice.Customer.Name : string.Empty,
+                x.RecipientPhoneNumber,
+                x.ReminderScheduleId == null ? "invoice" : "reminder",
+                x.ReminderScheduleId == null
+                    ? null
+                    : !string.IsNullOrWhiteSpace(x.ReminderSchedule!.ReminderName)
+                        ? x.ReminderSchedule.ReminderName
+                        : "Payment reminder",
+                x.ReminderScheduleId == null ? null : x.ReminderSchedule!.OffsetDays,
+                x.Status,
+                x.Message,
+                x.AttemptCount,
+                x.CreatedAtUtc,
+                x.LastAttemptAtUtc,
+                x.NextAttemptAtUtc,
+                x.ExternalMessageId,
+                x.ErrorMessage))
+            .ToListAsync(cancellationToken);
+
+        return new SubscriberWhatsAppMessagePageDto(items, safePage, safePageSize, totalCount);
+    }
+
+    public async Task<IReadOnlyCollection<SubscriberEmailDispatchLogDto>> GetCompanyEmailLogsAsync(Guid? companyId, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+
+        return await dbContext.EmailDispatchLogs
+            .AsNoTracking()
+            .Where(x => x.CompanyId == resolvedCompanyId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(200)
+            .Select(x => new SubscriberEmailDispatchLogDto(
+                x.Id,
+                x.NotificationType,
+                x.InvoiceId,
+                x.InvoiceNumber,
+                x.CustomerName,
+                x.MessageBody,
+                x.Status,
+                x.OriginalRecipient,
+                x.EffectiveRecipient,
+                x.Subject,
+                x.DeliveryMode,
+                x.WasRedirected,
+                x.RedirectReason,
+                x.Succeeded,
+                x.ErrorMessage,
+                x.CreatedAtUtc))
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default)
@@ -123,8 +312,8 @@ public sealed class SettingsService(
                 request.SubscriberBillplzApiKey,
                 request.SubscriberBillplzCollectionId,
                 request.SubscriberBillplzXSignatureKey,
-                request.SubscriberBillplzBaseUrl,
-                request.SubscriberBillplzRequireSignatureVerification);
+                string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl) ? BillplzOptions.LiveBaseUrl : request.SubscriberBillplzBaseUrl,
+                true);
         }
 
         settings.Prefix = request.Prefix.Trim();
@@ -135,6 +324,10 @@ public sealed class SettingsService(
         settings.ReceiptNextNumber = request.ReceiptNextNumber;
         settings.ReceiptPadding = NormalizeMinimumDigits(request.ReceiptPadding);
         settings.ReceiptResetYearly = request.ReceiptResetYearly;
+        settings.CreditNotePrefix = request.CreditNotePrefix.Trim();
+        settings.CreditNoteNextNumber = request.CreditNoteNextNumber;
+        settings.CreditNotePadding = NormalizeMinimumDigits(request.CreditNotePadding);
+        settings.CreditNoteResetYearly = request.CreditNoteResetYearly;
         settings.BankName = string.IsNullOrWhiteSpace(request.BankName) ? null : request.BankName.Trim();
         settings.BankAccountName = string.IsNullOrWhiteSpace(request.BankAccountName) ? null : request.BankAccountName.Trim();
         settings.BankAccount = string.IsNullOrWhiteSpace(request.BankAccount) ? null : request.BankAccount.Trim();
@@ -154,11 +347,11 @@ public sealed class SettingsService(
         settings.SubscriberBillplzXSignatureKey = paymentGatewayProvider == "billplz" && !string.IsNullOrWhiteSpace(request.SubscriberBillplzXSignatureKey)
             ? request.SubscriberBillplzXSignatureKey.Trim()
             : null;
-        settings.SubscriberBillplzBaseUrl = paymentGatewayProvider == "billplz" && !string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl)
-            ? request.SubscriberBillplzBaseUrl.Trim()
+        settings.SubscriberBillplzBaseUrl = paymentGatewayProvider == "billplz"
+            ? (string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl) ? BillplzOptions.LiveBaseUrl : request.SubscriberBillplzBaseUrl.Trim())
             : null;
         settings.SubscriberBillplzRequireSignatureVerification = paymentGatewayProvider == "billplz"
-            ? request.SubscriberBillplzRequireSignatureVerification
+            ? true
             : null;
         settings.IsTaxEnabled = request.IsTaxEnabled;
         settings.TaxName = string.IsNullOrWhiteSpace(request.TaxName) ? "SST" : request.TaxName.Trim();
@@ -169,6 +362,7 @@ public sealed class SettingsService(
         settings.ShowCompanyAddressOnInvoice = request.ShowCompanyAddressOnInvoice;
         settings.ShowCompanyAddressOnReceipt = request.ShowCompanyAddressOnReceipt;
         settings.AutoSendInvoices = request.AutoSendInvoices;
+        settings.CcSubscriberOnCustomerEmails = request.CcSubscriberOnCustomerEmails;
         settings.WhatsAppEnabled = request.WhatsAppEnabled;
         settings.WhatsAppTemplate = string.IsNullOrWhiteSpace(request.WhatsAppTemplate) ? null : request.WhatsAppTemplate.Trim();
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -191,6 +385,8 @@ public sealed class SettingsService(
         settings.WhatsAppAccessToken = string.IsNullOrWhiteSpace(request.AccessToken) ? null : request.AccessToken.Trim();
         settings.WhatsAppSenderId = string.IsNullOrWhiteSpace(request.SenderId) ? null : request.SenderId.Trim();
         settings.WhatsAppTemplate = string.IsNullOrWhiteSpace(request.Template) ? null : request.Template.Trim();
+        settings.WhatsAppSendWindowStartHourUtc = NormalizeHour(request.SendWindowStartHourUtc);
+        settings.WhatsAppSendWindowEndHourUtc = NormalizeHour(request.SendWindowEndHourUtc);
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("settings.platform-whatsapp.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), settings.WhatsAppSenderId, cancellationToken);
         return await BuildPlatformWhatsAppSettingsDtoAsync(settings, refreshSession: true, cancellationToken);
@@ -207,7 +403,7 @@ public sealed class SettingsService(
 
         var snapshot = await platformWhatsAppGateway.ConnectAsync(settings.CompanyId, BuildPlatformWhatsAppConfiguration(settings), cancellationToken);
         await ApplyPlatformWhatsAppSnapshotAsync(settings, snapshot, cancellationToken);
-        return MapPlatformWhatsAppSettings(settings, snapshot);
+        return await MapPlatformWhatsAppSettingsAsync(settings, snapshot, cancellationToken);
     }
 
     public async Task<PlatformWhatsAppSettingsDto> DisconnectPlatformWhatsAppSessionAsync(CancellationToken cancellationToken = default)
@@ -216,7 +412,7 @@ public sealed class SettingsService(
         var settings = await EnsurePlatformInvoiceSettingsAsync(cancellationToken);
         var snapshot = await platformWhatsAppGateway.DisconnectAsync(settings.CompanyId, BuildPlatformWhatsAppConfiguration(settings), cancellationToken);
         await ApplyPlatformWhatsAppSnapshotAsync(settings, snapshot, cancellationToken);
-        return MapPlatformWhatsAppSettings(settings, snapshot);
+        return await MapPlatformWhatsAppSettingsAsync(settings, snapshot, cancellationToken);
     }
 
     public async Task<PlatformWhatsAppSettingsDto> RefreshPlatformWhatsAppSessionAsync(CancellationToken cancellationToken = default)
@@ -326,6 +522,9 @@ public sealed class SettingsService(
         settings.ReceiptNextNumber = request.ReceiptNextNumber;
         settings.ReceiptPadding = request.ReceiptMinimumDigits;
         settings.ReceiptResetYearly = request.ReceiptResetYearly;
+        settings.CreditNotePrefix = string.IsNullOrWhiteSpace(settings.CreditNotePrefix) ? "CN" : settings.CreditNotePrefix.Trim();
+        settings.CreditNotePadding = NormalizeMinimumDigits(settings.CreditNotePadding);
+        settings.CreditNoteNextNumber = Math.Max(1, settings.CreditNoteNextNumber);
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("settings.platform-document-numbering.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), settings.Prefix, cancellationToken);
         return MapPlatformDocumentNumberingSettings(settings);
@@ -461,6 +660,10 @@ public sealed class SettingsService(
             settings.ProductionBillplzXSignatureKey = string.IsNullOrWhiteSpace(request.XSignatureKey) ? null : request.XSignatureKey.Trim();
             settings.ProductionBillplzBaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? null : request.BaseUrl.Trim();
             settings.ProductionBillplzRequireSignatureVerification = request.RequireSignatureVerification;
+            if (request.UseAsActiveProvider)
+            {
+                settings.ProductionPlatformPaymentGatewayProvider = "billplz";
+            }
         }
         else
         {
@@ -469,10 +672,52 @@ public sealed class SettingsService(
             settings.BillplzXSignatureKey = string.IsNullOrWhiteSpace(request.XSignatureKey) ? null : request.XSignatureKey.Trim();
             settings.BillplzBaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? null : request.BaseUrl.Trim();
             settings.BillplzRequireSignatureVerification = request.RequireSignatureVerification;
+            if (request.UseAsActiveProvider)
+            {
+                settings.PlatformPaymentGatewayProvider = "billplz";
+            }
         }
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("settings.platform-billplz.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), $"{environment}:{request.CollectionId}", cancellationToken);
         return MapPlatformBillplzSettings(settings, _billplzOptions, environment);
+    }
+
+    public async Task<PlatformStripeSettingsDto> GetPlatformStripeSettingsAsync(string environment, CancellationToken cancellationToken = default)
+    {
+        var settings = await EnsurePlatformInvoiceSettingsAsync(cancellationToken);
+        return MapPlatformStripeSettings(settings, _stripeOptions, NormalizePlatformEnvironment(environment));
+    }
+
+    public async Task<PlatformStripeSettingsDto> UpdatePlatformStripeSettingsAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default)
+    {
+        ValidatePlatformStripeSettings(request);
+        var settings = await EnsurePlatformInvoiceSettingsAsync(cancellationToken);
+        var environment = NormalizePlatformEnvironment(request.Environment);
+
+        if (environment == "production")
+        {
+            settings.ProductionStripePublishableKey = string.IsNullOrWhiteSpace(request.PublishableKey) ? null : request.PublishableKey.Trim();
+            settings.ProductionStripeSecretKey = string.IsNullOrWhiteSpace(request.SecretKey) ? null : request.SecretKey.Trim();
+            settings.ProductionStripeWebhookSecret = string.IsNullOrWhiteSpace(request.WebhookSecret) ? null : request.WebhookSecret.Trim();
+            if (request.UseAsActiveProvider)
+            {
+                settings.ProductionPlatformPaymentGatewayProvider = "stripe";
+            }
+        }
+        else
+        {
+            settings.StripePublishableKey = string.IsNullOrWhiteSpace(request.PublishableKey) ? null : request.PublishableKey.Trim();
+            settings.StripeSecretKey = string.IsNullOrWhiteSpace(request.SecretKey) ? null : request.SecretKey.Trim();
+            settings.StripeWebhookSecret = string.IsNullOrWhiteSpace(request.WebhookSecret) ? null : request.WebhookSecret.Trim();
+            if (request.UseAsActiveProvider)
+            {
+                settings.PlatformPaymentGatewayProvider = "stripe";
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("settings.platform-stripe.updated", nameof(CompanyInvoiceSettings), settings.CompanyId.ToString(), environment, cancellationToken);
+        return MapPlatformStripeSettings(settings, _stripeOptions, environment);
     }
 
     public async Task<PlatformBillplzTestResultDto> TestPlatformBillplzAsync(UpdatePlatformBillplzSettingsRequest request, CancellationToken cancellationToken = default)
@@ -518,6 +763,36 @@ public sealed class SettingsService(
         catch (HttpRequestException exception)
         {
             throw new InvalidOperationException($"Billplz is not reachable: {exception.Message}");
+        }
+    }
+
+    public async Task<PlatformStripeTestResultDto> TestPlatformStripeAsync(UpdatePlatformStripeSettingsRequest request, CancellationToken cancellationToken = default)
+    {
+        EnsurePlatformOwner();
+        ValidatePlatformStripeSettings(request);
+
+        var secretKey = string.IsNullOrWhiteSpace(request.SecretKey) ? null : request.SecretKey.Trim();
+        if (string.IsNullOrWhiteSpace(secretKey))
+        {
+            throw new InvalidOperationException("Stripe secret key is required.");
+        }
+
+        try
+        {
+            var client = new StripeClient(secretKey);
+            var service = new StripeBalanceService(client);
+            _ = await service.GetAsync(null, null, cancellationToken);
+            return new PlatformStripeTestResultDto(true, "Stripe connection succeeded.");
+        }
+        catch (StripeException exception)
+        {
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(exception.Message)
+                ? "Stripe rejected the provided keys."
+                : exception.Message);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new InvalidOperationException($"Stripe is not reachable: {exception.Message}");
         }
     }
 
@@ -580,6 +855,26 @@ public sealed class SettingsService(
         {
             throw new InvalidOperationException("Billplz X signature key is required when signature verification is enabled.");
         }
+
+        if (request.UseAsActiveProvider
+            && (string.IsNullOrWhiteSpace(request.ApiKey)
+                || string.IsNullOrWhiteSpace(request.CollectionId)
+                || string.IsNullOrWhiteSpace(request.BaseUrl)
+                || (request.RequireSignatureVerification && string.IsNullOrWhiteSpace(request.XSignatureKey))))
+        {
+            throw new InvalidOperationException("Complete the Billplz configuration before making it the active provider.");
+        }
+    }
+
+    private static void ValidatePlatformStripeSettings(UpdatePlatformStripeSettingsRequest request)
+    {
+        if (request.UseAsActiveProvider
+            && (string.IsNullOrWhiteSpace(request.PublishableKey)
+                || string.IsNullOrWhiteSpace(request.SecretKey)
+                || string.IsNullOrWhiteSpace(request.WebhookSecret)))
+        {
+            throw new InvalidOperationException("Complete the Stripe configuration before making it the active provider.");
+        }
     }
 
     private static void EnsureValidEmailAddress(string value, string fieldName)
@@ -622,10 +917,20 @@ public sealed class SettingsService(
         return MapPlatformUploadPolicy(settings);
     }
 
-    public async Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, CancellationToken cancellationToken = default)
+    public async Task<CompanyInvoiceSettingsDto?> UploadPaymentQrAsync(Guid? companyId, Stream content, string fileName, PaymentQrUploadAcknowledgement acknowledgement, CancellationToken cancellationToken = default)
     {
         var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
         var settings = await EnsureInvoiceSettingsAsync(resolvedCompanyId, cancellationToken);
+        if (!acknowledgement.ResponsibilityAccepted)
+        {
+            throw new InvalidOperationException("QR upload responsibility acknowledgement is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(acknowledgement.ResponsibilityStatement))
+        {
+            throw new InvalidOperationException("QR upload responsibility statement is required.");
+        }
+
         var extension = Path.GetExtension(fileName);
         if (string.IsNullOrWhiteSpace(extension) || !new[] { ".png", ".jpg", ".jpeg", ".webp" }.Contains(extension, StringComparer.OrdinalIgnoreCase))
         {
@@ -653,8 +958,10 @@ public sealed class SettingsService(
         await content.CopyToAsync(fileStream, cancellationToken);
 
         settings.PaymentQrPath = filePath.Replace("\\", "/");
+        settings.PaymentQrResponsibilityAcceptedAtUtc = DateTime.UtcNow;
+        settings.PaymentQrResponsibilityStatement = acknowledgement.ResponsibilityStatement.Trim();
         await dbContext.SaveChangesAsync(cancellationToken);
-        await auditService.WriteAsync("settings.payment-qr.updated", nameof(CompanyInvoiceSettings), resolvedCompanyId.ToString(), Path.GetFileName(filePath), cancellationToken);
+        await auditService.WriteAsync("settings.payment-qr.updated", nameof(CompanyInvoiceSettings), resolvedCompanyId.ToString(), $"{Path.GetFileName(filePath)} | responsibility-acknowledged", cancellationToken);
         return MapInvoiceSettings(settings);
     }
 
@@ -694,7 +1001,7 @@ public sealed class SettingsService(
         {
             CompanyId = companyId,
             Prefix = "INV",
-            NextNumber = company.InvoiceSequence > 0 ? company.InvoiceSequence : 1,
+            NextNumber = 1,
             Padding = DefaultMinimumDigits,
             ResetYearly = false,
             LastResetYear = null,
@@ -703,6 +1010,11 @@ public sealed class SettingsService(
             ReceiptPadding = DefaultMinimumDigits,
             ReceiptResetYearly = false,
             ReceiptLastResetYear = null,
+            CreditNotePrefix = "CN",
+            CreditNoteNextNumber = 1,
+            CreditNotePadding = DefaultMinimumDigits,
+            CreditNoteResetYearly = false,
+            CreditNoteLastResetYear = null,
             IsTaxEnabled = false,
             TaxName = "SST",
             TaxRate = null,
@@ -711,15 +1023,15 @@ public sealed class SettingsService(
             ShowCompanyAddressOnInvoice = true,
             ShowCompanyAddressOnReceipt = true,
             AutoSendInvoices = true,
+            CcSubscriberOnCustomerEmails = true,
             WhatsAppProvider = "generic_api",
             AutoCompressUploads = true,
             UploadMaxBytes = 2_000_000,
             UploadImageMaxDimension = 1600,
             UploadImageQuality = 80
         };
-        dbContext.CompanyInvoiceSettings.Add(settings);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return settings;
+        await CompanyInvoiceSettingsCreation.ApplySubscriberPackageDefaultsAsync(dbContext, settings, cancellationToken);
+        return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 
     private async Task<CompanyInvoiceSettings> EnsurePlatformInvoiceSettingsAsync(CancellationToken cancellationToken)
@@ -743,6 +1055,7 @@ public sealed class SettingsService(
     {
         settings.Padding = NormalizeMinimumDigits(settings.Padding);
         settings.ReceiptPadding = NormalizeMinimumDigits(settings.ReceiptPadding);
+        settings.CreditNotePadding = NormalizeMinimumDigits(settings.CreditNotePadding);
         var monthStartUtc = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var monthlySent = dbContext.WhatsAppNotifications.Count(x => x.CompanyId == settings.CompanyId && x.Status == "Sent" && x.CreatedAtUtc >= monthStartUtc);
         var monthlyLimit = dbContext.Companies
@@ -779,6 +1092,11 @@ public sealed class SettingsService(
             settings.ReceiptPadding,
             settings.ReceiptResetYearly,
             settings.ReceiptLastResetYear,
+            settings.CreditNotePrefix,
+            settings.CreditNoteNextNumber,
+            settings.CreditNotePadding,
+            settings.CreditNoteResetYearly,
+            settings.CreditNoteLastResetYear,
             settings.BankName,
             settings.BankAccountName,
             settings.BankAccount,
@@ -800,6 +1118,7 @@ public sealed class SettingsService(
             settings.ShowCompanyAddressOnInvoice,
             settings.ShowCompanyAddressOnReceipt,
             settings.AutoSendInvoices,
+            settings.CcSubscriberOnCustomerEmails,
             !string.IsNullOrWhiteSpace(settings.PaymentQrPath),
             settings.WhatsAppEnabled,
             settings.WhatsAppTemplate,
@@ -853,7 +1172,12 @@ public sealed class SettingsService(
             settings.ReceiptNextNumber,
             settings.ReceiptPadding,
             settings.ReceiptResetYearly,
-            settings.ReceiptLastResetYear);
+            settings.ReceiptLastResetYear,
+            settings.CreditNotePrefix,
+            settings.CreditNoteNextNumber,
+            settings.CreditNotePadding,
+            settings.CreditNoteResetYearly,
+            settings.CreditNoteLastResetYear);
 
     private static PlatformSmtpSettingsDto MapPlatformSmtpSettings(CompanyInvoiceSettings settings, string environment)
     {
@@ -919,6 +1243,39 @@ public sealed class SettingsService(
             signatureKey,
             baseUrl,
             requireSignatureVerification,
+            string.Equals(
+                isProduction ? settings.ProductionPlatformPaymentGatewayProvider : settings.PlatformPaymentGatewayProvider,
+                "billplz",
+                StringComparison.OrdinalIgnoreCase),
+            settings.UseProductionPlatformSettings == isProduction,
+            ready);
+    }
+
+    private static PlatformStripeSettingsDto MapPlatformStripeSettings(CompanyInvoiceSettings settings, StripeOptions fallback, string environment)
+    {
+        var isProduction = environment == "production";
+        var publishableKey = isProduction
+            ? settings.ProductionStripePublishableKey
+            : (string.IsNullOrWhiteSpace(settings.StripePublishableKey) ? fallback.PublishableKey : settings.StripePublishableKey);
+        var secretKey = isProduction
+            ? settings.ProductionStripeSecretKey
+            : (string.IsNullOrWhiteSpace(settings.StripeSecretKey) ? fallback.SecretKey : settings.StripeSecretKey);
+        var webhookSecret = isProduction
+            ? settings.ProductionStripeWebhookSecret
+            : (string.IsNullOrWhiteSpace(settings.StripeWebhookSecret) ? fallback.WebhookSecret : settings.StripeWebhookSecret);
+        var ready = !string.IsNullOrWhiteSpace(publishableKey)
+            && !string.IsNullOrWhiteSpace(secretKey)
+            && !string.IsNullOrWhiteSpace(webhookSecret);
+
+        return new(
+            environment,
+            publishableKey,
+            secretKey,
+            webhookSecret,
+            string.Equals(
+                isProduction ? settings.ProductionPlatformPaymentGatewayProvider : settings.PlatformPaymentGatewayProvider,
+                "stripe",
+                StringComparison.OrdinalIgnoreCase),
             settings.UseProductionPlatformSettings == isProduction,
             ready);
     }
@@ -932,6 +1289,7 @@ public sealed class SettingsService(
         return normalized switch
         {
             "billplz" => "billplz",
+            "stripe" => "stripe",
             _ => "none",
         };
     }
@@ -958,7 +1316,7 @@ public sealed class SettingsService(
             }
         }
 
-        return MapPlatformWhatsAppSettings(settings, snapshot);
+        return await MapPlatformWhatsAppSettingsAsync(settings, snapshot, cancellationToken);
     }
 
     private async Task ApplyPlatformWhatsAppSnapshotAsync(CompanyInvoiceSettings settings, PlatformWhatsAppSessionSnapshot snapshot, CancellationToken cancellationToken)
@@ -977,11 +1335,11 @@ public sealed class SettingsService(
             settings.WhatsAppAccessToken,
             settings.WhatsAppSenderId,
             settings.WhatsAppTemplate,
-            settings.WhatsAppSessionStatus,
-            settings.WhatsAppSessionPhone,
-            settings.WhatsAppSessionLastSyncedAtUtc);
+                settings.WhatsAppSessionStatus,
+                settings.WhatsAppSessionPhone,
+                settings.WhatsAppSessionLastSyncedAtUtc);
 
-    private static PlatformWhatsAppSettingsDto MapPlatformWhatsAppSettings(CompanyInvoiceSettings settings, PlatformWhatsAppSessionSnapshot? snapshot = null)
+    private async Task<PlatformWhatsAppSettingsDto> MapPlatformWhatsAppSettingsAsync(CompanyInvoiceSettings settings, PlatformWhatsAppSessionSnapshot? snapshot = null, CancellationToken cancellationToken = default)
     {
         var provider = NormalizeWhatsAppProvider(settings.WhatsAppProvider);
         var sessionStatus = snapshot?.Status ?? (string.IsNullOrWhiteSpace(settings.WhatsAppSessionStatus) ? "not_connected" : settings.WhatsAppSessionStatus.Trim().ToLowerInvariant());
@@ -995,6 +1353,21 @@ public sealed class SettingsService(
                 && !string.IsNullOrWhiteSpace(settings.WhatsAppSenderId),
             _ => false,
         });
+        var queueSummary = await dbContext.WhatsAppOutboundQueues
+            .Where(x => x.CompanyId == settings.CompanyId)
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                PendingCount = group.Count(x => x.Status == "Pending"),
+                DeferredCount = group.Count(x => x.Status == "Deferred"),
+                FailedCount = group.Count(x => x.Status == "Failed"),
+                NextAttemptAtUtc = group
+                    .Where(x => x.Status == "Pending" || x.Status == "Deferred")
+                    .Select(x => (DateTime?)(x.NextAttemptAtUtc ?? x.NotBeforeUtc))
+                    .OrderBy(x => x)
+                    .FirstOrDefault()
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
         return new(
             settings.WhatsAppEnabled,
@@ -1003,13 +1376,21 @@ public sealed class SettingsService(
             settings.WhatsAppAccessToken,
             settings.WhatsAppSenderId,
             settings.WhatsAppTemplate,
+            NormalizeHour(settings.WhatsAppSendWindowStartHourUtc),
+            NormalizeHour(settings.WhatsAppSendWindowEndHourUtc),
             ready,
             sessionStatus,
             sessionPhone,
             sessionLastSyncedAtUtc,
             snapshot?.QrCodeDataUrl,
-            snapshot?.LastError);
+            snapshot?.LastError,
+            queueSummary?.PendingCount ?? 0,
+            queueSummary?.DeferredCount ?? 0,
+            queueSummary?.FailedCount ?? 0,
+            queueSummary?.NextAttemptAtUtc);
     }
+
+    private static int NormalizeHour(int value) => Math.Clamp(value, 0, 23);
 
     private static string NormalizeWhatsAppProvider(string? value)
     {
@@ -1094,16 +1475,42 @@ public sealed class SettingsService(
                 x.DueDateUtc
             })
             .ToListAsync(cancellationToken);
+        var openInvoiceIds = openInvoices.Select(invoice => invoice.Id).ToList();
+
+        var sentOffsetsByInvoice = await dbContext.ReminderSchedules
+            .Where(x => x.CompanyId == companyId
+                && x.SentAtUtc != null
+                && openInvoiceIds.Contains(x.InvoiceId))
+            .Select(x => new
+            {
+                x.InvoiceId,
+                x.OffsetDays
+            })
+            .ToListAsync(cancellationToken);
+
+        var sentOffsetLookup = sentOffsetsByInvoice
+            .GroupBy(x => x.InvoiceId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(item => item.OffsetDays).ToHashSet());
 
         foreach (var invoice in openInvoices)
         {
             foreach (var rule in activeRules)
             {
+                if (sentOffsetLookup.TryGetValue(invoice.Id, out var sentOffsets)
+                    && sentOffsets.Contains(rule.OffsetDays))
+                {
+                    continue;
+                }
+
                 dbContext.ReminderSchedules.Add(new ReminderSchedule
                 {
                     CompanyId = companyId,
                     InvoiceId = invoice.Id,
                     DunningRuleId = rule.Id,
+                    ReminderName = rule.Name,
+                    OffsetDays = rule.OffsetDays,
                     ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
                 });
             }
@@ -1127,7 +1534,7 @@ public sealed class SettingsService(
 
         company = new Company
         {
-            Name = "Recurvo",
+            Name = "Recurvos",
             RegistrationNumber = "PLATFORM-OWNER",
             Email = "support@recurvo.com",
             Phone = "+60300000000",
@@ -1169,8 +1576,7 @@ public sealed class SettingsService(
                 && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzApiKey)
                 && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzCollectionId)
                 && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzBaseUrl)
-                && ((settings.SubscriberBillplzRequireSignatureVerification ?? true) == false
-                    || !string.IsNullOrWhiteSpace(settings.SubscriberBillplzXSignatureKey)),
+                && !string.IsNullOrWhiteSpace(settings.SubscriberBillplzXSignatureKey),
             _ => false,
         };
     }
@@ -1270,16 +1676,20 @@ public sealed class SettingsService(
             throw new InvalidOperationException("Only Billplz is supported right now.");
         }
 
+        var baseUrl = string.IsNullOrWhiteSpace(request.SubscriberBillplzBaseUrl)
+            ? BillplzOptions.LiveBaseUrl
+            : request.SubscriberBillplzBaseUrl;
+
         ValidateSubscriberBillplzSettings(
             request.SubscriberBillplzApiKey,
             request.SubscriberBillplzCollectionId,
             request.SubscriberBillplzXSignatureKey,
-            request.SubscriberBillplzBaseUrl,
-            request.SubscriberBillplzRequireSignatureVerification);
+            baseUrl,
+            true);
 
         using var requestMessage = new HttpRequestMessage(
             HttpMethod.Get,
-            $"{request.SubscriberBillplzBaseUrl!.Trim().TrimEnd('/')}/api/v4/collections/{request.SubscriberBillplzCollectionId!.Trim()}");
+            $"{baseUrl.Trim().TrimEnd('/')}/api/v4/collections/{request.SubscriberBillplzCollectionId!.Trim()}");
         requestMessage.Headers.Authorization = CreateBasicAuthHeader(request.SubscriberBillplzApiKey!.Trim());
 
         using var httpClient = new HttpClient();

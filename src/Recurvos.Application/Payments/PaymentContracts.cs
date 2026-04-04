@@ -22,12 +22,14 @@ public sealed class CreatePaymentLinkCommand
 public sealed record PaymentLinkResult(string ExternalPaymentId, string PaymentUrl, string RawResponse);
 
 public sealed record PaymentAttemptDto(int AttemptNumber, PaymentStatus Status, string? FailureCode, string? FailureMessage);
+public sealed record PaymentHistoryDto(DateTime CreatedAtUtc, string Action, string Description);
 
 public sealed record PaymentDto(
     Guid Id,
     Guid InvoiceId,
     string InvoiceNumber,
     decimal Amount,
+    string Currency,
     decimal RefundedAmount,
     decimal NetCollectedAmount,
     PaymentStatus Status,
@@ -38,6 +40,7 @@ public sealed record PaymentDto(
     bool HasReceipt,
     string? ProofFileName,
     DateTime? PaidAtUtc,
+    IReadOnlyCollection<PaymentHistoryDto> History,
     IReadOnlyCollection<PaymentAttemptDto> Attempts,
     IReadOnlyCollection<RefundDto> Refunds,
     IReadOnlyCollection<PaymentDisputeDto> Disputes);
@@ -65,9 +68,12 @@ public interface IPaymentService
 {
     Task<IReadOnlyCollection<PaymentDto>> GetAsync(CancellationToken cancellationToken = default);
     Task<PaymentDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-    Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string? externalPaymentId, Guid? invoiceId, CancellationToken cancellationToken = default);
+    Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string externalPaymentId, CancellationToken cancellationToken = default);
     Task<PaymentDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadProofAsync(Guid id, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> SendReceiptAsync(Guid id, CancellationToken cancellationToken = default);
+    Task TryAutoSendReceiptIfEligibleAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<int> RecoverMissedReceiptEmailsAsync(CancellationToken cancellationToken = default);
     Task<int> RetryFailedPaymentsAsync(CancellationToken cancellationToken = default);
 }

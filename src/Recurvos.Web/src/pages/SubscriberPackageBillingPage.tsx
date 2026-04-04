@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { TablePagination } from "../components/TablePagination";
 import { HelperText } from "../components/ui/HelperText";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -34,10 +35,36 @@ function formatStatusLabel(value?: string | null) {
     .join(" ");
 }
 
+function getGracePeriodCountdown(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const endsAt = new Date(value);
+  const remainingMilliseconds = endsAt.getTime() - Date.now();
+
+  if (!Number.isFinite(remainingMilliseconds) || remainingMilliseconds <= 0) {
+    return "Payment deadline reached.";
+  }
+
+  const remainingDays = Math.ceil(remainingMilliseconds / (1000 * 60 * 60 * 24));
+
+  if (remainingDays <= 1) {
+    return "Less than 1 day left. Pay now to avoid access being restricted.";
+  }
+
+  if (remainingDays <= 3) {
+    return `${remainingDays} days left. Please pay now to avoid access being restricted.`;
+  }
+
+  return `${remainingDays} days left to pay before access is restricted.`;
+}
+
 export function SubscriberPackageBillingPage() {
   const [summary, setSummary] = useState<SubscriberPackageBillingSummary | null>(null);
   const [busyInvoiceId, setBusyInvoiceId] = useState<string | null>(null);
   const [busyUpgradeCode, setBusyUpgradeCode] = useState<string | null>(null);
+  const [cancellingUpgrade, setCancellingUpgrade] = useState(false);
   const [upgradePreview, setUpgradePreview] = useState<SubscriberPackageUpgradePreview | null>(null);
   const [reactivationPackages, setReactivationPackages] = useState<PlatformPackage[]>([]);
   const [reactivationPreview, setReactivationPreview] = useState<SubscriberPackageReactivationPreview | null>(null);
@@ -47,6 +74,12 @@ export function SubscriberPackageBillingPage() {
   const openInvoices = summary?.invoices.filter((invoice) => invoice.amountDue > 0).length ?? 0;
   const outstandingBalance = summary?.invoices.reduce((total, invoice) => total + invoice.amountDue, 0) ?? 0;
   const readyReceipts = summary?.invoices.filter((invoice) => invoice.hasReceipt).length ?? 0;
+  const hasBillingAddress = summary?.isCompanyBillingAddressConfigured ?? true;
+  const gracePeriodCountdown = getGracePeriodCountdown(summary?.gracePeriodEndsAtUtc);
+  const packageStatus = (summary?.packageStatus ?? "").toLowerCase();
+  const isActivePackage = packageStatus === "active";
+  const hasPendingUpgrade = !!summary?.pendingUpgradePackageCode || !!summary?.pendingUpgradePackageName;
+  const currentPackageName = summary?.packageName ?? summary?.packageCode ?? "your current package";
 
   useEffect(() => {
     void load();
@@ -54,16 +87,20 @@ export function SubscriberPackageBillingPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const paymentId = params.get("billplz[id]");
-    const paid = params.get("billplz[paid]");
+    const billplzPaymentId = params.get("billplz[id]");
+    const billplzPaid = params.get("billplz[paid]");
+    const stripeStatus = params.get("stripe_status");
+    const stripeSessionId = params.get("session_id") ?? params.get("sessionId");
+    const hasBillplzReturn = Boolean(billplzPaymentId || billplzPaid);
+    const hasStripeReturn = Boolean(stripeStatus || stripeSessionId);
 
-    if (!paymentId && !paid) {
+    if (!hasBillplzReturn && !hasStripeReturn) {
       return;
     }
 
-    async function handleBillplzReturn() {
+    async function handleGatewayReturn() {
       try {
-        if (paid === "true") {
+        if (hasBillplzReturn && billplzPaid === "true") {
           setError("");
           setMessage("Payment received. Refreshing your billing status...");
           const response = await fetch(`${API_BASE_URL}/webhooks/billplz/complete?${params.toString()}`, {
@@ -76,19 +113,39 @@ export function SubscriberPackageBillingPage() {
             throw new Error(rawError || `Billplz completion returned HTTP ${response.status}.`);
           }
           await load();
-        } else if (paid === "false") {
+        } else if (hasBillplzReturn && billplzPaid === "false") {
           setMessage("");
           setError("Billplz returned without a completed payment.");
+        } else if (hasStripeReturn && stripeStatus === "success") {
+          if (!stripeSessionId) {
+            throw new Error("Stripe return is missing the session id.");
+          }
+
+          setError("");
+          setMessage("Payment received. Refreshing your billing status...");
+          const response = await fetch(`${API_BASE_URL}/webhooks/stripe/complete?${params.toString()}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+          });
+          if (!response.ok) {
+            const rawError = await response.text();
+            throw new Error(rawError || `Stripe completion returned HTTP ${response.status}.`);
+          }
+          await load();
+        } else if (hasStripeReturn && stripeStatus === "cancelled") {
+          setMessage("");
+          setError("Stripe returned without a completed payment.");
         }
-      } catch (billplzReturnError) {
+      } catch (gatewayReturnError) {
         setMessage("");
-        setError(billplzReturnError instanceof Error ? billplzReturnError.message : "Unable to confirm Billplz payment return.");
+        setError(gatewayReturnError instanceof Error ? gatewayReturnError.message : "Unable to confirm payment return.");
       } finally {
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     }
 
-    void handleBillplzReturn();
+    void handleGatewayReturn();
   }, []);
 
   async function load() {
@@ -100,6 +157,7 @@ export function SubscriberPackageBillingPage() {
         setReactivationPackages(await api.get<PlatformPackage[]>("/public/packages"));
       } else {
         setReactivationPackages([]);
+        setReactivationPreview(null);
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load package billing.");
@@ -116,6 +174,11 @@ export function SubscriberPackageBillingPage() {
   }
 
   async function createPaymentLink(invoiceId: string) {
+    if (!hasBillingAddress) {
+      setError("Please update your company billing address in Companies before creating or paying package invoices.");
+      return;
+    }
+
     try {
       setBusyInvoiceId(invoiceId);
       setError("");
@@ -149,6 +212,11 @@ export function SubscriberPackageBillingPage() {
   }
 
   async function createUpgradeInvoice(packageCode: string) {
+    if (!hasBillingAddress) {
+      setError("Please update your company billing address in Companies before creating or paying package invoices.");
+      return;
+    }
+
     try {
       setBusyUpgradeCode(packageCode);
       setError("");
@@ -188,6 +256,11 @@ export function SubscriberPackageBillingPage() {
   }
 
   async function createReactivationInvoice(packageCode: string) {
+    if (!hasBillingAddress) {
+      setError("Please update your company billing address in Companies before creating or paying package invoices.");
+      return;
+    }
+
     try {
       setBusyUpgradeCode(packageCode);
       setError("");
@@ -203,12 +276,28 @@ export function SubscriberPackageBillingPage() {
     }
   }
 
-  async function download(path: string) {
+  async function cancelPendingUpgrade() {
+    try {
+      setCancellingUpgrade(true);
+      setError("");
+      setMessage("");
+      const updatedSummary = await api.post<SubscriberPackageBillingSummary>("/package-billing/upgrade/cancel", {});
+      setSummary(updatedSummary);
+      setUpgradePreview(null);
+      setMessage("Pending package upgrade cancelled. Your current package stays active.");
+    } catch (cancelError) {
+      setError(cancelError instanceof Error ? cancelError.message : "Unable to cancel pending upgrade.");
+    } finally {
+      setCancellingUpgrade(false);
+    }
+  }
+
+  async function download(path: string, fallbackFileName: string) {
     const file = await api.download(path);
     const objectUrl = URL.createObjectURL(file.blob);
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
-    anchor.download = file.fileName ?? "document.pdf";
+    anchor.download = file.fileName ?? fallbackFileName;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -260,16 +349,17 @@ export function SubscriberPackageBillingPage() {
         </section>
       ) : null}
 
-      {summary?.packageStatus === "grace_period" && summary.gracePeriodEndsAtUtc ? (
+      {summary?.packageStatus === "grace_period" && summary.gracePeriodEndsAtUtc && !hasPendingUpgrade ? (
         <section className="subscriber-billing-alert subscriber-billing-alert-warning">
           <div>
             <p className="eyebrow">Payment reminder</p>
             <strong>Package payment is still pending</strong>
             <p className="muted">{`Your billing access remains available until ${formatDate(summary.gracePeriodEndsAtUtc)}.`}</p>
+            {gracePeriodCountdown ? <p className="muted">{gracePeriodCountdown}</p> : null}
           </div>
         </section>
       ) : null}
-      {summary?.packageStatus === "past_due" ? (
+      {packageStatus === "past_due" ? (
         <section className="subscriber-billing-alert subscriber-billing-alert-danger">
           <div>
             <p className="eyebrow">Action needed</p>
@@ -278,12 +368,46 @@ export function SubscriberPackageBillingPage() {
           </div>
         </section>
       ) : null}
-      {summary?.packageStatus === "upgrade_pending_payment" && summary.pendingUpgradePackageName ? (
+      {packageStatus === "reactivation_pending_payment" ? (
+        <section className="subscriber-billing-alert subscriber-billing-alert-danger">
+          <div>
+            <p className="eyebrow">Reactivation pending</p>
+            <strong>Reactivation invoice is waiting for payment</strong>
+            <p className="muted">Your account remains restricted until the reactivation invoice below is paid.</p>
+          </div>
+        </section>
+      ) : null}
+      {hasPendingUpgrade && summary?.pendingUpgradePackageName ? (
         <section className="subscriber-billing-alert subscriber-billing-alert-warning">
           <div>
             <p className="eyebrow">Upgrade pending</p>
             <strong>{`Upgrade to ${summary.pendingUpgradePackageName} is waiting for payment`}</strong>
-            <p className="muted">Pay the upgrade invoice below before the package changes.</p>
+            <p className="muted">{`Pay the upgrade invoice below to activate ${summary.pendingUpgradePackageName}. Until payment is completed, your current package remains ${currentPackageName}.`}</p>
+            {summary.gracePeriodEndsAtUtc ? (
+              <p className="muted">{`Your current ${currentPackageName} access remains available until ${formatDate(summary.gracePeriodEndsAtUtc)}.`}</p>
+            ) : null}
+            {gracePeriodCountdown ? <p className="muted">{gracePeriodCountdown}</p> : null}
+          </div>
+          {summary.canCancelPendingUpgrade ? (
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={cancellingUpgrade}
+              onClick={() => void cancelPendingUpgrade()}
+            >
+              {cancellingUpgrade ? "Cancelling..." : "Cancel upgrade"}
+            </button>
+          ) : null}
+        </section>
+      ) : null}
+      {summary && !summary.isCompanyBillingAddressConfigured ? (
+        <section className="subscriber-billing-alert subscriber-billing-alert-warning">
+          <div>
+            <p className="eyebrow">Billing profile required</p>
+            <strong>Add your company billing address before payment</strong>
+            <p className="muted">
+              Go to <Link className="inline-link" to="/companies">Companies</Link>, edit your company, and fill in the Address field.
+            </p>
           </div>
         </section>
       ) : null}
@@ -291,7 +415,7 @@ export function SubscriberPackageBillingPage() {
       {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
 
-      {summary?.packageStatus === "past_due" && reactivationPackages.length > 0 ? (
+      {packageStatus === "past_due" && reactivationPackages.length > 0 ? (
         <section className="card">
           <div className="dashboard-widget-header">
             <div>
@@ -331,7 +455,7 @@ export function SubscriberPackageBillingPage() {
                 <button
                   type="button"
                   className="button button-primary"
-                  disabled={busyUpgradeCode === reactivationPreview.packageCode}
+                  disabled={busyUpgradeCode === reactivationPreview.packageCode || !hasBillingAddress}
                   onClick={() => void createReactivationInvoice(reactivationPreview.packageCode)}
                 >
                   {busyUpgradeCode === reactivationPreview.packageCode ? "Creating..." : "Create reactivation invoice"}
@@ -345,7 +469,7 @@ export function SubscriberPackageBillingPage() {
         </section>
       ) : null}
 
-      {summary && summary.availableUpgrades.length > 0 ? (
+      {summary && isActivePackage && summary.availableUpgrades.length > 0 ? (
         <section className="card">
           <div className="dashboard-widget-header">
             <div>
@@ -412,12 +536,12 @@ export function SubscriberPackageBillingPage() {
               </div>
             </div>
             <div className="subscriber-upgrade-modal-actions">
-              <button
-                type="button"
-                className="button button-primary"
-                disabled={busyUpgradeCode === upgradePreview.targetPackageCode || !!summary?.pendingUpgradePackageCode}
-                onClick={() => void createUpgradeInvoice(upgradePreview.targetPackageCode)}
-              >
+                <button
+                  type="button"
+                  className="button button-primary"
+                  disabled={busyUpgradeCode === upgradePreview.targetPackageCode || !!summary?.pendingUpgradePackageCode || !hasBillingAddress}
+                  onClick={() => void createUpgradeInvoice(upgradePreview.targetPackageCode)}
+                >
                 {busyUpgradeCode === upgradePreview.targetPackageCode ? "Creating..." : "Create upgrade invoice"}
               </button>
             </div>
@@ -443,6 +567,79 @@ export function SubscriberPackageBillingPage() {
           </div>
         ) : (
           <>
+            <div className="package-billing-mobile-list">
+              {pagination.pagedItems.map((invoice) => (
+                <article key={invoice.id} className="subscription-mobile-card">
+                  <div className="subscription-mobile-card-header">
+                    <div className="subscription-mobile-identity">
+                      <strong>{invoice.invoiceNumber}</strong>
+                      <div className="eyebrow">{invoice.packageName}</div>
+                    </div>
+                  </div>
+                  <div className="subscription-mobile-card-topline">
+                    <span className={`subscription-mobile-status ${invoice.amountDue <= 0 ? "subscription-mobile-status-active" : "subscription-mobile-status-inactive"}`}>
+                      {formatStatusLabel(invoice.status)}
+                    </span>
+                    <span className="subscription-mobile-inline-note">{formatDate(invoice.issueDateUtc)}</span>
+                  </div>
+                  <div className="subscription-mobile-summary">
+                    <div className="subscription-mobile-amount">{formatMoney(invoice.total, invoice.currency)}</div>
+                    <div className="subscription-mobile-cadence">{`Balance ${formatMoney(invoice.amountDue, invoice.currency)}`}</div>
+                  </div>
+                  <div className="subscription-mobile-meta">
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Package</span>
+                      <span className="subscription-mobile-meta-value">{invoice.packageName}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Issue date</span>
+                      <span className="subscription-mobile-meta-value">{formatDate(invoice.issueDateUtc)}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Due date</span>
+                      <span className="subscription-mobile-meta-value">{formatDate(invoice.dueDateUtc)}</span>
+                    </div>
+                    <div className="subscription-mobile-meta-row">
+                      <span className="subscription-mobile-meta-label">Balance</span>
+                      <span className="subscription-mobile-meta-value">{formatMoney(invoice.amountDue, invoice.currency)}</span>
+                    </div>
+                  </div>
+                  <div className="button-stack package-billing-mobile-actions">
+                    {invoice.amountDue > 0 ? (
+                      <button
+                        type="button"
+                        className="button button-secondary"
+                        disabled={busyInvoiceId === invoice.id || invoice.hasPendingPaymentConfirmation || !hasBillingAddress}
+                        onClick={() => void createPaymentLink(invoice.id)}
+                      >
+                        {invoice.hasPendingPaymentConfirmation
+                          ? "Pending review"
+                          : busyInvoiceId === invoice.id
+                            ? "Preparing..."
+                            : "Pay now"}
+                      </button>
+                    ) : null}
+                    <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
+                      Download invoice
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      disabled={!invoice.hasReceipt}
+                      onClick={() => void download(`/package-billing/invoices/${invoice.id}/receipt`, `${invoice.invoiceNumber}-receipt.pdf`)}
+                    >
+                      Download receipt
+                    </button>
+                    {invoice.hasPendingPaymentConfirmation ? (
+                      <p className="muted package-billing-pending-note">
+                        A manual payment confirmation is outstanding, so links and new requests stay disabled until review completes.
+                      </p>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="package-billing-table-shell">
             <div className="table-scroll">
               <table className="catalog-table package-billing-table">
                 <thead>
@@ -485,7 +682,7 @@ export function SubscriberPackageBillingPage() {
                           <button
                             type="button"
                             className="button button-secondary"
-                            disabled={busyInvoiceId === invoice.id || invoice.hasPendingPaymentConfirmation}
+                            disabled={busyInvoiceId === invoice.id || invoice.hasPendingPaymentConfirmation || !hasBillingAddress}
                             onClick={() => void createPaymentLink(invoice.id)}
                           >
                             {invoice.hasPendingPaymentConfirmation
@@ -495,14 +692,14 @@ export function SubscriberPackageBillingPage() {
                                 : "Pay now"}
                           </button>
                         ) : null}
-                        <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`)}>
+                        <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
                           Download invoice
                         </button>
                         <button
                           type="button"
                           className="button button-secondary"
                           disabled={!invoice.hasReceipt}
-                          onClick={() => void download(`/package-billing/invoices/${invoice.id}/receipt`)}
+                          onClick={() => void download(`/package-billing/invoices/${invoice.id}/receipt`, `${invoice.invoiceNumber}-receipt.pdf`)}
                         >
                           Download receipt
                         </button>
@@ -516,6 +713,7 @@ export function SubscriberPackageBillingPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
             </div>
             <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
           </>

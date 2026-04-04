@@ -4,7 +4,45 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatUploadSizeLabel } from "../lib/uploads";
-import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformUploadPolicy, PlatformWhatsAppSettings } from "../types";
+import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformStripeSettings, PlatformStripeTestResult, PlatformUploadPolicy, PlatformWhatsAppQueueItem, PlatformWhatsAppSettings } from "../types";
+
+const platformJobs = [
+  {
+    key: "generate-invoices",
+    name: "Generate invoices",
+    description: "Queue an immediate billing run for subscriptions that are due now.",
+  },
+  {
+    key: "generate-subscriber-package-invoices",
+    name: "Generate subscriber package invoices",
+    description: "Queue an immediate renewal run for subscriber package billing cycles that are due now.",
+  },
+  {
+    key: "reconcile-subscriber-package-statuses",
+    name: "Reconcile subscriber package statuses",
+    description: "Persist expired subscriber package grace or reactivation states to past due.",
+  },
+  {
+    key: "send-invoice-reminders",
+    name: "Send invoice reminders",
+    description: "Run the reminder flow immediately using the current email and WhatsApp settings.",
+  },
+  {
+    key: "process-whatsapp-queue",
+    name: "Process WhatsApp queue",
+    description: "Drain queued WhatsApp reminder work immediately instead of waiting for the next minutely run.",
+  },
+  {
+    key: "retry-failed-payments",
+    name: "Retry failed payments",
+    description: "Queue the automatic retry pass for failed payment attempts.",
+  },
+  {
+    key: "cleanup-stale-signups",
+    name: "Cleanup stale signups",
+    description: "Remove expired unverified signup records immediately.",
+  },
+] as const;
 
 function formatDocumentNumber(prefix: string, sequence: number, padding: number) {
   const now = new Date();
@@ -27,7 +65,7 @@ function formatDocumentNumber(prefix: string, sequence: number, padding: number)
 
 export function PlatformSettingsPage() {
   const [editingEnvironment, setEditingEnvironment] = useState<"staging" | "production">("staging");
-  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "billplz" | "feedback" | "whatsapp" | "upload">("issuer");
+  const [activeSection, setActiveSection] = useState<"issuer" | "documents" | "smtp" | "payments" | "feedback" | "whatsapp" | "upload" | "jobs" | "reset">("issuer");
   const [runtimeProfile, setRuntimeProfile] = useState<PlatformRuntimeProfile | null>(null);
   const [issuerSettings, setIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
   const [savedIssuerSettings, setSavedIssuerSettings] = useState<PlatformIssuerSettings | null>(null);
@@ -41,8 +79,13 @@ export function PlatformSettingsPage() {
   const [savedSmtpSettings, setSavedSmtpSettings] = useState<PlatformSmtpSettings | null>(null);
   const [billplzSettings, setBillplzSettings] = useState<PlatformBillplzSettings | null>(null);
   const [savedBillplzSettings, setSavedBillplzSettings] = useState<PlatformBillplzSettings | null>(null);
+  const [stripeSettings, setStripeSettings] = useState<PlatformStripeSettings | null>(null);
+  const [savedStripeSettings, setSavedStripeSettings] = useState<PlatformStripeSettings | null>(null);
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
   const [savedUploadPolicy, setSavedUploadPolicy] = useState<PlatformUploadPolicy | null>(null);
+  const [whatsAppQueueItems, setWhatsAppQueueItems] = useState<PlatformWhatsAppQueueItem[]>([]);
+  const [whatsAppQueueFilter, setWhatsAppQueueFilter] = useState<"all" | "pending" | "deferred" | "failed" | "cancelled">("all");
+  const [jobStatuses, setJobStatuses] = useState<PlatformJobStatus[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [smtpTestMessage, setSmtpTestMessage] = useState("");
@@ -51,6 +94,11 @@ export function PlatformSettingsPage() {
   const [billplzTestMessage, setBillplzTestMessage] = useState("");
   const [billplzTestError, setBillplzTestError] = useState("");
   const [isTestingBillplz, setIsTestingBillplz] = useState(false);
+  const [stripeTestMessage, setStripeTestMessage] = useState("");
+  const [stripeTestError, setStripeTestError] = useState("");
+  const [isTestingStripe, setIsTestingStripe] = useState(false);
+  const [runningJobKey, setRunningJobKey] = useState<string | null>(null);
+  const [resetConfirmationText, setResetConfirmationText] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
   const issuerDirty = issuerSettings !== null
@@ -71,6 +119,9 @@ export function PlatformSettingsPage() {
   const billplzDirty = billplzSettings !== null
     && savedBillplzSettings !== null
     && JSON.stringify(billplzSettings) !== JSON.stringify(savedBillplzSettings);
+  const stripeDirty = stripeSettings !== null
+    && savedStripeSettings !== null
+    && JSON.stringify(stripeSettings) !== JSON.stringify(savedStripeSettings);
   const uploadPolicyDirty = uploadPolicy !== null
     && savedUploadPolicy !== null
     && JSON.stringify(uploadPolicy) !== JSON.stringify(savedUploadPolicy);
@@ -80,15 +131,56 @@ export function PlatformSettingsPage() {
   const platformReceiptNumberPreview = documentNumbering
     ? formatDocumentNumber(documentNumbering.receiptPrefix, documentNumbering.receiptNextNumber, documentNumbering.receiptMinimumDigits)
     : "";
+  const activeGatewayProvider = stripeSettings?.useAsActiveProvider ? "stripe" : billplzSettings?.isActiveProvider ? "billplz" : "billplz";
+  const filteredWhatsAppQueueItems = whatsAppQueueItems.filter((item) => {
+    if (whatsAppQueueFilter === "all") {
+      return true;
+    }
+
+    return item.status.toLowerCase() === whatsAppQueueFilter;
+  });
 
   useEffect(() => {
     void load();
   }, [editingEnvironment]);
 
+  useEffect(() => {
+    if (activeSection !== "jobs" && activeSection !== "whatsapp") {
+      return;
+    }
+
+    let isDisposed = false;
+
+    async function refreshJobs() {
+      try {
+        const [jobs, queueItems] = await Promise.all([
+          api.get<PlatformJobStatus[]>("/platform/jobs"),
+          api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
+        ]);
+        if (!isDisposed) {
+          setJobStatuses(jobs);
+          setWhatsAppQueueItems(queueItems);
+        }
+      } catch {
+        // Keep the current screen state if a polling request fails.
+      }
+    }
+
+    void refreshJobs();
+    const intervalId = window.setInterval(() => {
+      void refreshJobs();
+    }, 5000);
+
+    return () => {
+      isDisposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeSection]);
+
   async function load() {
     setError("");
 
-    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, uploadPolicyResult] = await Promise.allSettled([
+    const [runtimeProfileResult, issuerResult, documentNumberingResult, whatsAppResult, feedbackResult, smtpResult, billplzResult, stripeResult, uploadPolicyResult, jobsResult, whatsAppQueueResult] = await Promise.allSettled([
       api.get<PlatformRuntimeProfile>("/settings/platform-runtime-profile"),
       api.get<PlatformIssuerSettings>(`/settings/platform-issuer?environment=${editingEnvironment}`),
       api.get<PlatformDocumentNumberingSettings>("/settings/platform-document-numbering"),
@@ -96,7 +188,10 @@ export function PlatformSettingsPage() {
       api.get<PlatformFeedbackSettings>("/settings/platform-feedback"),
       api.get<PlatformSmtpSettings>(`/settings/platform-smtp?environment=${editingEnvironment}`),
       api.get<PlatformBillplzSettings>(`/settings/platform-billplz?environment=${editingEnvironment}`),
+      api.get<PlatformStripeSettings>(`/settings/platform-stripe?environment=${editingEnvironment}`),
       api.get<PlatformUploadPolicy>("/settings/platform-upload-policy"),
+      api.get<PlatformJobStatus[]>("/platform/jobs"),
+      api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
     ]);
 
     if (runtimeProfileResult.status === "fulfilled") {
@@ -132,9 +227,22 @@ export function PlatformSettingsPage() {
       setSavedBillplzSettings(billplzResult.value);
     }
 
+    if (stripeResult.status === "fulfilled") {
+      setStripeSettings(stripeResult.value);
+      setSavedStripeSettings(stripeResult.value);
+    }
+
     if (uploadPolicyResult.status === "fulfilled") {
       setUploadPolicy(uploadPolicyResult.value);
       setSavedUploadPolicy(uploadPolicyResult.value);
+    }
+
+    if (jobsResult.status === "fulfilled") {
+      setJobStatuses(jobsResult.value);
+    }
+
+    if (whatsAppQueueResult.status === "fulfilled") {
+      setWhatsAppQueueItems(whatsAppQueueResult.value);
     }
 
     const failedSections: string[] = [];
@@ -144,8 +252,10 @@ export function PlatformSettingsPage() {
     if (feedbackResult.status === "rejected") failedSections.push("owner email");
     if (smtpResult.status === "rejected") failedSections.push("SMTP settings");
     if (billplzResult.status === "rejected") failedSections.push("Billplz settings");
+    if (stripeResult.status === "rejected") failedSections.push("Stripe settings");
     if (uploadPolicyResult.status === "rejected") failedSections.push("upload policy");
     if (whatsAppResult.status === "rejected") failedSections.push("WhatsApp settings");
+    if (jobsResult.status === "rejected") failedSections.push("Hangfire jobs");
 
     if (failedSections.length > 0) {
       setError(`Some platform settings could not be loaded: ${failedSections.join(", ")}.`);
@@ -158,6 +268,21 @@ export function PlatformSettingsPage() {
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
       .join(" ");
+  }
+
+  function formatUtcDateTime(value?: string | null) {
+    if (!value) return "Not available";
+
+    const rounded = new Date(value);
+    rounded.setSeconds(0, 0);
+
+    return rounded.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   }
 
   function renderSectionUnavailable(title: string, description: string) {
@@ -179,6 +304,11 @@ export function PlatformSettingsPage() {
   const liveModeLabel = runtimeProfile?.activeEnvironment === "production" ? "Production" : "Staging";
   const editingModeLabel = editingEnvironment === "production" ? "Production settings" : "Staging settings";
 
+  function setActiveGateway(provider: "billplz" | "stripe") {
+    setBillplzSettings((current) => current ? { ...current, isActiveProvider: provider === "billplz" } : current);
+    setStripeSettings((current) => current ? { ...current, useAsActiveProvider: provider === "stripe" } : current);
+  }
+
   return (
     <div className="page">
       <header className="page-header">
@@ -197,16 +327,12 @@ export function PlatformSettingsPage() {
         <aside className="platform-settings-sidebar">
         <section className="card settings-form-card platform-settings-sticky">
           <div className="card-section-header">
-            <div>
-              <p className="eyebrow">Live mode</p>
-              <h3 className="section-title">Which settings are live now?</h3>
-              <p className="muted form-intro">SMTP, Billplz, and billing identity use the live mode below. You can still edit staging and production separately.</p>
-            </div>
+            <p className="eyebrow">Live mode</p>
             <span className={`status-pill ${runtimeProfile.activeEnvironment === "production" ? "status-pill-active" : "status-pill-inactive"}`}>
               {`Currently live: ${liveModeLabel}`}
             </span>
           </div>
-          <HelperText>{`${editingModeLabel} are shown below. Changing the selection reloads the SMTP and Billplz values for that environment.`}</HelperText>
+          <HelperText>Controls which billing identity, SMTP, and payment gateway profile is used at runtime.</HelperText>
           <div className="platform-settings-toggle" role="tablist" aria-label="Live mode">
             <button
               type="button"
@@ -255,24 +381,32 @@ export function PlatformSettingsPage() {
               className={`platform-settings-toggle-option ${editingEnvironment === "staging" ? "platform-settings-toggle-option-active" : ""}`}
               onClick={() => setEditingEnvironment("staging")}
             >
-              Staging settings
+              Staging
             </button>
             <button
               type="button"
               className={`platform-settings-toggle-option ${editingEnvironment === "production" ? "platform-settings-toggle-option-active" : ""}`}
               onClick={() => setEditingEnvironment("production")}
             >
-              Production settings
+              Production
             </button>
           </div>
-          <nav className="platform-settings-nav" aria-label="Platform settings sections">
+          <HelperText>{`${editingModeLabel}. Applies only to billing identity, SMTP, and payment gateway settings.`}</HelperText>
+          <nav className="platform-settings-nav" aria-label="Environment-based platform settings sections">
+            <p className="eyebrow">Environment</p>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "issuer" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("issuer")}>Billing identity</button>
-            <button type="button" className={`platform-settings-nav-link ${activeSection === "documents" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("documents")}>Documents</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "smtp" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("smtp")}>SMTP</button>
-            <button type="button" className={`platform-settings-nav-link ${activeSection === "billplz" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("billplz")}>Billplz</button>
+            <button type="button" className={`platform-settings-nav-link ${activeSection === "payments" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("payments")}>Payment gateway</button>
+            <p className="eyebrow">Shared</p>
+            <button type="button" className={`platform-settings-nav-link ${activeSection === "documents" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("documents")}>Documents</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "feedback" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("feedback")}>Owner email</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "whatsapp" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("whatsapp")}>WhatsApp</button>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "upload" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("upload")}>Upload policy</button>
+            <button type="button" className={`platform-settings-nav-link ${activeSection === "jobs" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("jobs")}>Jobs</button>
+          </nav>
+          <nav className="platform-settings-nav" aria-label="Dangerous platform settings actions">
+            <p className="eyebrow">Danger zone</p>
+            <button type="button" className={`platform-settings-nav-link platform-settings-nav-link-danger ${activeSection === "reset" ? "platform-settings-nav-link-danger-active" : ""}`} onClick={() => setActiveSection("reset")}>Factory reset</button>
           </nav>
         </section>
         </aside>
@@ -676,16 +810,42 @@ export function PlatformSettingsPage() {
       ) : null}
       {activeSection === "smtp" && !smtpSettings ? renderSectionUnavailable("SMTP", "Platform SMTP settings are not available right now.") : null}
 
-      {activeSection === "billplz" && billplzSettings ? (
-        <section id="platform-billplz" className="card settings-form-card">
+      {activeSection === "payments" && billplzSettings && stripeSettings ? (
+        <section id="platform-payments" className="card settings-form-card">
           <div className="card-section-header">
             <div>
               <p className="eyebrow">Payment gateway</p>
-              <h3 className="section-title">{`Billplz settings: ${editingModeLabel}`}</h3>
+              <h3 className="section-title">{`Gateway settings: ${editingModeLabel}`}</h3>
+              <p className="muted form-intro">Choose the active platform gateway for this environment, then manage Billplz and Stripe credentials below.</p>
+            </div>
+            <span className="status-pill status-pill-active">
+              {`Active: ${activeGatewayProvider === "stripe" ? "Stripe" : "Billplz"}`}
+            </span>
+          </div>
+          <div className="platform-payment-control-row">
+            <label className="form-label">
+              Active gateway
+              <select
+                className="text-input"
+                value={activeGatewayProvider}
+                onChange={(event) => setActiveGateway(event.target.value as "billplz" | "stripe")}
+              >
+                <option value="billplz">Billplz</option>
+                <option value="stripe">Stripe</option>
+              </select>
+            </label>
+            <HelperText>The system uses only one platform gateway per environment. This selector controls what staging or production will use at runtime.</HelperText>
+          </div>
+          <div className="platform-payment-grid">
+            <section id="platform-billplz" className="card subtle-card settings-form-card platform-payment-provider-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Payment gateway</p>
+              <h3 className="section-title">Billplz</h3>
               <p className="muted form-intro">These settings are used when generating Billplz payment links and verifying Billplz webhooks.</p>
             </div>
-            <span className={`status-pill ${billplzSettings.isReady ? "status-pill-active" : "status-pill-inactive"}`}>
-              {billplzSettings.isReady ? "Ready" : "Incomplete"}
+            <span className={`status-pill ${activeGatewayProvider === "billplz" ? "status-pill-active" : billplzSettings.isReady ? "status-pill-active" : "status-pill-inactive"}`}>
+              {activeGatewayProvider === "billplz" ? "Active" : billplzSettings.isReady ? "Available" : "Incomplete"}
             </span>
           </div>
           <div className="form-stack">
@@ -733,6 +893,7 @@ export function PlatformSettingsPage() {
                       xSignatureKey: billplzSettings.xSignatureKey,
                       baseUrl: billplzSettings.baseUrl,
                       requireSignatureVerification: billplzSettings.requireSignatureVerification,
+                      useAsActiveProvider: activeGatewayProvider === "billplz",
                     });
                     setBillplzTestMessage(result.message);
                     setError("");
@@ -764,9 +925,13 @@ export function PlatformSettingsPage() {
                         xSignatureKey: billplzSettings.xSignatureKey,
                         baseUrl: billplzSettings.baseUrl,
                         requireSignatureVerification: billplzSettings.requireSignatureVerification,
+                        useAsActiveProvider: activeGatewayProvider === "billplz",
                       });
                       setBillplzSettings(updated);
                       setSavedBillplzSettings(updated);
+                      if (activeGatewayProvider === "billplz") {
+                        setStripeSettings((current) => current ? { ...current, useAsActiveProvider: false } : current);
+                      }
                       setMessage(`Platform Billplz settings saved for ${editingEnvironment}.`);
                       setError("");
                       setConfirmState(null);
@@ -785,8 +950,110 @@ export function PlatformSettingsPage() {
             {billplzTestError ? <HelperText tone="error">{billplzTestError}</HelperText> : null}
           </div>
         </section>
+
+        <section id="platform-stripe" className="card subtle-card settings-form-card platform-payment-provider-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Payment gateway</p>
+              <h3 className="section-title">Stripe</h3>
+              <p className="muted form-intro">These settings are used when generating Stripe Checkout sessions and verifying Stripe webhooks.</p>
+            </div>
+            <span className={`status-pill ${activeGatewayProvider === "stripe" ? "status-pill-active" : stripeSettings.isReady ? "status-pill-active" : "status-pill-inactive"}`}>
+              {activeGatewayProvider === "stripe" ? "Active" : stripeSettings.isReady ? "Available" : "Incomplete"}
+            </span>
+          </div>
+          <div className="form-stack">
+            <div className="inline-fields settings-inline-fields-wide">
+              <label className="form-label">
+                Publishable key
+                <input className="text-input" value={stripeSettings.publishableKey ?? ""} onChange={(event) => setStripeSettings((current) => current ? { ...current, publishableKey: event.target.value } : current)} placeholder="pk_test_..." />
+              </label>
+              <label className="form-label">
+                Secret key
+                <input className="text-input" type="password" value={stripeSettings.secretKey ?? ""} onChange={(event) => setStripeSettings((current) => current ? { ...current, secretKey: event.target.value } : current)} placeholder="sk_test_..." />
+              </label>
+            </div>
+            <label className="form-label">
+              Webhook secret
+              <input className="text-input" type="password" value={stripeSettings.webhookSecret ?? ""} onChange={(event) => setStripeSettings((current) => current ? { ...current, webhookSecret: event.target.value } : current)} placeholder="whsec_..." />
+            </label>
+            <HelperText>Stripe requires the matching webhook secret for the current environment. Point your Stripe webhook to <code>/api/webhooks/stripe</code>.</HelperText>
+            <div className="button-stack">
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={!stripeSettings.secretKey?.trim()}
+                onClick={async () => {
+                  if (!stripeSettings) return;
+
+                  try {
+                    setIsTestingStripe(true);
+                    setStripeTestError("");
+                    setStripeTestMessage("");
+                    const result = await api.post<PlatformStripeTestResult>("/settings/platform-stripe/test", {
+                      environment: editingEnvironment,
+                      publishableKey: stripeSettings.publishableKey,
+                      secretKey: stripeSettings.secretKey,
+                      webhookSecret: stripeSettings.webhookSecret,
+                      useAsActiveProvider: activeGatewayProvider === "stripe",
+                    });
+                    setStripeTestMessage(result.message);
+                    setError("");
+                  } catch (testError) {
+                    setStripeTestError(testError instanceof Error ? testError.message : "Unable to test Stripe connection.");
+                    setMessage("");
+                  } finally {
+                    setIsTestingStripe(false);
+                  }
+                }}
+              >
+                {isTestingStripe ? "Testing..." : "Test Stripe connection"}
+              </button>
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={!stripeDirty}
+                onClick={() => setConfirmState({
+                  title: "Save Stripe settings",
+                  description: "Save the platform Stripe configuration used for checkout and webhooks?",
+                  action: async () => {
+                    if (!stripeSettings) return;
+
+                    try {
+                      const updated = await api.put<PlatformStripeSettings>("/settings/platform-stripe", {
+                        environment: editingEnvironment,
+                        publishableKey: stripeSettings.publishableKey,
+                        secretKey: stripeSettings.secretKey,
+                        webhookSecret: stripeSettings.webhookSecret,
+                        useAsActiveProvider: activeGatewayProvider === "stripe",
+                      });
+                      setStripeSettings(updated);
+                      setSavedStripeSettings(updated);
+                      if (activeGatewayProvider === "stripe") {
+                        setBillplzSettings((current) => current ? { ...current, isActiveProvider: false } : current);
+                      }
+                      setMessage(`Platform Stripe settings saved for ${editingEnvironment}.`);
+                      setError("");
+                      setConfirmState(null);
+                    } catch (saveError) {
+                      setError(saveError instanceof Error ? saveError.message : "Unable to save Stripe settings.");
+                      setMessage("");
+                      setConfirmState(null);
+                    }
+                  },
+                })}
+              >
+                Save Stripe settings
+              </button>
+            </div>
+            {stripeTestMessage ? <HelperText>{stripeTestMessage}</HelperText> : null}
+            {stripeTestError ? <HelperText tone="error">{stripeTestError}</HelperText> : null}
+          </div>
+        </section>
+          </div>
+        </section>
       ) : null}
-      {activeSection === "billplz" && !billplzSettings ? renderSectionUnavailable("Billplz", "Platform Billplz settings are not available right now.") : null}
+      {activeSection === "payments" && (!billplzSettings || !stripeSettings) ? renderSectionUnavailable("Payment gateway", "Platform payment gateway settings are not available right now.") : null}
 
       {activeSection === "upload" && uploadPolicy ? (
         <section id="platform-upload-policy" className="card settings-form-card">
@@ -896,6 +1163,32 @@ export function PlatformSettingsPage() {
                 </div>
               </div>
             </div>
+            <div className="inline-fields settings-inline-fields-wide">
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Queued</strong>
+                  <p className="muted">{whatsAppSettings.pendingQueueCount}</p>
+                </div>
+              </div>
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Deferred</strong>
+                  <p className="muted">{whatsAppSettings.deferredQueueCount}</p>
+                </div>
+              </div>
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Failed</strong>
+                  <p className="muted">{whatsAppSettings.failedQueueCount}</p>
+                </div>
+              </div>
+              <div className="dashboard-list-item">
+                <div>
+                  <strong>Next queued send</strong>
+                  <p className="muted">{formatUtcDateTime(whatsAppSettings.nextQueueAttemptAtUtc)}</p>
+                </div>
+              </div>
+            </div>
             {whatsAppSettings.provider === "generic_api" ? (
               <>
                 <div className="inline-fields settings-inline-fields-wide">
@@ -926,6 +1219,32 @@ export function PlatformSettingsPage() {
                 </div>
               </div>
             )}
+            <div className="inline-fields settings-inline-fields-wide">
+              <label className="form-label">
+                Send window start hour (UTC)
+                <input
+                  className="text-input"
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={whatsAppSettings.sendWindowStartHourUtc}
+                  onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, sendWindowStartHourUtc: Number(event.target.value) } : current)}
+                />
+              </label>
+              <label className="form-label">
+                Send window end hour (UTC)
+                <input
+                  className="text-input"
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={whatsAppSettings.sendWindowEndHourUtc}
+                  onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, sendWindowEndHourUtc: Number(event.target.value) } : current)}
+                />
+              </label>
+            </div>
+            <HelperText>Queued WhatsApp sends are processed by a minutely job, so next-send times are shown to the nearest minute rather than exact seconds.</HelperText>
+            <HelperText>Queued WhatsApp sends are only dispatched inside this UTC hour window. Use matching UTC hours for your operating timezone.</HelperText>
             <label className="form-label">
               Template name
               <input className="text-input" value={whatsAppSettings.template ?? ""} onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, template: event.target.value } : current)} placeholder="payment-reminder" />
@@ -933,6 +1252,114 @@ export function PlatformSettingsPage() {
             {whatsAppSettings.provider === "whatsapp_web_js" ? (
               <HelperText>{`Current session status: ${formatSessionStatus(whatsAppSettings.sessionStatus)}${whatsAppSettings.sessionPhone ? ` | ${whatsAppSettings.sessionPhone}` : ""}`}</HelperText>
             ) : null}
+            <div className="platform-queue-table-shell">
+              <div className="platform-queue-table-header">
+                <strong>Recent queued WhatsApp work</strong>
+                <span className="muted">Newest 100 queue items</span>
+              </div>
+              <div className="platform-queue-filters">
+                {(["all", "pending", "deferred", "failed", "cancelled"] as const).map((filterKey) => (
+                  <button
+                    key={filterKey}
+                    type="button"
+                    className={`platform-queue-filter ${whatsAppQueueFilter === filterKey ? "platform-queue-filter-active" : ""}`}
+                    onClick={() => setWhatsAppQueueFilter(filterKey)}
+                  >
+                    {filterKey === "all" ? "All" : filterKey.charAt(0).toUpperCase() + filterKey.slice(1)}
+                  </button>
+                ))}
+              </div>
+              {filteredWhatsAppQueueItems.length === 0 ? (
+                <p className="muted">No WhatsApp queue items yet.</p>
+              ) : (
+                <div className="platform-queue-table">
+                  <div className="platform-queue-row platform-queue-row-head">
+                    <span>Status</span>
+                    <span>Company</span>
+                    <span>Invoice</span>
+                    <span>Customer</span>
+                    <span>Attempts</span>
+                    <span>Next attempt</span>
+                    <span>Actions</span>
+                  </div>
+                  {filteredWhatsAppQueueItems.map((item) => (
+                    <div key={item.id} className="platform-queue-row">
+                      <span>{item.status}</span>
+                      <span>{item.companyName}</span>
+                      <span>{item.invoiceNumber}</span>
+                      <span>{item.customerName}</span>
+                      <span>{item.attemptCount}</span>
+                      <span>{formatUtcDateTime(item.nextAttemptAtUtc)}</span>
+                      <span className="platform-queue-actions">
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          disabled={item.status.toLowerCase() === "sent"}
+                          onClick={() => setConfirmState({
+                            title: "Retry WhatsApp queue item",
+                            description: `Requeue WhatsApp delivery for invoice ${item.invoiceNumber}?`,
+                            action: async () => {
+                              try {
+                                await api.post<PlatformWhatsAppQueueItem>(`/platform/whatsapp-queue/${item.id}/retry`, {});
+                                const [queueItems, updatedWhatsAppSettings] = await Promise.all([
+                                  api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
+                                  api.get<PlatformWhatsAppSettings>("/settings/platform-whatsapp"),
+                                ]);
+                                setWhatsAppQueueItems(queueItems);
+                                setWhatsAppSettings(updatedWhatsAppSettings);
+                                setSavedWhatsAppSettings(updatedWhatsAppSettings);
+                                setMessage(`WhatsApp queue item for ${item.invoiceNumber} requeued.`);
+                                setError("");
+                                setConfirmState(null);
+                              } catch (actionError) {
+                                const nextError = actionError instanceof Error ? actionError.message : "Unable to retry WhatsApp queue item.";
+                                setError(nextError);
+                                setMessage("");
+                                throw new Error(nextError);
+                              }
+                            },
+                          })}
+                        >
+                          Retry
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-ghost"
+                          disabled={item.status.toLowerCase() === "sent" || item.status.toLowerCase() === "cancelled"}
+                          onClick={() => setConfirmState({
+                            title: "Cancel WhatsApp queue item",
+                            description: `Cancel queued WhatsApp delivery for invoice ${item.invoiceNumber}?`,
+                            action: async () => {
+                              try {
+                                await api.post<PlatformWhatsAppQueueItem>(`/platform/whatsapp-queue/${item.id}/cancel`, {});
+                                const [queueItems, updatedWhatsAppSettings] = await Promise.all([
+                                  api.get<PlatformWhatsAppQueueItem[]>("/platform/whatsapp-queue"),
+                                  api.get<PlatformWhatsAppSettings>("/settings/platform-whatsapp"),
+                                ]);
+                                setWhatsAppQueueItems(queueItems);
+                                setWhatsAppSettings(updatedWhatsAppSettings);
+                                setSavedWhatsAppSettings(updatedWhatsAppSettings);
+                                setMessage(`WhatsApp queue item for ${item.invoiceNumber} cancelled.`);
+                                setError("");
+                                setConfirmState(null);
+                              } catch (actionError) {
+                                const nextError = actionError instanceof Error ? actionError.message : "Unable to cancel WhatsApp queue item.";
+                                setError(nextError);
+                                setMessage("");
+                                throw new Error(nextError);
+                              }
+                            },
+                          })}
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                      {item.errorMessage ? <span className="platform-queue-error">{item.errorMessage}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="button button-primary"
@@ -951,6 +1378,8 @@ export function PlatformSettingsPage() {
                       accessToken: whatsAppSettings.accessToken,
                       senderId: whatsAppSettings.senderId,
                       template: whatsAppSettings.template,
+                      sendWindowStartHourUtc: whatsAppSettings.sendWindowStartHourUtc,
+                      sendWindowEndHourUtc: whatsAppSettings.sendWindowEndHourUtc,
                     });
                     setSavedWhatsAppSettings(updated);
                     setWhatsAppSettings(updated);
@@ -958,9 +1387,10 @@ export function PlatformSettingsPage() {
                     setError("");
                     setConfirmState(null);
                   } catch (saveError) {
-                    setError(saveError instanceof Error ? saveError.message : "Unable to save platform WhatsApp settings.");
+                    const nextError = saveError instanceof Error ? saveError.message : "Unable to save platform WhatsApp settings.";
+                    setError(nextError);
                     setMessage("");
-                    setConfirmState(null);
+                    throw new Error(nextError);
                   }
                 },
               })}
@@ -971,6 +1401,166 @@ export function PlatformSettingsPage() {
         </section>
       ) : null}
       {activeSection === "whatsapp" && !whatsAppSettings ? renderSectionUnavailable("WhatsApp", "Platform WhatsApp settings are not available right now.") : null}
+
+      {activeSection === "jobs" ? (
+        <section id="platform-jobs" className="card settings-form-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Hangfire operations</p>
+              <h3 className="section-title">Manual platform jobs</h3>
+              <p className="muted form-intro">Use these owner controls to enqueue Hangfire jobs manually. The UI calls the API, and the Hangfire worker on Linux executes the job from shared storage.</p>
+            </div>
+            <span className="status-pill status-pill-active">Linux-safe</span>
+          </div>
+          <div className="form-stack">
+            {platformJobs.map((job) => {
+              const jobStatus = jobStatuses.find((item) => item.jobKey === job.key);
+              const stateLabel = formatSessionStatus(jobStatus?.lastJobState ?? "never_run");
+
+              return (
+              <div key={job.key} className="platform-job-card">
+                <div className="platform-job-copy">
+                  <div className="platform-job-header">
+                    <strong>{job.name}</strong>
+                    <span className={`status-pill ${jobStatus?.lastJobState?.toLowerCase() === "succeeded" ? "status-pill-active" : "status-pill-inactive"}`}>
+                      {stateLabel}
+                    </span>
+                  </div>
+                  <p className="muted">{job.description}</p>
+                  <div className="platform-job-meta">
+                    <div className="platform-job-meta-item">
+                      <span>Next run</span>
+                      <strong>{formatUtcDateTime(jobStatus?.nextExecutionAtUtc)}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Last scheduled run</span>
+                      <strong>{formatUtcDateTime(jobStatus?.lastExecutionAtUtc)}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Last manual trigger</span>
+                      <strong>{formatUtcDateTime(jobStatus?.lastManualTriggerAtUtc)}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Cron</span>
+                      <strong>{jobStatus?.cron ?? "-"}</strong>
+                    </div>
+                    <div className="platform-job-meta-item">
+                      <span>Queue</span>
+                      <strong>{jobStatus?.queue ?? "default"}</strong>
+                    </div>
+                  </div>
+                  {jobStatus?.lastJobId ? (
+                    <p className="platform-job-caption muted">
+                      {`Last Hangfire job: ${jobStatus.lastJobId} | Created ${formatUtcDateTime(jobStatus.lastJobCreatedAtUtc)}`}
+                    </p>
+                  ) : null}
+                  {jobStatus?.lastManualTriggerJobId ? (
+                    <p className="platform-job-caption muted">
+                      {`Last manual Hangfire job: ${jobStatus.lastManualTriggerJobId}`}
+                    </p>
+                  ) : null}
+                  {jobStatus?.error ? (
+                    <HelperText tone="error">{jobStatus.error}</HelperText>
+                  ) : null}
+                  {jobStatus && jobStatus.recentHistory.length > 0 ? (
+                    <div className="platform-job-history">
+                      {jobStatus.recentHistory.map((entry) => (
+                        <div key={`${job.key}-${entry.stateName}-${entry.createdAtUtc}`} className="platform-job-history-item">
+                          <strong>{formatSessionStatus(entry.stateName)}</strong>
+                          <span>{formatUtcDateTime(entry.createdAtUtc)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="platform-job-caption muted">No execution history yet.</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="button button-secondary platform-job-action"
+                  disabled={runningJobKey === job.key}
+                  onClick={() => setConfirmState({
+                    title: `Run ${job.name.toLowerCase()}`,
+                    description: `Queue ${job.name.toLowerCase()} in Hangfire now?`,
+                    action: async () => {
+                      try {
+                        setRunningJobKey(job.key);
+                        const result = await api.post<PlatformJobTriggerResult>(`/platform/jobs/${job.key}/trigger`);
+                        const updatedStatuses = await api.get<PlatformJobStatus[]>("/platform/jobs");
+                        setJobStatuses(updatedStatuses);
+                        setMessage(`${result.message} Hangfire job id: ${result.hangfireJobId}.`);
+                        setError("");
+                        setConfirmState(null);
+                      } catch (triggerError) {
+                        setError(triggerError instanceof Error ? triggerError.message : `Unable to queue ${job.name.toLowerCase()}.`);
+                        setMessage("");
+                        setConfirmState(null);
+                      } finally {
+                        setRunningJobKey(null);
+                      }
+                    },
+                  })}
+                >
+                  {runningJobKey === job.key ? "Queueing..." : "Run now"}
+                </button>
+              </div>
+            )})}
+            <HelperText>These buttons enqueue jobs immediately. Monitor execution at <code>/hangfire</code> on the API host.</HelperText>
+          </div>
+        </section>
+      ) : null}
+
+      {activeSection === "reset" ? (
+        <section id="platform-factory-reset" className="card settings-form-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Danger zone</p>
+              <h3 className="section-title">Factory reset and seed demo data</h3>
+              <p className="muted form-intro">This permanently wipes current database data, recreates schema, and seeds demo accounts/content again.</p>
+            </div>
+            <span className="status-pill status-pill-inactive">Destructive</span>
+          </div>
+          <div className="form-stack">
+            <HelperText tone="error">All subscriber records, invoices, payments, users, and settings in this environment will be replaced by seeded data.</HelperText>
+            <HelperText>After reset, sign in again with the seeded owner account (`owner@recurvo.com`).</HelperText>
+            <label className="form-label">
+              Type <code>FACTORY RESET</code> to enable
+              <input
+                className="text-input"
+                value={resetConfirmationText}
+                onChange={(event) => setResetConfirmationText(event.target.value)}
+                placeholder="FACTORY RESET"
+              />
+            </label>
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={resetConfirmationText.trim() !== "FACTORY RESET"}
+              onClick={() => setConfirmState({
+                title: "Factory reset platform database",
+                description: "This will permanently delete current data and re-seed demo data. Continue?",
+                action: async () => {
+                  try {
+                    const result = await api.post<{ resetAtUtc: string; message: string }>("/platform/factory-reset", {
+                      confirmationText: resetConfirmationText.trim(),
+                    });
+                    setMessage(`${result.message} (${new Date(result.resetAtUtc).toLocaleString()})`);
+                    setError("");
+                    setResetConfirmationText("");
+                    setConfirmState(null);
+                  } catch (saveError) {
+                    setError(saveError instanceof Error ? saveError.message : "Unable to run factory reset.");
+                    setMessage("");
+                    setConfirmState(null);
+                  }
+                },
+              })}
+            >
+              Run factory reset
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       </div>
       </div>

@@ -48,6 +48,24 @@ public sealed class SubscriberPackageBillingController(ISubscriberPackageBilling
         }
     }
 
+    [HttpPost("upgrade/cancel")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<SubscriberPackageBillingSummaryDto>> CancelUpgrade(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await billingService.CancelPendingUpgradeAsync(cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+        catch (Exception exception)
+        {
+            return Problem(statusCode: StatusCodes.Status500InternalServerError, title: exception.Message);
+        }
+    }
+
     [HttpPost("reactivation-preview")]
     public async Task<ActionResult<SubscriberPackageReactivationPreviewDto>> PreviewReactivation([FromBody] SubscriberPackageUpgradeRequest request, CancellationToken cancellationToken)
     {

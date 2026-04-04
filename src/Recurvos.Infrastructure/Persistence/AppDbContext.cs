@@ -40,6 +40,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<DunningRule> DunningRules => Set<DunningRule>();
     public DbSet<ReminderSchedule> ReminderSchedules => Set<ReminderSchedule>();
     public DbSet<WhatsAppNotification> WhatsAppNotifications => Set<WhatsAppNotification>();
+    public DbSet<WhatsAppOutboundQueue> WhatsAppOutboundQueues => Set<WhatsAppOutboundQueue>();
     public DbSet<FeedbackItem> FeedbackItems => Set<FeedbackItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -87,6 +88,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .WithMany(x => x.EmailVerificationTokens)
             .HasForeignKey(x => x.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.NotificationType)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.InvoiceNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.CustomerName)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<EmailDispatchLog>()
+            .Property(x => x.Status)
+            .HasMaxLength(30)
+            .IsRequired();
 
         modelBuilder.Entity<EmailDispatchLog>()
             .Property(x => x.OriginalRecipient)
@@ -177,6 +195,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .IsRequired();
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.CreditNotePrefix)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.BankName)
             .HasMaxLength(100);
 
@@ -201,6 +224,22 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(40)
             .HasDefaultValue("none");
 
+        modelBuilder.Entity<Payment>()
+            .Property(x => x.ReceiptEmailedAtUtc);
+
+        modelBuilder.Entity<CreditNote>()
+            .Property(x => x.CreditNoteNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<CreditNote>()
+            .Property(x => x.PdfPath)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<CreditNote>()
+            .HasIndex(x => new { x.CompanyId, x.CreditNoteNumber })
+            .IsUnique();
+
         modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.SubscriberBillplzApiKey)
             .HasMaxLength(200);
@@ -218,6 +257,16 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(200);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.PlatformPaymentGatewayProvider)
+            .HasMaxLength(40)
+            .HasDefaultValue("billplz");
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionPlatformPaymentGatewayProvider)
+            .HasMaxLength(40)
+            .HasDefaultValue("billplz");
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.TaxName)
             .HasMaxLength(50)
             .HasDefaultValue("SST");
@@ -231,8 +280,75 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(500);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.WhatsAppSendWindowStartHourUtc)
+            .HasDefaultValue(9);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.WhatsAppSendWindowEndHourUtc)
+            .HasDefaultValue(18);
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .Property(x => x.RecipientPhoneNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .Property(x => x.Template)
+            .HasMaxLength(2000);
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .Property(x => x.Reference)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .Property(x => x.Status)
+            .HasMaxLength(40)
+            .IsRequired();
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .Property(x => x.ExternalMessageId)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .Property(x => x.ErrorMessage)
+            .HasMaxLength(1000);
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .HasIndex(x => x.InvoiceId);
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .HasIndex(x => x.ReminderScheduleId);
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .HasIndex(x => new { x.CompanyId, x.Status, x.NextAttemptAtUtc });
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .HasIndex(x => new { x.CompanyId, x.Status, x.NotBeforeUtc });
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .HasOne(x => x.Invoice)
+            .WithMany()
+            .HasForeignKey(x => x.InvoiceId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<WhatsAppOutboundQueue>()
+            .HasOne(x => x.ReminderSchedule)
+            .WithMany()
+            .HasForeignKey(x => x.ReminderScheduleId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.PaymentQrResponsibilityStatement)
+            .HasMaxLength(1000);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.AutoSendInvoices)
             .HasDefaultValue(false);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.CcSubscriberOnCustomerEmails)
+            .HasDefaultValue(true);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.AutoCompressUploads)
@@ -356,6 +472,30 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
             .Property(x => x.ProductionBillplzBaseUrl)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.StripePublishableKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.StripeSecretKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.StripeWebhookSecret)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionStripePublishableKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionStripeSecretKey)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<CompanyInvoiceSettings>()
+            .Property(x => x.ProductionStripeWebhookSecret)
             .HasMaxLength(200);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
@@ -488,11 +628,28 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .IsUnique();
 
         modelBuilder.Entity<ReminderSchedule>()
-            .HasIndex(x => new { x.CompanyId, x.InvoiceId, x.DunningRuleId })
+            .Property(x => x.ReminderName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<ReminderSchedule>()
+            .HasIndex(x => new { x.CompanyId, x.InvoiceId, x.OffsetDays })
             .IsUnique();
+
+        modelBuilder.Entity<ReminderSchedule>()
+            .HasOne(x => x.DunningRule)
+            .WithMany()
+            .HasForeignKey(x => x.DunningRuleId)
+            .OnDelete(DeleteBehavior.SetNull);
 
         modelBuilder.Entity<WhatsAppNotification>()
             .HasIndex(x => new { x.CompanyId, x.CreatedAtUtc });
+
+        modelBuilder.Entity<WhatsAppNotification>()
+            .HasIndex(x => x.InvoiceId);
+
+        modelBuilder.Entity<WhatsAppNotification>()
+            .HasIndex(x => x.ReminderScheduleId);
 
         modelBuilder.Entity<WhatsAppNotification>()
             .Property(x => x.RecipientPhoneNumber)
@@ -631,6 +788,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<LedgerPosting>().Property(x => x.DebitAmount).HasPrecision(18, 2);
         modelBuilder.Entity<LedgerPosting>().Property(x => x.CreditAmount).HasPrecision(18, 2);
         modelBuilder.Entity<PlatformPackage>().Property(x => x.Amount).HasPrecision(18, 2);
+        modelBuilder.Entity<Subscription>().Property(x => x.CancellationReason).HasMaxLength(1000);
         modelBuilder.Entity<SubscriptionItem>().Property(x => x.UnitAmount).HasPrecision(18, 2);
         modelBuilder.Entity<SubscriptionItem>().Property(x => x.Currency).HasMaxLength(3).IsRequired();
         modelBuilder.Entity<SubscriptionItem>().Property(x => x.BillingType).HasConversion<string>().HasMaxLength(20).IsRequired();
