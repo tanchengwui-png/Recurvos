@@ -12,14 +12,14 @@ namespace Recurvos.Api.Controllers;
 public sealed class PublicPaymentsController(IPaymentService paymentService) : ControllerBase
 {
     [HttpGet("status")]
-    public async Task<ActionResult<PublicPaymentStatusDto>> GetStatus([FromQuery] string? externalPaymentId, [FromQuery] Guid? invoiceId, CancellationToken cancellationToken)
+    public async Task<ActionResult<PublicPaymentStatusDto>> GetStatus([FromQuery] string? externalPaymentId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(externalPaymentId) && !invoiceId.HasValue)
+        if (string.IsNullOrWhiteSpace(externalPaymentId))
         {
-            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Payment lookup requires a payment id or invoice id.");
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Payment lookup requires a payment id.");
         }
 
-        var status = await paymentService.GetPublicStatusAsync(externalPaymentId, invoiceId, cancellationToken);
+        var status = await paymentService.GetPublicStatusAsync(externalPaymentId, cancellationToken);
         return status is null ? NotFound() : Ok(status);
     }
 }

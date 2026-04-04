@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { fetchProductPlans } from "../hooks/useProductPlans";
 import { fetchProducts } from "../hooks/useProducts";
 import { api } from "../lib/api";
-import type { CompanyLookup, FeatureAccess } from "../types";
+import type { BillingReadiness, CompanyLookup, FeatureAccess } from "../types";
 
 const setupSteps = [
   {
@@ -70,38 +70,53 @@ const reminders = [
   "If you bill monthly, create the plan first before creating subscriptions.",
 ];
 
+type SprintMilestone = {
+  key: string;
+  title: string;
+  detail: string;
+  done: boolean;
+  href: string;
+  actionLabel: string;
+};
+
 export function QuickStartPage() {
   const [loading, setLoading] = useState(true);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
+  const [billingReadiness, setBillingReadiness] = useState<BillingReadiness | null>(null);
   const [setupCounts, setSetupCounts] = useState({
     products: 0,
     plans: 0,
     customers: 0,
     subscriptions: 0,
     invoices: 0,
+    payments: 0,
   });
 
   useEffect(() => {
     void (async () => {
       const companyList = await api.get<CompanyLookup[]>("/companies");
       const access = await api.get<FeatureAccess>("/settings/feature-access");
-      const [products, plans, customers, subscriptions, invoices] = await Promise.all([
+      const [products, plans, customers, subscriptions, invoices, payments, readiness] = await Promise.all([
         fetchProducts({ search: "", isActive: "all", page: 1, pageSize: 1 }),
         fetchProductPlans({ billingType: "all", isActive: "all", page: 1, pageSize: 1 }),
         access.featureKeys.includes("customer_management") ? api.get<unknown[]>("/customers") : Promise.resolve([]),
         access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/subscriptions") : Promise.resolve([]),
         access.featureKeys.includes("manual_invoices") || access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/invoices") : Promise.resolve([]),
+        access.featureKeys.includes("payment_tracking") ? api.get<unknown[]>("/payments") : Promise.resolve([]),
+        companyList[0]?.id ? api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyList[0].id}`) : Promise.resolve(null),
       ]);
 
       setCompanies(companyList);
       setFeatureAccess(access);
+      setBillingReadiness(readiness);
       setSetupCounts({
         products: products.totalCount,
         plans: plans.totalCount,
         customers: customers.length,
         subscriptions: subscriptions.length,
         invoices: invoices.length,
+        payments: payments.length,
       });
       setLoading(false);
     })();
@@ -138,16 +153,105 @@ export function QuickStartPage() {
   const allDone = stepsWithState.length > 0 && completedSteps === stepsWithState.length;
   const heroActionHref = allDone ? "/" : currentStep.actionHref;
   const heroActionLabel = allDone ? "Open dashboard" : currentStep.actionLabel;
+  const launchBlockers = useMemo(() => {
+    const blockers = (billingReadiness?.items ?? [])
+      .filter((item) => item.required && !item.done)
+      .map((item) => ({
+        key: item.key,
+        title: item.title,
+        description: item.description,
+        href: item.actionPath,
+        actionLabel: "Fix now",
+      }));
+
+    if (!(featureAccess?.featureKeys.includes("customer_management") ?? false)) {
+      blockers.push({
+        key: "feature-customer-management",
+        title: "Customer records are locked on your current package",
+        description: "Add the package that includes customer management before you start your billing workflow.",
+        href: "/package-billing",
+        actionLabel: "Review package",
+      });
+    }
+
+    if (!((featureAccess?.featureKeys.includes("manual_invoices") ?? false) || (featureAccess?.featureKeys.includes("recurring_invoices") ?? false))) {
+      blockers.push({
+        key: "feature-billing",
+        title: "Billing actions are locked on your current package",
+        description: "You need invoice or recurring billing access before you can charge customers.",
+        href: "/package-billing",
+        actionLabel: "Review package",
+      });
+    }
+
+    return blockers;
+  }, [billingReadiness?.items, featureAccess?.featureKeys]);
+  const sprintMilestones = useMemo<SprintMilestone[]>(() => {
+    const readinessItems = billingReadiness?.items ?? [];
+    const requiredReady = readinessItems.filter((item) => item.required).every((item) => item.done);
+    const paymentCollectionReady = (featureAccess?.featureKeys.includes("payment_tracking") ?? false)
+      || (featureAccess?.featureKeys.includes("payment_link_generation") ?? false)
+      || setupCounts.payments > 0;
+
+    return [
+      {
+        key: "issuer-ready",
+        title: "Issuer profile ready",
+        detail: requiredReady ? "Your company profile can legally issue invoices." : "Complete company identity, address, and numbering before sending invoices.",
+        done: requiredReady,
+        href: "/settings",
+        actionLabel: requiredReady ? "Review settings" : "Finish billing setup",
+      },
+      {
+        key: "catalog-ready",
+        title: "What you sell is defined",
+        detail: setupCounts.products > 0 && setupCounts.plans > 0
+          ? "You already have products and plans ready to bill."
+          : "Create at least one product and one plan so you can quote a real amount fast.",
+        done: setupCounts.products > 0 && setupCounts.plans > 0,
+        href: setupCounts.products > 0 ? "/plans" : "/products",
+        actionLabel: setupCounts.products > 0 ? "Create a plan" : "Create a product",
+      },
+      {
+        key: "customer-ready",
+        title: "A billable customer exists",
+        detail: setupCounts.customers > 0
+          ? "You have at least one customer ready for invoicing."
+          : "Add the customer you want to charge first so you can move straight into billing.",
+        done: setupCounts.customers > 0,
+        href: "/customers",
+        actionLabel: setupCounts.customers > 0 ? "Review customers" : "Add first customer",
+      },
+      {
+        key: "collect-first-payment",
+        title: "Collect the first payment",
+        detail: setupCounts.invoices > 0 || setupCounts.subscriptions > 0
+          ? paymentCollectionReady
+            ? "Your first billing flow is live. Send the invoice, payment link, or track the incoming payment."
+            : "Your first invoice exists. Next, enable payment collection or record the payment when it arrives."
+          : "Create your first invoice or subscription so your customer has something to pay.",
+        done: setupCounts.invoices > 0 || setupCounts.subscriptions > 0,
+        href: setupCounts.invoices > 0 || setupCounts.subscriptions > 0
+          ? (paymentCollectionReady ? "/payments" : "/settings")
+          : "/invoices",
+        actionLabel: setupCounts.invoices > 0 || setupCounts.subscriptions > 0
+          ? (paymentCollectionReady ? "Open payments" : "Set payment method")
+          : "Create first invoice",
+      },
+    ];
+  }, [billingReadiness?.items, featureAccess?.featureKeys, setupCounts.customers, setupCounts.invoices, setupCounts.payments, setupCounts.plans, setupCounts.products, setupCounts.subscriptions]);
+  const sprintCompleted = sprintMilestones.filter((item) => item.done).length;
+  const nextMilestone = sprintMilestones.find((item) => !item.done) ?? sprintMilestones[sprintMilestones.length - 1];
   const featuredTitle = loading
     ? "Checking your setup..."
     : allDone
       ? "Your core setup is ready"
-      : currentStep.title;
+      : nextMilestone.title;
   const featuredDescription = loading
     ? "Loading your current progress."
     : allDone
       ? "Your company, products, plans, customers, and first billing flow are already in place. You can now improve branding, reminders, and payment tracking."
-      : currentStep.description;
+      : nextMilestone.detail;
 
   return (
     <div className="page">
@@ -161,27 +265,78 @@ export function QuickStartPage() {
 
       <section className="card quickstart-hero">
         <div className="quickstart-hero-copy">
-          <p className="eyebrow">Recommended Order</p>
-          <h3>Set up billing in 5 steps</h3>
-          <p className="muted">Focus on the essentials first. Everything else can wait until after your first invoice or subscription is ready.</p>
+          <p className="eyebrow">First Payment Sprint</p>
+          <h3>Get from setup to collected money fast</h3>
+          <p className="muted">Ignore advanced configuration for now. Finish the minimum path that gets a real customer invoiced and paid.</p>
           <div className="quickstart-hero-metrics" aria-label="Quick start progress">
             <div className="quickstart-hero-metric">
-              <span>Completed</span>
-              <strong>{loading ? "-" : completedSteps}</strong>
+              <span>Sprint done</span>
+              <strong>{loading ? "-" : `${sprintCompleted}/${sprintMilestones.length}`}</strong>
             </div>
             <div className="quickstart-hero-metric">
-              <span>Remaining</span>
-              <strong>{loading ? "-" : Math.max(stepsWithState.length - completedSteps, 0)}</strong>
+              <span>Launch blockers</span>
+              <strong>{loading ? "-" : launchBlockers.length}</strong>
             </div>
             <div className="quickstart-hero-metric">
               <span>Current focus</span>
-              <strong>{loading ? "Checking..." : allDone ? "Ready to bill" : currentStep.title}</strong>
+              <strong>{loading ? "Checking..." : allDone ? "Ready to scale" : nextMilestone.title}</strong>
             </div>
           </div>
         </div>
         <div className="quickstart-actions">
           <Link to="/" className="button button-secondary">Back to dashboard</Link>
-          <Link to={heroActionHref} className="button button-primary">{heroActionLabel}</Link>
+          <Link to={nextMilestone.href} className="button button-primary">{loading ? "Loading..." : nextMilestone.actionLabel}</Link>
+        </div>
+      </section>
+
+      <section className="quickstart-grid">
+        <div className="card quickstart-progress-card">
+          <div className="quickstart-progress-header">
+            <div>
+              <p className="eyebrow">Launch track</p>
+              <h3 className="section-title">First payment milestones</h3>
+            </div>
+            <span className="badge">{loading ? "Checking..." : `${sprintCompleted} of ${sprintMilestones.length} complete`}</span>
+          </div>
+          <div className="quickstart-progress-bar" aria-hidden="true">
+            <span style={{ width: `${(sprintCompleted / sprintMilestones.length) * 100}%` }} />
+          </div>
+          <div className="quickstart-sprint-grid">
+            {sprintMilestones.map((milestone) => (
+              <div key={milestone.key} className={`quickstart-sprint-card ${milestone.done ? "is-done" : ""}`}>
+                <span className="status-pill status-pill-compact">{milestone.done ? "Ready" : "Pending"}</span>
+                <strong>{milestone.title}</strong>
+                <p className="muted">{milestone.detail}</p>
+                <Link to={milestone.href} className="inline-link">{milestone.actionLabel}</Link>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card quickstart-blockers-card">
+          <div className="card-section-header">
+            <div>
+              <p className="eyebrow">Before you charge</p>
+              <h3 className="section-title">Current blockers</h3>
+            </div>
+          </div>
+          {loading ? <p className="muted">Checking your billing launch blockers.</p> : launchBlockers.length > 0 ? (
+            <div className="quickstart-list">
+              {launchBlockers.slice(0, 4).map((blocker) => (
+                <div key={blocker.key} className="quickstart-tip quickstart-tip-alert">
+                  <span className="badge">Action</span>
+                  <strong>{blocker.title}</strong>
+                  <p>{blocker.description}</p>
+                  <Link to={blocker.href} className="inline-link">{blocker.actionLabel}</Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="quickstart-tip quickstart-tip-success">
+              <span className="badge">Clear</span>
+              <p>You have no required blockers. The fastest next move is to invoice a real customer and collect the payment.</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -196,13 +351,13 @@ export function QuickStartPage() {
         <div className="quickstart-progress-bar" aria-hidden="true">
           <span style={{ width: `${stepsWithState.length > 0 ? (completedSteps / stepsWithState.length) * 100 : 0}%` }} />
         </div>
-        <div className="quickstart-featured-step">
-          <div>
-            <strong>{featuredTitle}</strong>
-            <p className="muted">{featuredDescription}</p>
+          <div className="quickstart-featured-step">
+            <div>
+              <strong>{featuredTitle}</strong>
+              <p className="muted">{featuredDescription}</p>
+            </div>
+            <Link to={allDone ? heroActionHref : nextMilestone.href} className="button button-primary">{allDone ? heroActionLabel : nextMilestone.actionLabel}</Link>
           </div>
-          <Link to={heroActionHref} className="button button-primary">{heroActionLabel}</Link>
-        </div>
         {!loading && !allDone && remainingSteps.length > 1 ? (
           <div className="quickstart-next-list">
             {remainingSteps.slice(1, 3).map((step) => (

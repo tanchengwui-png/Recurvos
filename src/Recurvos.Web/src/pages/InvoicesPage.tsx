@@ -469,6 +469,131 @@ export function InvoicesPage() {
     }
   }
 
+  function isInvoiceOverdue(invoice: Invoice) {
+    return invoice.status !== "Voided" && invoice.balanceAmount > 0 && new Date(invoice.dueDateUtc).getTime() < Date.now();
+  }
+
+  function canRecordPayment(invoice: Invoice) {
+    return invoice.status !== "Voided" && invoice.balanceAmount > 0;
+  }
+
+  function canGeneratePaymentLink(invoice: Invoice) {
+    return invoice.balanceAmount > 0
+      && (featureAccess?.featureKeys.includes("payment_link_generation") ?? false)
+      && Boolean(invoiceSettings?.paymentGatewayReady);
+  }
+
+  function canSharePaymentConfirmation(invoice: Invoice) {
+    return invoice.status !== "Voided"
+      && invoice.balanceAmount > 0
+      && (featureAccess?.featureKeys.includes("public_payment_confirmation") ?? false);
+  }
+
+  function canShareWhatsApp(invoice: Invoice) {
+    return invoice.status !== "Voided" && invoice.balanceAmount > 0;
+  }
+
+  function openRecordPaymentForm(invoice: Invoice) {
+    setAdjustPaymentForm(null);
+    setCreditNoteForm(null);
+    setPaymentForm({
+      invoiceId: invoice.id,
+      amount: String(invoice.balanceAmount),
+      method: "Bank transfer",
+      reference: "",
+      paidAtUtc: new Date().toISOString().slice(0, 10),
+      proofFile: null,
+      useFullBalance: true,
+    });
+  }
+
+  async function generatePaymentLink(invoice: Invoice) {
+    setFormError("");
+    setSuccessMessage("");
+    const payment = await api.post<{ paymentLinkUrl?: string | null }>(`/payments/invoice/${invoice.id}/link`);
+    if (!payment.paymentLinkUrl) {
+      throw new Error("Payment link could not be generated.");
+    }
+
+    setSuccessMessage(`Payment link is ready for invoice ${invoice.invoiceNumber}.`);
+    await load();
+    return payment.paymentLinkUrl;
+  }
+
+  async function copyPaymentLink(invoice: Invoice) {
+    try {
+      const paymentLinkUrl = await generatePaymentLink(invoice);
+      await copyTextWithFallback({
+        text: paymentLinkUrl,
+        title: "Copy payment link",
+        onCopied: () => {
+          setFormError("");
+          setSuccessMessage(`Payment link copied for invoice ${invoice.invoiceNumber}.`);
+        },
+        onCopyFailed: (error) => {
+          setSuccessMessage("");
+          setFormError(error.message);
+        },
+      });
+    } catch (error) {
+      setSuccessMessage("");
+      setFormError(error instanceof Error ? error.message : "Unable to copy payment link.");
+    }
+  }
+
+  async function copyPaymentConfirmationUrl(invoice: Invoice) {
+    try {
+      const link = await api.post<PaymentConfirmationLink>(`/payment-confirmations/invoices/${invoice.id}/link`);
+      await copyTextWithFallback({
+        text: link.url,
+        title: "Copy payment confirmation URL",
+        onCopied: () => {
+          setFormError("");
+          setSuccessMessage(`Payment confirmation URL copied for invoice ${invoice.invoiceNumber}.`);
+        },
+        onCopyFailed: (error) => {
+          setSuccessMessage("");
+          setFormError(error.message);
+        },
+      });
+    } catch (error) {
+      setSuccessMessage("");
+      setFormError(error instanceof Error ? error.message : "Unable to create payment confirmation link.");
+    }
+  }
+
+  function getCollectionPriority(invoice: Invoice) {
+    if (invoice.status === "Voided") {
+      return {
+        label: "Voided",
+        description: "This invoice is closed. Collection actions are disabled.",
+        tone: "inactive" as const,
+      };
+    }
+
+    if (invoice.balanceAmount <= 0) {
+      return {
+        label: "Paid",
+        description: "Collection is complete. Receipt and refund actions stay available.",
+        tone: "active" as const,
+      };
+    }
+
+    if (isInvoiceOverdue(invoice)) {
+      return {
+        label: "Overdue",
+        description: "Lead with the payment link or WhatsApp reminder to recover this balance now.",
+        tone: "danger" as const,
+      };
+    }
+
+    return {
+      label: "Collect now",
+      description: "Send, share, or record this payment before the due date slips.",
+      tone: "warning" as const,
+    };
+  }
+
   function getInvoiceActions(item: Invoice) {
     return [
       {
@@ -510,19 +635,7 @@ export function InvoicesPage() {
           : item.balanceAmount <= 0
             ? "This invoice is already fully paid."
             : undefined,
-        onClick: () => {
-          setAdjustPaymentForm(null);
-          setCreditNoteForm(null);
-          setPaymentForm({
-            invoiceId: item.id,
-            amount: String(item.balanceAmount),
-            method: "Bank transfer",
-            reference: "",
-            paidAtUtc: new Date().toISOString().slice(0, 10),
-            proofFile: null,
-            useFullBalance: true,
-          });
-        },
+        onClick: () => openRecordPaymentForm(item),
       },
       {
         label: item.balanceAmount > 0 && item.history.some((entry) => entry.action === "payment.link.created") ? "Refresh payment link" : "Generate payment link",
@@ -536,15 +649,7 @@ export function InvoicesPage() {
               : undefined,
         onClick: async () => {
           try {
-            setFormError("");
-            setSuccessMessage("");
-            const payment = await api.post<{ paymentLinkUrl?: string | null }>(`/payments/invoice/${item.id}/link`);
-            if (!payment.paymentLinkUrl) {
-              throw new Error("Payment link could not be generated.");
-            }
-
-            setSuccessMessage(`Payment link is ready for invoice ${item.invoiceNumber}.`);
-            await load();
+            await generatePaymentLink(item);
           } catch (error) {
             setSuccessMessage("");
             setFormError(error instanceof Error ? error.message : "Unable to generate payment link.");
@@ -561,31 +666,7 @@ export function InvoicesPage() {
             : !invoiceSettings?.paymentGatewayReady
               ? "Set up a payment gateway in Settings > Payment first."
               : undefined,
-        onClick: async () => {
-          try {
-            setFormError("");
-            const payment = await api.post<{ paymentLinkUrl?: string | null }>(`/payments/invoice/${item.id}/link`);
-            if (!payment.paymentLinkUrl) {
-              throw new Error("Payment link is not available.");
-            }
-
-            await copyTextWithFallback({
-              text: payment.paymentLinkUrl,
-              title: "Copy payment link",
-              onCopied: () => {
-                setFormError("");
-                setSuccessMessage(`Payment link copied for invoice ${item.invoiceNumber}.`);
-              },
-              onCopyFailed: (error) => {
-                setSuccessMessage("");
-                setFormError(error.message);
-              },
-            });
-          } catch (error) {
-            setSuccessMessage("");
-            setFormError(error instanceof Error ? error.message : "Unable to copy payment link.");
-          }
-        },
+        onClick: () => void copyPaymentLink(item),
       },
       {
         label: "Copy payment confirmation URL",
@@ -597,26 +678,7 @@ export function InvoicesPage() {
             : !featureAccess?.featureKeys.includes("public_payment_confirmation")
               ? getFeatureHint("public_payment_confirmation")
               : undefined,
-        onClick: async () => {
-          try {
-            const link = await api.post<PaymentConfirmationLink>(`/payment-confirmations/invoices/${item.id}/link`);
-            await copyTextWithFallback({
-              text: link.url,
-              title: "Copy payment confirmation URL",
-              onCopied: () => {
-                setFormError("");
-                setSuccessMessage(`Payment confirmation URL copied for invoice ${item.invoiceNumber}.`);
-              },
-              onCopyFailed: (error) => {
-                setSuccessMessage("");
-                setFormError(error.message);
-              },
-            });
-          } catch (error) {
-            setSuccessMessage("");
-            setFormError(error instanceof Error ? error.message : "Unable to create payment confirmation link.");
-          }
-        },
+        onClick: () => void copyPaymentConfirmationUrl(item),
       },
       {
         label: "Copy WhatsApp message",
@@ -812,7 +874,7 @@ export function InvoicesPage() {
         ) : null}
         <div className="subscription-mobile-list">
           {pagination.pagedItems.map((item) => (
-            <article key={item.id} className="subscription-mobile-card">
+            <article key={item.id} className={`subscription-mobile-card ${item.balanceAmount > 0 ? "invoice-mobile-card-collect" : ""}`}>
               <div className="subscription-mobile-card-header">
                 <div className="subscription-mobile-identity">
                   <strong>{item.invoiceNumber}</strong>
@@ -833,6 +895,24 @@ export function InvoicesPage() {
                 <span className="subscription-mobile-inline-note">{item.sourceType}</span>
                 <span className="subscription-mobile-inline-note">{`Due ${new Date(item.dueDateUtc).toLocaleDateString()}`}</span>
               </div>
+              {item.balanceAmount > 0 ? (
+                <div className="invoice-collection-banner">
+                  <span className={`status-pill ${isInvoiceOverdue(item) ? "status-pill-danger" : "status-pill-inactive"}`}>
+                    {getCollectionPriority(item).label}
+                  </span>
+                  <p>{getCollectionPriority(item).description}</p>
+                </div>
+              ) : null}
+              {item.balanceAmount > 0 ? (
+                <div className="invoice-quick-actions">
+                  <button type="button" className="button button-primary button-small" onClick={() => void copyPaymentLink(item)} disabled={!canGeneratePaymentLink(item)}>
+                    {item.history.some((entry) => entry.action === "payment.link.created") ? "Copy payment link" : "Generate payment link"}
+                  </button>
+                  <button type="button" className="button button-secondary button-small" onClick={() => openRecordPaymentForm(item)} disabled={!canRecordPayment(item)}>
+                    Record payment
+                  </button>
+                </div>
+              ) : null}
               <div className="subscription-mobile-meta">
                 <div className="subscription-mobile-meta-row">
                   <span className="subscription-mobile-meta-label">Customer</span>
@@ -898,6 +978,17 @@ export function InvoicesPage() {
                               <span className="table-meta-item">
                                 <span className="table-meta-dot table-meta-dot-active" />
                                 {getInvoiceSendSummary(item)}
+                              </span>
+                            </div>
+                          ) : null}
+                          {item.balanceAmount > 0 ? (
+                            <div className="table-meta invoice-table-meta-stack">
+                              <span className={`table-meta-item ${isInvoiceOverdue(item) ? "invoice-table-meta-alert" : ""}`}>
+                                <span className={`table-meta-dot ${isInvoiceOverdue(item) ? "table-meta-dot-inactive" : "table-meta-dot-active"}`} />
+                                {getCollectionPriority(item).label}
+                              </span>
+                              <span className="table-meta-item table-meta-item-truncate">
+                                {canGeneratePaymentLink(item) ? "Payment link ready to share" : "Manual follow-up needed"}
                               </span>
                             </div>
                           ) : null}
@@ -1320,6 +1411,65 @@ export function InvoicesPage() {
                   </div>
                 </div>
               </div>
+              {selectedInvoice.balanceAmount > 0 ? (
+                <div className="invoice-collection-hero">
+                  <div>
+                    <span className={`status-pill ${isInvoiceOverdue(selectedInvoice) ? "status-pill-danger" : "status-pill-inactive"}`}>
+                      {getCollectionPriority(selectedInvoice).label}
+                    </span>
+                    <p>{getCollectionPriority(selectedInvoice).description}</p>
+                  </div>
+                  <div className="invoice-collection-hero-actions">
+                    <button
+                      type="button"
+                      className="button button-primary"
+                      onClick={() => void copyPaymentLink(selectedInvoice)}
+                      disabled={!canGeneratePaymentLink(selectedInvoice)}
+                      title={!canGeneratePaymentLink(selectedInvoice)
+                        ? !featureAccess?.featureKeys.includes("payment_link_generation")
+                          ? getFeatureHint("payment_link_generation")
+                          : !invoiceSettings?.paymentGatewayReady
+                            ? "Set up a payment gateway in Settings > Payment first."
+                            : "This invoice has no outstanding balance."
+                        : undefined}
+                    >
+                      {selectedInvoice.history.some((entry) => entry.action === "payment.link.created") ? "Copy payment link" : "Generate payment link"}
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => openRecordPaymentForm(selectedInvoice)}
+                      disabled={!canRecordPayment(selectedInvoice)}
+                    >
+                      Record payment
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => void copyPaymentConfirmationUrl(selectedInvoice)}
+                      disabled={!canSharePaymentConfirmation(selectedInvoice)}
+                      title={!canSharePaymentConfirmation(selectedInvoice)
+                        ? !featureAccess?.featureKeys.includes("public_payment_confirmation")
+                          ? getFeatureHint("public_payment_confirmation")
+                          : "This invoice cannot issue a payment confirmation link."
+                        : undefined}
+                    >
+                      Copy payment confirmation link
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => void copyWhatsAppMessage(selectedInvoice)}
+                      disabled={!canShareWhatsApp(selectedInvoice) || !(featureAccess?.featureKeys.includes("whatsapp_copy_message") ?? false)}
+                      title={!(featureAccess?.featureKeys.includes("whatsapp_copy_message") ?? false)
+                        ? getFeatureHint("whatsapp_copy_message")
+                        : undefined}
+                    >
+                      Copy WhatsApp reminder
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="invoice-detail-layout">
                 <div className="invoice-detail-main">
