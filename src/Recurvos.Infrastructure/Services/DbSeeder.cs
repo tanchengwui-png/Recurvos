@@ -1410,27 +1410,23 @@ public sealed class DbSeeder(AppDbContext dbContext)
             return;
         }
 
-        platformCompany.Name = "SYSNEX TECHNOLOGY - LOCALHOST";
-        platformCompany.RegistrationNumber = "202603074137";
-        platformCompany.Email = "support@recurvos.com";
-        platformCompany.Phone = "+60126093799";
-        platformCompany.Address = "SELANGOR, MALAYSIA - LOCALHOST";
-        platformCompany.IsActive = true;
         platformCompany.IsPlatformAccount = true;
 
         var settings = await dbContext.CompanyInvoiceSettings.FirstOrDefaultAsync(x => x.CompanyId == platformCompany.Id, cancellationToken);
         if (settings is null)
         {
+            platformCompany.Name = "SYSNEX TECHNOLOGY - LOCALHOST";
+            platformCompany.RegistrationNumber = "202603074137";
+            platformCompany.Email = "support@recurvos.com";
+            platformCompany.Phone = "+60126093799";
+            platformCompany.Address = "SELANGOR, MALAYSIA - LOCALHOST";
+            platformCompany.IsActive = true;
             settings = new CompanyInvoiceSettings
             {
                 CompanyId = platformCompany.Id
             };
             ApplyPlatformSeedSettings(settings);
             dbContext.CompanyInvoiceSettings.Add(settings);
-        }
-        else
-        {
-            ApplyPlatformSeedSettings(settings);
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
