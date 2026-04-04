@@ -1615,6 +1615,133 @@ body.app-pwa-standalone .finance-hero-card {
   flex-wrap: wrap;
 }
 
+.whatsapp-message-overview {
+  padding: 1rem 1.25rem;
+}
+
+.whatsapp-message-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.whatsapp-message-stat {
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.whatsapp-message-stat strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.4rem;
+}
+
+.whatsapp-message-error-cell {
+  max-width: 18rem;
+  white-space: normal;
+}
+
+.notification-history-table-card {
+  overflow: visible;
+}
+
+.notification-history-table {
+  min-width: 960px;
+}
+
+.notification-history-table-shell {
+  margin-top: 0.35rem;
+}
+
+.notification-history-table tbody tr:hover td {
+  background: rgba(30, 41, 59, 0.38);
+}
+
+.notification-history-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.7rem;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.08);
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.notification-history-chip-soft {
+  background: rgba(51, 65, 85, 0.58);
+  color: #cbd5e1;
+}
+
+.notification-history-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.notification-history-channel-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.notification-history-channel-icon-whatsapp {
+  background: #25d366;
+  color: #052e16;
+  box-shadow: 0 0 0 1px rgba(37, 211, 102, 0.18);
+}
+
+.notification-history-channel-icon-email {
+  background: #38bdf8;
+  color: #082f49;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.18);
+}
+
+.notification-history-channel-icon-letter {
+  transform: translateY(-0.02rem);
+}
+
+.notification-history-secondary-line {
+  margin-top: 0.4rem;
+}
+
+.notification-history-meta-spaced {
+  margin-top: 0.45rem;
+}
+
+.whatsapp-message-body {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  color: #e2e8f0;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.email-message-preview {
+  width: 100%;
+  min-height: 28rem;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 18px;
+  background: #ffffff;
+}
+
 .subscription-table-shell {
   display: block;
 }
@@ -3819,6 +3946,47 @@ select:focus,
   display: block;
   font-size: 1.05rem;
   letter-spacing: -0.02em;
+}
+
+.settings-whatsapp-workspace {
+  align-items: stretch;
+}
+
+.settings-whatsapp-card {
+  height: 100%;
+}
+
+.settings-whatsapp-card .settings-subpanel-header {
+  align-items: flex-start;
+  min-height: 4.5rem;
+}
+
+.settings-whatsapp-card .settings-overview-grid {
+  align-items: stretch;
+}
+
+.settings-whatsapp-card .settings-overview-stat {
+  min-height: 5.5rem;
+}
+
+.settings-whatsapp-card .settings-checkbox-row {
+  margin-top: auto;
+}
+
+.settings-whatsapp-template-card .form-label,
+.settings-whatsapp-preview-card .form-label {
+  display: grid;
+  gap: 0.65rem;
+  min-height: 0;
+}
+
+.settings-whatsapp-template-card .settings-message-template {
+  min-height: 16rem;
+  flex: 1 1 auto;
+}
+
+.settings-whatsapp-preview-card .settings-message-template {
+  min-height: 14rem;
 }
 
 .platform-job-card {
@@ -6788,6 +6956,23 @@ select:focus,
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .invoice-detail-drawer-header {
+    gap: 0.8rem;
+    padding: 1rem 1rem 0.9rem;
+  }
+
+  .invoice-detail-drawer-header .button {
+    width: 100%;
+  }
+
+  .invoice-detail-block {
+    padding: 0.8rem 0.85rem;
+  }
+
+  .email-message-preview {
+    min-height: min(52dvh, 26rem);
+  }
 }
 
 @media (max-width: 720px) {
@@ -6870,6 +7055,10 @@ select:focus,
 
   .subscription-table-shell {
     display: none;
+  }
+
+  .whatsapp-message-overview-grid {
+    grid-template-columns: 1fr;
   }
 
   .payments-mobile-list {

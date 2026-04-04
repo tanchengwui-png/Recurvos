@@ -919,6 +919,12 @@ public sealed class DbSeeder(AppDbContext dbContext)
             CREATE TABLE IF NOT EXISTS "EmailDispatchLogs" (
                 "Id" uuid NOT NULL,
                 "CompanyId" uuid NOT NULL,
+                "NotificationType" character varying(50) NULL,
+                "InvoiceId" uuid NULL,
+                "InvoiceNumber" character varying(100) NULL,
+                "CustomerName" character varying(200) NULL,
+                "MessageBody" text NULL,
+                "Status" character varying(30) NOT NULL DEFAULT 'Sent',
                 "OriginalRecipient" character varying(200) NOT NULL,
                 "EffectiveRecipient" character varying(200) NOT NULL,
                 "Subject" character varying(300) NOT NULL,
@@ -931,6 +937,42 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 "UpdatedAtUtc" timestamp with time zone NULL,
                 CONSTRAINT "PK_EmailDispatchLogs" PRIMARY KEY ("Id")
             );
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "NotificationType" character varying(50) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "InvoiceId" uuid NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "InvoiceNumber" character varying(100) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "CustomerName" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "MessageBody" text NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "EmailDispatchLogs"
+            ADD COLUMN IF NOT EXISTS "Status" character varying(30) NOT NULL DEFAULT 'Sent';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            UPDATE "EmailDispatchLogs"
+            SET "Status" = CASE WHEN "Succeeded" THEN 'Sent' ELSE 'Failed' END
+            WHERE "Status" IS NULL OR "Status" = '';
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""

@@ -353,6 +353,12 @@ public sealed class PlatformService(
             .Take(200)
             .Select(x => new EmailDispatchLogDto(
                 x.Id,
+                x.NotificationType,
+                x.InvoiceId,
+                x.InvoiceNumber,
+                x.CustomerName,
+                x.MessageBody,
+                x.Status,
                 x.OriginalRecipient,
                 x.EffectiveRecipient,
                 x.Subject,
@@ -582,6 +588,7 @@ public sealed class PlatformService(
             throw new InvalidOperationException("Type FACTORY RESET to continue.");
         }
 
+        await TryClearPlatformWhatsAppStorageAsync(cancellationToken);
         await TryDisconnectPlatformWhatsAppSessionAsync(cancellationToken);
         dbContext.ChangeTracker.Clear();
         await dbContext.Database.EnsureDeletedAsync(cancellationToken);
@@ -637,6 +644,18 @@ public sealed class PlatformService(
         catch
         {
             // Reset should continue even if the worker is unreachable; on-disk session cleanup still runs.
+        }
+    }
+
+    private async Task TryClearPlatformWhatsAppStorageAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await platformWhatsAppGateway.ClearAllSessionsAsync(cancellationToken);
+        }
+        catch
+        {
+            // Reset should continue even if the worker is unreachable.
         }
     }
 

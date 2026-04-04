@@ -15,9 +15,11 @@ public sealed class StorageResetService(
 
     public void ClearAll()
     {
-        ClearDirectory(StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory));
-        ClearDirectory(Path.Combine(StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory), "receipts"));
-        ClearDirectory(Path.Combine(StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory), "emails"));
+        var invoiceRoot = StoragePathResolver.Resolve(_environment, _storageOptions.InvoiceDirectory);
+        var storageRoot = Directory.GetParent(invoiceRoot)?.FullName ?? Path.Combine(_environment.ContentRootPath, "storage");
+
+        ClearDirectory(invoiceRoot);
+        ClearDirectory(Path.Combine(storageRoot, "emails"));
         ClearDirectory(StoragePathResolver.Resolve(_environment, _storageOptions.PaymentProofDirectory));
         ClearDirectory(StoragePathResolver.Resolve(_environment, _storageOptions.CompanyLogoDirectory));
         ClearDirectory(StoragePathResolver.Resolve(_environment, _storageOptions.PaymentQrDirectory));

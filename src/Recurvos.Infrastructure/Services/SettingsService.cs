@@ -166,6 +166,97 @@ public sealed class SettingsService(
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<SubscriberWhatsAppMessagePageDto> GetCompanyWhatsAppMessagesAsync(Guid? companyId, string? status, string? source, int page, int pageSize, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+        var normalizedStatus = string.IsNullOrWhiteSpace(status) ? "all" : status.Trim().ToLowerInvariant();
+        var normalizedSource = string.IsNullOrWhiteSpace(source) ? "all" : source.Trim().ToLowerInvariant();
+        var safePage = Math.Max(1, page);
+        var safePageSize = Math.Clamp(pageSize, 10, 100);
+
+        var query = dbContext.WhatsAppOutboundQueues
+            .AsNoTracking()
+            .Include(x => x.Invoice)
+                .ThenInclude(x => x!.Customer)
+            .Include(x => x.ReminderSchedule)
+            .Where(x => x.CompanyId == resolvedCompanyId);
+
+        query = normalizedStatus switch
+        {
+            "queued" => query.Where(x => x.Status == "Pending" || x.Status == "Deferred" || x.Status == "Sending"),
+            "sent" => query.Where(x => x.Status == "Sent"),
+            "failed" => query.Where(x => x.Status == "Failed"),
+            "cancelled" => query.Where(x => x.Status == "Cancelled"),
+            _ => query,
+        };
+
+        query = normalizedSource switch
+        {
+            "invoice" => query.Where(x => x.ReminderScheduleId == null),
+            "reminder" => query.Where(x => x.ReminderScheduleId != null),
+            _ => query,
+        };
+
+        var totalCount = await query.CountAsync(cancellationToken);
+        var items = await query
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Skip((safePage - 1) * safePageSize)
+            .Take(safePageSize)
+            .Select(x => new SubscriberWhatsAppMessageItemDto(
+                x.Id,
+                x.InvoiceId,
+                x.Invoice != null ? x.Invoice.InvoiceNumber : string.Empty,
+                x.Invoice != null && x.Invoice.Customer != null ? x.Invoice.Customer.Name : string.Empty,
+                x.RecipientPhoneNumber,
+                x.ReminderScheduleId == null ? "invoice" : "reminder",
+                x.ReminderScheduleId == null
+                    ? null
+                    : !string.IsNullOrWhiteSpace(x.ReminderSchedule!.ReminderName)
+                        ? x.ReminderSchedule.ReminderName
+                        : "Payment reminder",
+                x.ReminderScheduleId == null ? null : x.ReminderSchedule!.OffsetDays,
+                x.Status,
+                x.Message,
+                x.AttemptCount,
+                x.CreatedAtUtc,
+                x.LastAttemptAtUtc,
+                x.NextAttemptAtUtc,
+                x.ExternalMessageId,
+                x.ErrorMessage))
+            .ToListAsync(cancellationToken);
+
+        return new SubscriberWhatsAppMessagePageDto(items, safePage, safePageSize, totalCount);
+    }
+
+    public async Task<IReadOnlyCollection<SubscriberEmailDispatchLogDto>> GetCompanyEmailLogsAsync(Guid? companyId, CancellationToken cancellationToken = default)
+    {
+        var resolvedCompanyId = await GetOwnedCompanyIdAsync(companyId, cancellationToken);
+
+        return await dbContext.EmailDispatchLogs
+            .AsNoTracking()
+            .Where(x => x.CompanyId == resolvedCompanyId)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(200)
+            .Select(x => new SubscriberEmailDispatchLogDto(
+                x.Id,
+                x.NotificationType,
+                x.InvoiceId,
+                x.InvoiceNumber,
+                x.CustomerName,
+                x.MessageBody,
+                x.Status,
+                x.OriginalRecipient,
+                x.EffectiveRecipient,
+                x.Subject,
+                x.DeliveryMode,
+                x.WasRedirected,
+                x.RedirectReason,
+                x.Succeeded,
+                x.ErrorMessage,
+                x.CreatedAtUtc))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<CompanyInvoiceSettingsDto> GetCompanyInvoiceSettingsAsync(Guid? companyId, CancellationToken cancellationToken = default)
     {
         var settings = await EnsureInvoiceSettingsAsync(await GetOwnedCompanyIdAsync(companyId, cancellationToken), cancellationToken);
@@ -939,6 +1030,7 @@ public sealed class SettingsService(
             UploadImageMaxDimension = 1600,
             UploadImageQuality = 80
         };
+        await CompanyInvoiceSettingsCreation.ApplySubscriberPackageDefaultsAsync(dbContext, settings, cancellationToken);
         return await CompanyInvoiceSettingsCreation.AddOrGetExistingAsync(dbContext, settings, cancellationToken);
     }
 

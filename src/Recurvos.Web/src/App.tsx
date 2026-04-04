@@ -43,6 +43,7 @@ import { SubscriberPackageBillingPage } from "./pages/SubscriberPackageBillingPa
 import { SettingsPage } from "./pages/SettingsPage";
 import { SubscriptionsPage } from "./pages/SubscriptionsPage";
 import { VerifyEmailPage } from "./pages/VerifyEmailPage";
+import { WhatsAppMessagesPage } from "./pages/WhatsAppMessagesPage";
 
 function PrivateRoutes() {
   return getAuth() ? <AppShell /> : <Navigate to="/login" replace />;
@@ -176,6 +177,7 @@ function AppRoutes() {
           <Route path="/subscriptions/new" element={<TenantRoute><NewSubscriptionPage /></TenantRoute>} />
           <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
           <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
+          <Route path="/whatsapp-messages" element={<TenantRoute><WhatsAppMessagesPage /></TenantRoute>} />
           <Route path="/finance" element={<TenantRoute><FinancePage /></TenantRoute>} />
           <Route path="/feedback" element={<TenantRoute><FeedbackPage /></TenantRoute>} />
           <Route path="/package-billing" element={<TenantRoute><SubscriberPackageBillingPage /></TenantRoute>} />
