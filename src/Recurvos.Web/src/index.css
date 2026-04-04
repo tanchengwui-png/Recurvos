@@ -1769,24 +1769,26 @@ body.app-pwa-standalone .finance-hero-card {
 
 .subscription-mobile-meta-row {
   display: grid;
-  grid-template-columns: 4.4rem minmax(0, 1fr);
-  gap: 0.6rem;
-  align-items: start;
+  grid-template-columns: 4rem minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: baseline;
 }
 
 .subscription-mobile-meta-label {
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 0.69rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: rgba(148, 163, 184, 0.88);
 }
 
 .subscription-mobile-meta-value {
   min-width: 0;
-  font-size: 0.84rem;
-  line-height: 1.4;
-  color: rgba(226, 232, 240, 0.92);
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: rgba(241, 245, 249, 0.98);
+  text-align: right;
 }
 
 .sticky-cell {
@@ -6897,7 +6899,15 @@ select:focus,
 
   .subscription-mobile-meta-row {
     grid-template-columns: 1fr;
-    gap: 0.15rem;
+    gap: 0.22rem;
+  }
+
+  .subscription-mobile-meta-label {
+    font-size: 0.66rem;
+  }
+
+  .subscription-mobile-meta-value {
+    text-align: left;
   }
 
   .package-option-grid {

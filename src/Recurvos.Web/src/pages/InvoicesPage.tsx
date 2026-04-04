@@ -493,6 +493,41 @@ export function InvoicesPage() {
     return invoice.status !== "Voided" && invoice.balanceAmount > 0;
   }
 
+  function hasPaymentLink(invoice: Invoice) {
+    return invoice.history.some((entry) => entry.action === "payment.link.created");
+  }
+
+  function getPaymentLinkActionLabel(invoice: Invoice) {
+    if (hasPaymentLink(invoice)) {
+      return "Payment link";
+    }
+
+    if (!(featureAccess?.featureKeys.includes("payment_link_generation") ?? false)) {
+      return "Upgrade for payment link";
+    }
+
+    if (!invoiceSettings?.paymentGatewayReady) {
+      return "Set up payment gateway";
+    }
+
+    return "Collect now";
+  }
+
+  function getOnlinePaymentAction(invoice: Invoice) {
+    return {
+      label: hasPaymentLink(invoice) ? "Collect now" : "Generate payment link",
+      onClick: () => void copyPaymentLink(invoice),
+      disabled: !canGeneratePaymentLink(invoice),
+      title: !canGeneratePaymentLink(invoice)
+        ? invoice.balanceAmount <= 0
+          ? "This invoice has no outstanding balance."
+          : !(featureAccess?.featureKeys.includes("payment_link_generation") ?? false)
+            ? getFeatureHint("payment_link_generation")
+            : "Set up a payment gateway in Settings > Payment first."
+        : undefined,
+    };
+  }
+
   function openRecordPaymentForm(invoice: Invoice) {
     setAdjustPaymentForm(null);
     setCreditNoteForm(null);
@@ -638,7 +673,7 @@ export function InvoicesPage() {
         onClick: () => openRecordPaymentForm(item),
       },
       {
-        label: item.balanceAmount > 0 && item.history.some((entry) => entry.action === "payment.link.created") ? "Refresh payment link" : "Generate payment link",
+        label: getPaymentLinkActionLabel(item),
         disabled: !featureAccess?.featureKeys.includes("payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
         title: item.balanceAmount <= 0
           ? "This invoice has no outstanding balance."
@@ -649,24 +684,12 @@ export function InvoicesPage() {
               : undefined,
         onClick: async () => {
           try {
-            await generatePaymentLink(item);
+            await copyPaymentLink(item);
           } catch (error) {
             setSuccessMessage("");
-            setFormError(error instanceof Error ? error.message : "Unable to generate payment link.");
+            setFormError(error instanceof Error ? error.message : "Unable to copy payment link.");
           }
         },
-      },
-      {
-        label: "Copy payment link",
-        disabled: !featureAccess?.featureKeys.includes("payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
-        title: item.balanceAmount <= 0
-          ? "This invoice has no outstanding balance."
-          : !featureAccess?.featureKeys.includes("payment_link_generation")
-            ? getFeatureHint("payment_link_generation")
-            : !invoiceSettings?.paymentGatewayReady
-              ? "Set up a payment gateway in Settings > Payment first."
-              : undefined,
-        onClick: () => void copyPaymentLink(item),
       },
       {
         label: "Copy payment confirmation URL",
@@ -903,13 +926,16 @@ export function InvoicesPage() {
                   <p>{getCollectionPriority(item).description}</p>
                 </div>
               ) : null}
-              {item.balanceAmount > 0 ? (
+              {item.balanceAmount > 0 && canGeneratePaymentLink(item) ? (
                 <div className="invoice-quick-actions">
-                  <button type="button" className="button button-primary button-small" onClick={() => void copyPaymentLink(item)} disabled={!canGeneratePaymentLink(item)}>
-                    {item.history.some((entry) => entry.action === "payment.link.created") ? "Copy payment link" : "Generate payment link"}
-                  </button>
-                  <button type="button" className="button button-secondary button-small" onClick={() => openRecordPaymentForm(item)} disabled={!canRecordPayment(item)}>
-                    Record payment
+                  <button
+                    type="button"
+                    className="button button-primary button-small"
+                    onClick={getOnlinePaymentAction(item).onClick}
+                    disabled={getOnlinePaymentAction(item).disabled}
+                    title={getOnlinePaymentAction(item).title}
+                  >
+                    {getOnlinePaymentAction(item).label}
                   </button>
                 </div>
               ) : null}
@@ -1423,17 +1449,11 @@ export function InvoicesPage() {
                     <button
                       type="button"
                       className="button button-primary"
-                      onClick={() => void copyPaymentLink(selectedInvoice)}
-                      disabled={!canGeneratePaymentLink(selectedInvoice)}
-                      title={!canGeneratePaymentLink(selectedInvoice)
-                        ? !featureAccess?.featureKeys.includes("payment_link_generation")
-                          ? getFeatureHint("payment_link_generation")
-                          : !invoiceSettings?.paymentGatewayReady
-                            ? "Set up a payment gateway in Settings > Payment first."
-                            : "This invoice has no outstanding balance."
-                        : undefined}
+                      onClick={getOnlinePaymentAction(selectedInvoice).onClick}
+                      disabled={getOnlinePaymentAction(selectedInvoice).disabled}
+                      title={getOnlinePaymentAction(selectedInvoice).title}
                     >
-                      {selectedInvoice.history.some((entry) => entry.action === "payment.link.created") ? "Copy payment link" : "Generate payment link"}
+                      {getOnlinePaymentAction(selectedInvoice).label}
                     </button>
                     <button
                       type="button"
