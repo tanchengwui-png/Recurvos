@@ -21,13 +21,11 @@ export function AuthLayout({
     <div className="auth-page">
       <div className={`auth-stack ${wide ? "auth-stack-wide" : ""}`.trim()}>
         <div className="auth-brand">
-          <div className="brand-mark" aria-hidden="true">
-            <span />
-          </div>
-          <div>
-            <p className="eyebrow">Recurvos Billing</p>
-            <h1 className="brand-title">Recurvos</h1>
-          </div>
+          <img
+            src="/recurvos-billing-logo-v2.png"
+            alt="Recurvos Billing"
+            className="brand-logo auth-brand-logo"
+          />
         </div>
 
         <section className="card auth-card auth-card-surface">

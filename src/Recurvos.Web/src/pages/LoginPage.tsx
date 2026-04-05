@@ -86,14 +86,14 @@ export function LoginPage() {
       <div className="login-layout">
         <section className="login-showcase card subtle-card">
           <a className="login-showcase-brand" href={buildPublicSiteUrl("/")}>
-            <div className="brand-mark" aria-hidden="true">
-              <span />
-            </div>
-            <div>
-              <p className="eyebrow">Recurvos Billing</p>
-              <h1 className="brand-title">Automate invoices, subscriptions, and recurring billing for Malaysian businesses.</h1>
-            </div>
+            <img
+              src="/recurvos-billing-logo-v2.png"
+              alt="Recurvos Billing"
+              className="brand-logo login-showcase-logo"
+            />
           </a>
+
+          <h1 className="brand-title">Automate invoices, subscriptions, and recurring billing for Malaysian businesses.</h1>
 
           <div className="login-showcase-copy">
             <p className="login-lead">

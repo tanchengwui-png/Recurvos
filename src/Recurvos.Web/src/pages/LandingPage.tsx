@@ -64,13 +64,11 @@ export function LandingPage() {
       <main id="top" className="landing-main">
         <header className="landing-topbar">
           <Link to="/" className="landing-brand">
-            <span className="landing-brand-mark" aria-hidden="true">
-              <span />
-            </span>
-            <span>
-              <span className="eyebrow">Recurvos Billing</span>
-              <strong>Billing software for Malaysian businesses</strong>
-            </span>
+            <img
+              src="/recurvos-billing-logo-v2.png"
+              alt="Recurvos Billing"
+              className="brand-logo landing-brand-logo"
+            />
           </Link>
 
           <div className="landing-topbar-actions">

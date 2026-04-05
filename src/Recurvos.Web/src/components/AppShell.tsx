@@ -338,13 +338,11 @@ export function AppShell() {
       />
       <aside className={`sidebar ${mobileNavOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-brand">
-          <div className="brand-mark small" aria-hidden="true">
-            <span />
-          </div>
-          <div>
-            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Billing"}</p>
-            <h1 className="sidebar-title">{auth?.isPlatformOwner ? "Platform" : "Recurvos"}</h1>
-          </div>
+          <img
+            src="/recurvos-billing-logo-v2.png"
+            alt="Recurvos Billing"
+            className="brand-logo sidebar-brand-logo"
+          />
         </div>
         <button
           type="button"

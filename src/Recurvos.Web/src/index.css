@@ -115,6 +115,19 @@ th {
   gap: var(--space-3);
 }
 
+.brand-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.sidebar-brand-logo {
+  width: 188px;
+  max-width: 100%;
+}
+
 .sidebar-title,
 .brand-title {
   margin: 0;
@@ -2930,7 +2943,16 @@ select:focus,
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-3);
+}
+
+.auth-brand-logo {
+  width: 220px;
+  max-width: min(64vw, 220px);
+}
+
+.login-showcase-logo {
+  width: 184px;
+  max-width: 100%;
 }
 
 .brand-mark {
@@ -6120,7 +6142,6 @@ select:focus,
 .landing-brand {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
   min-width: 0;
 }
 
@@ -6128,6 +6149,10 @@ select:focus,
   display: block;
   font-size: 0.92rem;
   letter-spacing: -0.02em;
+}
+
+.landing-brand-logo {
+  width: 184px;
 }
 
 .landing-brand-mark {
@@ -7119,8 +7144,8 @@ select:focus,
     gap: 0.8rem;
   }
 
-  .sidebar-title {
-    font-size: 1.35rem;
+  .sidebar-brand-logo {
+    width: 154px;
   }
 
   .sidebar-account {
@@ -7234,18 +7259,11 @@ select:focus,
   }
 
   .landing-brand {
-    gap: 0.7rem;
+    gap: 0;
   }
 
-  .landing-brand-mark {
-    width: 2.1rem;
-    height: 2.1rem;
-    border-radius: 13px;
-  }
-
-  .landing-brand strong {
-    font-size: 0.84rem;
-    line-height: 1.25;
+  .landing-brand-logo {
+    width: 146px;
   }
 
   .landing-topbar-actions {
