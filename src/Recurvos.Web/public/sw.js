@@ -1,13 +1,16 @@
-const CACHE_NAME = "recurvos-shell-v1";
+const CACHE_NAME = "recurvos-shell-v2";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/offline.html",
   "/manifest.webmanifest",
-  "/favicon.svg",
+  "/favicon-32.png",
+  "/favicon-192.png",
+  "/favicon-512.png",
+  "/apple-touch-icon.png",
   "/icons.svg",
-  "/pwa-icon.svg",
-  "/pwa-icon-maskable.svg",
+  "/pwa-icon-maskable-512.png",
+  "/recurvos-billing-logo-v2.png",
 ];
 
 self.addEventListener("install", (event) => {
