@@ -11,18 +11,6 @@ import { api } from "../lib/api";
 import { formatCompanyAddress, getCompanyAddressTitle, parseLegacyCompanyAddress } from "../lib/companyAddresses";
 import type { CompanyLookup, FeatureAccess, PlatformPackage } from "../types";
 
-function renderRegistrationNumberBlock(item: CompanyLookup) {
-  const registrationNumber = item.registrationNumber || "Registration number not set";
-  const oldRegistrationNumber = item.oldRegistrationNumber?.trim();
-
-  return (
-    <div className="company-registration-stack">
-      <div className="company-registration-primary">{registrationNumber}</div>
-      {oldRegistrationNumber ? <div className="company-registration-secondary">{oldRegistrationNumber}</div> : null}
-    </div>
-  );
-}
-
 export function CompaniesPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -287,7 +275,6 @@ export function CompaniesPage() {
               <div className="subscription-mobile-card-header">
                 <div className="subscription-mobile-identity">
                   <strong>{item.name}</strong>
-                  <div className="eyebrow">{item.registrationNumber || "Registration number not set"}</div>
                 </div>
                 <div className="subscription-mobile-actions">
                   <RowActionMenu items={getCompanyActions(item)} label="More" />
@@ -311,12 +298,6 @@ export function CompaniesPage() {
                 <div className="subscription-mobile-meta-row">
                   <span className="subscription-mobile-meta-label">Phone</span>
                   <span className="subscription-mobile-meta-value">{item.phone || "Phone not set"}</span>
-                </div>
-                <div className="subscription-mobile-meta-row company-registration-meta-row">
-                  <span className="subscription-mobile-meta-label">Registration Number</span>
-                  <div className="subscription-mobile-meta-value">
-                    {renderRegistrationNumberBlock(item)}
-                  </div>
                 </div>
                 <div className="subscription-mobile-meta-row">
                   <span className="subscription-mobile-meta-label">Address</span>
@@ -342,14 +323,13 @@ export function CompaniesPage() {
               <tr>
                 <th className="sticky-cell sticky-cell-left">Name</th>
                 <th>Status</th>
-                <th>Registration Number</th>
                 <th>Contact</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={4}
+                  colSpan={3}
                   title="No companies yet"
                   description="Start by adding the business entity that will appear on invoices, reminders, and payment records."
                   actions={(
@@ -361,7 +341,7 @@ export function CompaniesPage() {
                 />
               ) : filteredItems.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={4}
+                  colSpan={3}
                   title="No matching companies"
                   description="Try a different search term or relax the filters to see more billing profiles."
                 />
@@ -369,10 +349,7 @@ export function CompaniesPage() {
                 <tr key={item.id}>
                   <td className="sticky-cell sticky-cell-left table-primary-cell">
                     <div className="table-primary-cell-stack">
-                      <div className="stack">
-                        <span>{item.name}</span>
-                        <div className="eyebrow">{item.registrationNumber || "Registration number not set"}</div>
-                      </div>
+                      <span>{item.name}</span>
                       <RowActionMenu items={getCompanyActions(item)} />
                     </div>
                   </td>
@@ -380,9 +357,6 @@ export function CompaniesPage() {
                     <span className={`status-pill ${item.isActive ? "status-pill-active" : "status-pill-inactive"}`}>
                       {item.isActive ? "Active" : "Inactive"}
                     </span>
-                  </td>
-                  <td>
-                    {renderRegistrationNumberBlock(item)}
                   </td>
                   <td>
                     <div>{item.email || "-"}</div>

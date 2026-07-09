@@ -2131,26 +2131,7 @@ tbody tr:hover {
 }
 
 .company-table {
-  min-width: 980px;
-}
-
-.company-registration-stack {
-  min-width: 0;
-}
-
-.company-registration-primary,
-.company-registration-secondary {
-  overflow-wrap: anywhere;
-}
-
-.company-registration-secondary {
-  margin-top: 0.2rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #8a97ac;
-  font-weight: 800;
-  line-height: 1.35;
+  min-width: 820px;
 }
 
 .products-table {
@@ -2924,15 +2905,6 @@ tbody tr:hover {
   line-height: 1.45;
   color: rgba(241, 245, 249, 0.98);
   text-align: right;
-}
-
-.company-registration-meta-row {
-  align-items: start;
-  grid-template-columns: 8rem minmax(0, 1fr);
-}
-
-.company-registration-meta-row .subscription-mobile-meta-value {
-  display: block;
 }
 
 .subscriptions-page .table-pagination {

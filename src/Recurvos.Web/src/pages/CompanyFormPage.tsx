@@ -472,10 +472,6 @@ export function CompanyFormPage() {
                   <input className="text-input" value={form.tin} onChange={(event) => setForm((current) => ({ ...current, tin: event.target.value }))} />
                 </label>
                 <label className="form-label company-profile-field">
-                  Nature of Business
-                  <input className="text-input" value={form.natureOfBusiness} readOnly placeholder="Selected from official MSIC code" />
-                </label>
-                <label className="form-label company-profile-field">
                   <span className="form-label-inline">Home Country {requiredMark}</span>
                   <select value={form.homeCountry} onChange={(event) => setForm((current) => ({ ...current, homeCountry: event.target.value }))}>
                     <option value="">Select country</option>
@@ -496,6 +492,27 @@ export function CompanyFormPage() {
                   <input className="text-input" value={form.oldRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, oldRegistrationNumber: event.target.value }))} />
                 </label>
                 <label className="form-label company-profile-field">
+                  Tourism Tax Registration Number
+                  <input className="text-input" value={form.tourismTaxRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, tourismTaxRegistrationNumber: event.target.value }))} />
+                </label>
+                <label className="form-label company-profile-field">
+                  <span className="form-label-inline">Home Currency {requiredMark}</span>
+                  <select value={form.homeCurrency} onChange={(event) => setForm((current) => ({ ...current, homeCurrency: event.target.value }))}>
+                    {availableCurrencyOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </div>
+          </section>
+          <section className="company-profile-section" aria-labelledby="company-business-information-title">
+            <div className="company-profile-address-header">
+              <h3 id="company-business-information-title" className="section-title">Business Information</h3>
+            </div>
+            <div className="company-profile-split">
+              <div className="company-profile-column">
+                <label className="form-label company-profile-field">
                   MSIC Code
                   <button type="button" className="text-input msic-picker-trigger" onClick={() => setIsMsicModalOpen(true)}>
                     <span className={selectedMsicEntry ? "msic-picker-trigger-value" : "msic-picker-trigger-placeholder"}>
@@ -508,17 +525,11 @@ export function CompanyFormPage() {
                   Industry
                   <input className="text-input" value={form.industry} readOnly placeholder="Selected from official MSIC code" />
                 </label>
+              </div>
+              <div className="company-profile-column">
                 <label className="form-label company-profile-field">
-                  Tourism Tax Registration Number
-                  <input className="text-input" value={form.tourismTaxRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, tourismTaxRegistrationNumber: event.target.value }))} />
-                </label>
-                <label className="form-label company-profile-field">
-                  <span className="form-label-inline">Home Currency {requiredMark}</span>
-                  <select value={form.homeCurrency} onChange={(event) => setForm((current) => ({ ...current, homeCurrency: event.target.value }))}>
-                    {availableCurrencyOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
+                  Nature of Business
+                  <input className="text-input" value={form.natureOfBusiness} readOnly placeholder="Selected from official MSIC code" />
                 </label>
               </div>
             </div>
