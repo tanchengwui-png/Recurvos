@@ -43,9 +43,9 @@ export function EntityPage<T extends { id: string }>({
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">{subtitle}</p>
+        <div className="page-header-copy">
           <h2>{title}</h2>
+          {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
         </div>
       </header>
       <div className="grid-two">

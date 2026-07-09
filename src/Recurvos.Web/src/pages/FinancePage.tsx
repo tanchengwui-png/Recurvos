@@ -72,10 +72,6 @@ export function FinancePage() {
   const financeEnabled = featureAccess?.featureKeys.includes("finance_exports") ?? false;
   const financeHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "finance_exports");
 
-  const selectedDocument = useMemo(
-    () => documentOptions.find((option) => option.value === documentType) ?? documentOptions[0],
-    [documentType],
-  );
   const exportRangeLabel = useMemo(
     () => getRangeLabel(startDateUtc, endDateUtc),
     [endDateUtc, startDateUtc],
@@ -142,43 +138,12 @@ export function FinancePage() {
   return (
     <div className="page finance-page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Finance</p>
-          <h2>Finance reports</h2>
-          <p className="muted">Prepare cleaner exports for your accountant, month-end work, and reconciliation follow-up.</p>
+        <div className="page-header-copy">
+          <h2>Finance Reports</h2>
         </div>
       </header>
 
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-
-      <section className="card finance-hero-card">
-        <div className="finance-hero-copy">
-          <div>
-            <p className="eyebrow">Export workspace</p>
-            <h3 className="section-title">Choose a report and export it fast</h3>
-            <p className="muted form-intro">Pick a document set, confirm the time window, and download a review-ready CSV.</p>
-          </div>
-          <div className="finance-summary-grid">
-            <div className="finance-summary-item">
-              <span className="eyebrow">Document</span>
-              <strong>{selectedDocument.label}</strong>
-            </div>
-            <div className="finance-summary-item">
-              <span className="eyebrow">Coverage</span>
-              <strong>{exportRangeLabel}</strong>
-            </div>
-            <div className="finance-summary-item">
-              <span className="eyebrow">Format</span>
-              <strong>CSV export</strong>
-            </div>
-          </div>
-        </div>
-        <div className="finance-hero-callout">
-          <p className="eyebrow">Current focus</p>
-          <strong>{selectedDocument.label}</strong>
-          <p>{selectedDocument.helper}</p>
-        </div>
-      </section>
 
       <div className="finance-grid">
         <section className="card finance-module-card">
@@ -200,7 +165,6 @@ export function FinancePage() {
               >
                 <span className="finance-option-kicker">{documentType === option.value ? "Selected" : "Report type"}</span>
                 <strong>{option.label}</strong>
-                <p>{option.helper}</p>
               </button>
             ))}
           </div>
@@ -236,25 +200,21 @@ export function FinancePage() {
                 <input className="text-input" type="date" value={endDateUtc} onChange={(event) => setEndDateUtc(event.target.value)} />
               </label>
             </div>
-            <div className="finance-export-summary">
-              <div className="finance-export-summary-item">
-                <span className="eyebrow">Report</span>
-                <strong>{formatDocumentLabel(documentType)}</strong>
-              </div>
-              <div className="finance-export-summary-item">
-                <span className="eyebrow">Range</span>
-                <strong>{exportRangeLabel}</strong>
-              </div>
-              <div className="finance-export-summary-item">
-                <span className="eyebrow">Dates</span>
-                <strong>{`${startDateUtc} to ${endDateUtc}`}</strong>
+            <div className="page-meta-row page-meta-row-inline" aria-label="Finance export details">
+              <div className="page-meta-chips">
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Range</span>
+                  <strong className="page-meta-chip-value">{exportRangeLabel}</strong>
+                </span>
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Dates</span>
+                  <strong className="page-meta-chip-value">{`${startDateUtc} to ${endDateUtc}`}</strong>
+                </span>
               </div>
             </div>
             <div className="finance-export-footer">
               <div className="finance-export-note">
-                <p className="eyebrow">Ready to export</p>
                 <strong>{`${formatDocumentLabel(documentType)} for ${exportRangeLabel}`}</strong>
-                <p className="muted">The file name is generated automatically by the backend.</p>
               </div>
               <button type="button" className="button button-primary finance-export-button" disabled={isDownloading || !financeEnabled} onClick={() => void downloadExport()}>
                 {isDownloading ? "Preparing export..." : "Download CSV"}

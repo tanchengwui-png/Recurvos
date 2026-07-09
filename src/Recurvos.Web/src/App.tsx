@@ -1,49 +1,60 @@
-import type { ReactElement } from "react";
+import { Suspense, lazy, type ReactElement } from "react";
 import type { Location } from "react-router-dom";
 import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { getAuth } from "./lib/auth";
 import { isAppSiteHost } from "./lib/siteUrls";
-import { CompaniesPage } from "./pages/CompaniesPage";
-import { CompanyFormPage } from "./pages/CompanyFormPage";
-import { CustomerFormPage } from "./pages/CustomerFormPage";
-import { CustomersPage } from "./pages/CustomersPage";
-import { DashboardPage } from "./pages/DashboardPage";
-import { FinancePage } from "./pages/FinancePage";
-import { FeedbackPage } from "./pages/FeedbackPage";
-import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
-import { InvoicesPage } from "./pages/InvoicesPage";
-import { LandingPage } from "./pages/LandingPage";
-import { InfoPage } from "./pages/InfoPage";
-import { LoginPage } from "./pages/LoginPage";
-import { OnboardingPage } from "./pages/OnboardingPage";
-import { PaymentsPage } from "./pages/PaymentsPage";
-import { PlatformDashboardPage } from "./pages/PlatformDashboardPage";
-import { PlatformAuditLogsPage } from "./pages/PlatformAuditLogsPage";
-import { PlatformDocumentPreviewPage } from "./pages/PlatformDocumentPreviewPage";
-import { PlatformEmailLogsPage } from "./pages/PlatformEmailLogsPage";
-import { PlatformFeedbackPage } from "./pages/PlatformFeedbackPage";
-import { PlatformPackagesPage } from "./pages/PlatformPackagesPage";
-import { PlatformSettingsPage } from "./pages/PlatformSettingsPage";
-import { PlatformSubscribersPage } from "./pages/PlatformSubscribersPage";
-import { PlatformUsersPage } from "./pages/PlatformUsersPage";
-import { PlatformWhatsAppSessionsPage } from "./pages/PlatformWhatsAppSessionsPage";
-import { PublicPaymentConfirmationPage } from "./pages/PublicPaymentConfirmationPage";
-import { PublicPaymentSuccessPage } from "./pages/PublicPaymentSuccessPage";
-import { ProductDetailsPage } from "./pages/ProductDetailsPage";
-import { ProductFormPage } from "./pages/ProductFormPage";
-import { ProductPlansPage } from "./pages/ProductPlansPage";
-import { ProductPlanFormPage } from "./pages/ProductPlanFormPage";
-import { ProductsPage } from "./pages/ProductsPage";
-import { PricingPage } from "./pages/PricingPage";
-import { QuickStartPage } from "./pages/QuickStartPage";
-import { ResetPasswordPage } from "./pages/ResetPasswordPage";
-import { NewSubscriptionPage } from "./pages/NewSubscriptionPage";
-import { SubscriberPackageBillingPage } from "./pages/SubscriberPackageBillingPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { SubscriptionsPage } from "./pages/SubscriptionsPage";
-import { VerifyEmailPage } from "./pages/VerifyEmailPage";
-import { WhatsAppMessagesPage } from "./pages/WhatsAppMessagesPage";
+
+const CompaniesPage = lazy(() => import("./pages/CompaniesPage").then((module) => ({ default: module.CompaniesPage })));
+const CompanyFormPage = lazy(() => import("./pages/CompanyFormPage").then((module) => ({ default: module.CompanyFormPage })));
+const CustomerFormPage = lazy(() => import("./pages/CustomerFormPage").then((module) => ({ default: module.CustomerFormPage })));
+const CustomersPage = lazy(() => import("./pages/CustomersPage").then((module) => ({ default: module.CustomersPage })));
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
+const FinancePage = lazy(() => import("./pages/FinancePage").then((module) => ({ default: module.FinancePage })));
+const FeedbackPage = lazy(() => import("./pages/FeedbackPage").then((module) => ({ default: module.FeedbackPage })));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage").then((module) => ({ default: module.ForgotPasswordPage })));
+const InfoPage = lazy(() => import("./pages/InfoPage").then((module) => ({ default: module.InfoPage })));
+const InvoicesPage = lazy(() => import("./pages/InvoicesPage").then((module) => ({ default: module.InvoicesPage })));
+const LandingPage = lazy(() => import("./pages/LandingPage").then((module) => ({ default: module.LandingPage })));
+const LoginPage = lazy(() => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
+const NewSubscriptionPage = lazy(() => import("./pages/NewSubscriptionPage").then((module) => ({ default: module.NewSubscriptionPage })));
+const OnboardingPage = lazy(() => import("./pages/OnboardingPage").then((module) => ({ default: module.OnboardingPage })));
+const PaymentsPage = lazy(() => import("./pages/PaymentsPage").then((module) => ({ default: module.PaymentsPage })));
+const PlatformAuditLogsPage = lazy(() => import("./pages/PlatformAuditLogsPage").then((module) => ({ default: module.PlatformAuditLogsPage })));
+const PlatformDashboardPage = lazy(() => import("./pages/PlatformDashboardPage").then((module) => ({ default: module.PlatformDashboardPage })));
+const PlatformDocumentPreviewPage = lazy(() => import("./pages/PlatformDocumentPreviewPage").then((module) => ({ default: module.PlatformDocumentPreviewPage })));
+const PlatformEmailLogsPage = lazy(() => import("./pages/PlatformEmailLogsPage").then((module) => ({ default: module.PlatformEmailLogsPage })));
+const PlatformFeedbackPage = lazy(() => import("./pages/PlatformFeedbackPage").then((module) => ({ default: module.PlatformFeedbackPage })));
+const PlatformPackagesPage = lazy(() => import("./pages/PlatformPackagesPage").then((module) => ({ default: module.PlatformPackagesPage })));
+const PlatformSettingsPage = lazy(() => import("./pages/PlatformSettingsPage").then((module) => ({ default: module.PlatformSettingsPage })));
+const PlatformSubscribersPage = lazy(() => import("./pages/PlatformSubscribersPage").then((module) => ({ default: module.PlatformSubscribersPage })));
+const PlatformUsersPage = lazy(() => import("./pages/PlatformUsersPage").then((module) => ({ default: module.PlatformUsersPage })));
+const PlatformWhatsAppSessionsPage = lazy(() => import("./pages/PlatformWhatsAppSessionsPage").then((module) => ({ default: module.PlatformWhatsAppSessionsPage })));
+const PricingPage = lazy(() => import("./pages/PricingPage").then((module) => ({ default: module.PricingPage })));
+const ProductDetailsPage = lazy(() => import("./pages/ProductDetailsPage").then((module) => ({ default: module.ProductDetailsPage })));
+const ProductFormPage = lazy(() => import("./pages/ProductFormPage").then((module) => ({ default: module.ProductFormPage })));
+const ProductPlanFormPage = lazy(() => import("./pages/ProductPlanFormPage").then((module) => ({ default: module.ProductPlanFormPage })));
+const ProductPlansPage = lazy(() => import("./pages/ProductPlansPage").then((module) => ({ default: module.ProductPlansPage })));
+const ProductsPage = lazy(() => import("./pages/ProductsPage").then((module) => ({ default: module.ProductsPage })));
+const PublicPaymentConfirmationPage = lazy(() => import("./pages/PublicPaymentConfirmationPage").then((module) => ({ default: module.PublicPaymentConfirmationPage })));
+const PublicPaymentSuccessPage = lazy(() => import("./pages/PublicPaymentSuccessPage").then((module) => ({ default: module.PublicPaymentSuccessPage })));
+const QuickStartPage = lazy(() => import("./pages/QuickStartPage").then((module) => ({ default: module.QuickStartPage })));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage").then((module) => ({ default: module.ResetPasswordPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const SubscriberPackageBillingPage = lazy(() => import("./pages/SubscriberPackageBillingPage").then((module) => ({ default: module.SubscriberPackageBillingPage })));
+const SubscriptionsPage = lazy(() => import("./pages/SubscriptionsPage").then((module) => ({ default: module.SubscriptionsPage })));
+const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage").then((module) => ({ default: module.VerifyEmailPage })));
+const WhatsAppMessagesPage = lazy(() => import("./pages/WhatsAppMessagesPage").then((module) => ({ default: module.WhatsAppMessagesPage })));
+
+function RouteFallback() {
+  return (
+    <div className="page">
+      <section className="card">
+        <p className="muted">Loading...</p>
+      </section>
+    </div>
+  );
+}
 
 function PrivateRoutes() {
   return getAuth() ? <AppShell /> : <Navigate to="/login" replace />;
@@ -133,66 +144,68 @@ function AppRoutes() {
   const backgroundLocation = state?.backgroundLocation;
 
   return (
-    <>
-      <Routes location={backgroundLocation ?? location}>
-        <Route path="/" element={<RootRoute />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/pricing" element={<PricingPage />} />
-        <Route path="/onboarding" element={<OnboardingPage />} />
-        <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/payment-confirmation" element={<PublicPaymentConfirmationPage />} />
-        <Route path="/payment-success" element={<PublicPaymentSuccessPage />} />
-        <Route path="/payment-success/:invoiceId" element={<PublicPaymentSuccessPage />} />
-        {renderInfoRoute("/privacy")}
-        {renderInfoRoute("/terms")}
-        {renderInfoRoute("/support")}
-        <Route element={<PrivateRoutes />}>
-          <Route path="/app" element={<HomeRoute />} />
-          <Route path="/subscribers" element={<PlatformRoute><PlatformSubscribersPage /></PlatformRoute>} />
-          <Route path="/platform/users" element={<PlatformRoute><PlatformUsersPage /></PlatformRoute>} />
-          <Route path="/platform/documents" element={<PlatformRoute><PlatformDocumentPreviewPage /></PlatformRoute>} />
-          <Route path="/platform/email-logs" element={<PlatformRoute><PlatformEmailLogsPage /></PlatformRoute>} />
-          <Route path="/platform/audit-logs" element={<PlatformRoute><PlatformAuditLogsPage /></PlatformRoute>} />
-          <Route path="/platform/feedback" element={<PlatformRoute><PlatformFeedbackPage /></PlatformRoute>} />
-          <Route path="/platform/packages" element={<PlatformRoute><PlatformPackagesPage /></PlatformRoute>} />
-          <Route path="/platform/settings" element={<PlatformRoute><PlatformSettingsPage /></PlatformRoute>} />
-          <Route path="/platform/whatsapp-sessions" element={<PlatformRoute><PlatformWhatsAppSessionsPage /></PlatformRoute>} />
-          <Route path="/companies" element={<TenantRoute><CompaniesPage /></TenantRoute>} />
-          <Route path="/companies/new" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
-          <Route path="/companies/:id/edit" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
-          <Route path="/customers" element={<TenantRoute><CustomersPage /></TenantRoute>} />
-          <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
-          <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
-          <Route path="/products" element={<TenantRoute><ProductsPage /></TenantRoute>} />
-          <Route path="/products/new" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
-          <Route path="/products/:id/edit" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
-          <Route path="/products/:id" element={<TenantRoute><ProductDetailsPage /></TenantRoute>} />
-          <Route path="/plans" element={<TenantRoute><ProductPlansPage /></TenantRoute>} />
-          <Route path="/plans/new" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
-          <Route path="/plans/:id/edit" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
-          <Route path="/prices" element={<Navigate to="/plans" replace />} />
-          <Route path="/subscriptions" element={<TenantRoute><SubscriptionsPage /></TenantRoute>} />
-          <Route path="/subscriptions/new" element={<TenantRoute><NewSubscriptionPage /></TenantRoute>} />
-          <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
-          <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
-          <Route path="/whatsapp-messages" element={<TenantRoute><WhatsAppMessagesPage /></TenantRoute>} />
-          <Route path="/finance" element={<TenantRoute><FinancePage /></TenantRoute>} />
-          <Route path="/feedback" element={<TenantRoute><FeedbackPage /></TenantRoute>} />
-          <Route path="/package-billing" element={<TenantRoute><SubscriberPackageBillingPage /></TenantRoute>} />
-          <Route path="/settings" element={<TenantRoute><SettingsPage /></TenantRoute>} />
-          <Route path="/help/quick-start" element={<TenantRoute><QuickStartPage /></TenantRoute>} />
-        </Route>
-      </Routes>
-      {backgroundLocation ? (
-        <Routes>
-          {renderInfoRoute("/privacy", true)}
-          {renderInfoRoute("/terms", true)}
-          {renderInfoRoute("/support", true)}
+    <Suspense fallback={<RouteFallback />}>
+      <>
+        <Routes location={backgroundLocation ?? location}>
+          <Route path="/" element={<RootRoute />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/payment-confirmation" element={<PublicPaymentConfirmationPage />} />
+          <Route path="/payment-success" element={<PublicPaymentSuccessPage />} />
+          <Route path="/payment-success/:invoiceId" element={<PublicPaymentSuccessPage />} />
+          {renderInfoRoute("/privacy")}
+          {renderInfoRoute("/terms")}
+          {renderInfoRoute("/support")}
+          <Route element={<PrivateRoutes />}>
+            <Route path="/app" element={<HomeRoute />} />
+            <Route path="/subscribers" element={<PlatformRoute><PlatformSubscribersPage /></PlatformRoute>} />
+            <Route path="/platform/users" element={<PlatformRoute><PlatformUsersPage /></PlatformRoute>} />
+            <Route path="/platform/documents" element={<PlatformRoute><PlatformDocumentPreviewPage /></PlatformRoute>} />
+            <Route path="/platform/email-logs" element={<PlatformRoute><PlatformEmailLogsPage /></PlatformRoute>} />
+            <Route path="/platform/audit-logs" element={<PlatformRoute><PlatformAuditLogsPage /></PlatformRoute>} />
+            <Route path="/platform/feedback" element={<PlatformRoute><PlatformFeedbackPage /></PlatformRoute>} />
+            <Route path="/platform/packages" element={<PlatformRoute><PlatformPackagesPage /></PlatformRoute>} />
+            <Route path="/platform/settings" element={<PlatformRoute><PlatformSettingsPage /></PlatformRoute>} />
+            <Route path="/platform/whatsapp-sessions" element={<PlatformRoute><PlatformWhatsAppSessionsPage /></PlatformRoute>} />
+            <Route path="/companies" element={<TenantRoute><CompaniesPage /></TenantRoute>} />
+            <Route path="/companies/new" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
+            <Route path="/companies/:id/edit" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
+            <Route path="/customers" element={<TenantRoute><CustomersPage /></TenantRoute>} />
+            <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
+            <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
+            <Route path="/products" element={<TenantRoute><ProductsPage /></TenantRoute>} />
+            <Route path="/products/new" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
+            <Route path="/products/:id/edit" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
+            <Route path="/products/:id" element={<TenantRoute><ProductDetailsPage /></TenantRoute>} />
+            <Route path="/plans" element={<TenantRoute><ProductPlansPage /></TenantRoute>} />
+            <Route path="/plans/new" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
+            <Route path="/plans/:id/edit" element={<TenantRoute><ProductPlanFormPage /></TenantRoute>} />
+            <Route path="/prices" element={<Navigate to="/plans" replace />} />
+            <Route path="/subscriptions" element={<TenantRoute><SubscriptionsPage /></TenantRoute>} />
+            <Route path="/subscriptions/new" element={<TenantRoute><NewSubscriptionPage /></TenantRoute>} />
+            <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
+            <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
+            <Route path="/whatsapp-messages" element={<TenantRoute><WhatsAppMessagesPage /></TenantRoute>} />
+            <Route path="/finance" element={<TenantRoute><FinancePage /></TenantRoute>} />
+            <Route path="/feedback" element={<TenantRoute><FeedbackPage /></TenantRoute>} />
+            <Route path="/package-billing" element={<TenantRoute><SubscriberPackageBillingPage /></TenantRoute>} />
+            <Route path="/settings" element={<TenantRoute><SettingsPage /></TenantRoute>} />
+            <Route path="/help/quick-start" element={<TenantRoute><QuickStartPage /></TenantRoute>} />
+          </Route>
         </Routes>
-      ) : null}
-    </>
+        {backgroundLocation ? (
+          <Routes>
+            {renderInfoRoute("/privacy", true)}
+            {renderInfoRoute("/terms", true)}
+            {renderInfoRoute("/support", true)}
+          </Routes>
+        ) : null}
+      </>
+    </Suspense>
   );
 }
 

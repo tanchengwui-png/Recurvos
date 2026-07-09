@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
-import { formatUploadSizeLabel } from "../lib/uploads";
 import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformStripeSettings, PlatformStripeTestResult, PlatformUploadPolicy, PlatformWhatsAppQueueItem, PlatformWhatsAppSettings } from "../types";
 
 const platformJobs = [
@@ -296,7 +295,7 @@ export function PlatformSettingsPage() {
           </div>
           <span className="status-pill status-pill-inactive">Unavailable</span>
         </div>
-        <HelperText tone="error">This section could not be loaded. Refresh the page or restart `Recurvos.Api` if the problem continues.</HelperText>
+        <HelperText tone="error">This section could not be loaded.</HelperText>
       </section>
     );
   }
@@ -313,9 +312,7 @@ export function PlatformSettingsPage() {
     <div className="page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">Platform settings</p>
-          <h2>Central owner configuration</h2>
-          <p className="muted">Keep owner email, SMTP, upload limits, and shared WhatsApp delivery in one platform settings page.</p>
+          <h2>Platform Settings</h2>
         </div>
       </header>
 
@@ -332,7 +329,6 @@ export function PlatformSettingsPage() {
               {`Currently live: ${liveModeLabel}`}
             </span>
           </div>
-          <HelperText>Controls which billing identity, SMTP, and payment gateway profile is used at runtime.</HelperText>
           <div className="platform-settings-toggle" role="tablist" aria-label="Live mode">
             <button
               type="button"
@@ -391,7 +387,6 @@ export function PlatformSettingsPage() {
               Production
             </button>
           </div>
-          <HelperText>{`${editingModeLabel}. Applies only to billing identity, SMTP, and payment gateway settings.`}</HelperText>
           <nav className="platform-settings-nav" aria-label="Environment-based platform settings sections">
             <p className="eyebrow">Environment</p>
             <button type="button" className={`platform-settings-nav-link ${activeSection === "issuer" ? "platform-settings-nav-link-active" : ""}`} onClick={() => setActiveSection("issuer")}>Billing identity</button>
@@ -621,7 +616,6 @@ export function PlatformSettingsPage() {
                 placeholder="owner@yourcompany.com"
               />
             </label>
-            <HelperText>Leave this blank to pause owner email notifications for new subscriber feedback.</HelperText>
             <button
               type="button"
               className="button button-primary"
@@ -715,12 +709,6 @@ export function PlatformSettingsPage() {
               Shield email address
               <input className="text-input" type="email" value={smtpSettings.emailShieldAddress ?? ""} onChange={(event) => setSmtpSettings((current) => current ? { ...current, emailShieldAddress: event.target.value } : current)} placeholder="your-test-inbox@yourdomain.com" />
             </label>
-            <HelperText>
-              {smtpSettings.localEmailCaptureEnabled
-                ? "Emails will be written to C:\\Recurvos\\storage\\emails instead of using SMTP."
-                : "If platform SMTP is not configured yet, Development still falls back to C:\\Recurvos\\storage\\emails."}
-            </HelperText>
-            <HelperText>When email shield is on, all outgoing emails are redirected to this address instead of the real customer or subscriber.</HelperText>
             <div className="button-stack">
               <button
                 type="button"
@@ -834,7 +822,6 @@ export function PlatformSettingsPage() {
                 <option value="stripe">Stripe</option>
               </select>
             </label>
-            <HelperText>The system uses only one platform gateway per environment. This selector controls what staging or production will use at runtime.</HelperText>
           </div>
           <div className="platform-payment-grid">
             <section id="platform-billplz" className="card subtle-card settings-form-card platform-payment-provider-card">
@@ -873,7 +860,6 @@ export function PlatformSettingsPage() {
               <input type="checkbox" checked={billplzSettings.requireSignatureVerification} onChange={(event) => setBillplzSettings((current) => current ? { ...current, requireSignatureVerification: event.target.checked } : current)} />
               <span>Require webhook signature verification</span>
             </label>
-            <HelperText>Use the sandbox base URL for testing. Your Billplz callback URL still depends on the API base URL configured at startup.</HelperText>
             <div className="button-stack">
               <button
                 type="button"
@@ -977,7 +963,6 @@ export function PlatformSettingsPage() {
               Webhook secret
               <input className="text-input" type="password" value={stripeSettings.webhookSecret ?? ""} onChange={(event) => setStripeSettings((current) => current ? { ...current, webhookSecret: event.target.value } : current)} placeholder="whsec_..." />
             </label>
-            <HelperText>Stripe requires the matching webhook secret for the current environment. Point your Stripe webhook to <code>/api/webhooks/stripe</code>.</HelperText>
             <div className="button-stack">
               <button
                 type="button"
@@ -1086,7 +1071,6 @@ export function PlatformSettingsPage() {
                 <input className="text-input" type="number" min="50" max="95" step="1" value={String(uploadPolicy.uploadImageQuality)} onChange={(event) => setUploadPolicy((current) => current ? { ...current, uploadImageQuality: Number(event.target.value) || current.uploadImageQuality } : current)} />
               </label>
             </div>
-            <HelperText>{`Current limit: ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)}. Images are resized to a maximum side of ${uploadPolicy.uploadImageMaxDimension}px with quality ${uploadPolicy.uploadImageQuality}.`}</HelperText>
             <button
               type="button"
               className="button button-primary"
@@ -1205,13 +1189,9 @@ export function PlatformSettingsPage() {
                   Access token
                   <input className="text-input" value={whatsAppSettings.accessToken ?? ""} onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, accessToken: event.target.value } : current)} placeholder="Bearer token" />
                 </label>
-                <HelperText>The platform sends `senderId`, `to`, `template`, `message`, and `reference` to your WhatsApp API.</HelperText>
               </>
             ) : (
               <div className="form-stack">
-                <HelperText>
-                  `whatsapp-web.js` session login is managed from the `WhatsApp Sessions` page. This settings page only selects the provider and shared template.
-                </HelperText>
                 <div className="button-stack">
                   <Link className="button button-secondary" to="/platform/whatsapp-sessions">
                     Open WhatsApp Sessions
@@ -1243,14 +1223,12 @@ export function PlatformSettingsPage() {
                 />
               </label>
             </div>
-            <HelperText>Queued WhatsApp sends are processed by a minutely job, so next-send times are shown to the nearest minute rather than exact seconds.</HelperText>
-            <HelperText>Queued WhatsApp sends are only dispatched inside this UTC hour window. Use matching UTC hours for your operating timezone.</HelperText>
             <label className="form-label">
               Template name
               <input className="text-input" value={whatsAppSettings.template ?? ""} onChange={(event) => setWhatsAppSettings((current) => current ? { ...current, template: event.target.value } : current)} placeholder="payment-reminder" />
             </label>
             {whatsAppSettings.provider === "whatsapp_web_js" ? (
-              <HelperText>{`Current session status: ${formatSessionStatus(whatsAppSettings.sessionStatus)}${whatsAppSettings.sessionPhone ? ` | ${whatsAppSettings.sessionPhone}` : ""}`}</HelperText>
+              <HelperText>{`${formatSessionStatus(whatsAppSettings.sessionStatus)}${whatsAppSettings.sessionPhone ? ` | ${whatsAppSettings.sessionPhone}` : ""}`}</HelperText>
             ) : null}
             <div className="platform-queue-table-shell">
               <div className="platform-queue-table-header">
@@ -1505,7 +1483,6 @@ export function PlatformSettingsPage() {
                 </button>
               </div>
             )})}
-            <HelperText>These buttons enqueue jobs immediately. Monitor execution at <code>/hangfire</code> on the API host.</HelperText>
           </div>
         </section>
       ) : null}
@@ -1521,8 +1498,7 @@ export function PlatformSettingsPage() {
             <span className="status-pill status-pill-inactive">Destructive</span>
           </div>
           <div className="form-stack">
-            <HelperText tone="error">All subscriber records, invoices, payments, users, and settings in this environment will be replaced by seeded data.</HelperText>
-            <HelperText>After reset, sign in again with the seeded owner account (`owner@recurvo.com`).</HelperText>
+            <HelperText tone="error">This replaces current data with seeded data.</HelperText>
             <label className="form-label">
               Type <code>FACTORY RESET</code> to enable
               <input

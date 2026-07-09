@@ -16,11 +16,9 @@ export function InstallPromptCard({
   return (
     <section className="install-prompt-card" aria-label="Install Recurvos">
       <div className="install-prompt-copy">
-        <p className="eyebrow">Home screen</p>
-        <h3>Add Recurvos to your home screen</h3>
-        <p>Optional. Open Recurvos faster and use it like an app from your phone or desktop.</p>
+        <h3>Add to home screen</h3>
         {isManualInstallOnly ? (
-          <p className="install-prompt-hint">On iPhone Safari, tap Share, then choose Add to Home Screen.</p>
+          <p className="install-prompt-hint">On iPhone Safari, tap Share and choose Add to Home Screen.</p>
         ) : null}
       </div>
       <div className="install-prompt-actions">

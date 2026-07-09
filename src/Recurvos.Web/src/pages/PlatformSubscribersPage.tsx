@@ -55,8 +55,7 @@ export function PlatformSubscribersPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Subscriber businesses</p>
+        <div className="page-header-copy">
           <h2>Companies on Recurvos</h2>
         </div>
       </header>

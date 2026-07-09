@@ -247,39 +247,32 @@ export function QuickStartPage() {
     : allDone
       ? "Your core setup is ready"
       : nextMilestone.title;
-  const featuredDescription = loading
-    ? "Loading your current progress."
-    : allDone
-      ? "Your company, products, plans, customers, and first billing flow are already in place. You can now improve branding, reminders, and payment tracking."
-      : nextMilestone.detail;
 
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Help</p>
+        <div className="page-header-copy">
           <h2>Quick Start</h2>
-          <p className="muted">Follow the recommended order and get your first billing flow running.</p>
         </div>
       </header>
 
-      <section className="card quickstart-hero">
-        <div className="quickstart-hero-copy">
-          <p className="eyebrow">First Payment Sprint</p>
-          <h3>Get from setup to collected money fast</h3>
-          <p className="muted">Ignore advanced configuration for now. Finish the minimum path that gets a real customer invoiced and paid.</p>
-          <div className="quickstart-hero-metrics" aria-label="Quick start progress">
-            <div className="quickstart-hero-metric">
-              <span>Sprint done</span>
-              <strong>{loading ? "-" : `${sprintCompleted}/${sprintMilestones.length}`}</strong>
-            </div>
-            <div className="quickstart-hero-metric">
-              <span>Launch blockers</span>
-              <strong>{loading ? "-" : launchBlockers.length}</strong>
-            </div>
-            <div className="quickstart-hero-metric">
-              <span>Current focus</span>
-              <strong>{loading ? "Checking..." : allDone ? "Ready to scale" : nextMilestone.title}</strong>
+      <div className="catalog-toolbar card subtle-card quickstart-toolbar">
+        <div className="section-header-cluster quickstart-toolbar-main">
+          <p className="muted quickstart-toolbar-title">First Payment Sprint</p>
+          <div className="page-meta-row page-meta-row-inline page-meta-row-spaced" aria-label="Quick start summary">
+            <div className="page-meta-chips">
+              <span className="page-meta-chip">
+                <span className="page-meta-chip-label">Sprint</span>
+                <strong className="page-meta-chip-value">{loading ? "-" : `${sprintCompleted}/${sprintMilestones.length}`}</strong>
+              </span>
+              <span className="page-meta-chip">
+                <span className="page-meta-chip-label">Blockers</span>
+                <strong className="page-meta-chip-value">{loading ? "-" : launchBlockers.length}</strong>
+              </span>
+              <span className="page-meta-chip">
+                <span className="page-meta-chip-label">Focus</span>
+                <strong className="page-meta-chip-value">{loading ? "Checking..." : allDone ? "Ready" : nextMilestone.title}</strong>
+              </span>
             </div>
           </div>
         </div>
@@ -287,13 +280,12 @@ export function QuickStartPage() {
           <Link to="/" className="button button-secondary">Back to dashboard</Link>
           <Link to={nextMilestone.href} className="button button-primary">{loading ? "Loading..." : nextMilestone.actionLabel}</Link>
         </div>
-      </section>
+      </div>
 
       <section className="quickstart-grid">
         <div className="card quickstart-progress-card">
           <div className="quickstart-progress-header">
             <div>
-              <p className="eyebrow">Launch track</p>
               <h3 className="section-title">First payment milestones</h3>
             </div>
             <span className="badge">{loading ? "Checking..." : `${sprintCompleted} of ${sprintMilestones.length} complete`}</span>
@@ -306,7 +298,6 @@ export function QuickStartPage() {
               <div key={milestone.key} className={`quickstart-sprint-card ${milestone.done ? "is-done" : ""}`}>
                 <span className="status-pill status-pill-compact">{milestone.done ? "Ready" : "Pending"}</span>
                 <strong>{milestone.title}</strong>
-                <p className="muted">{milestone.detail}</p>
                 <Link to={milestone.href} className="inline-link">{milestone.actionLabel}</Link>
               </div>
             ))}
@@ -316,7 +307,6 @@ export function QuickStartPage() {
         <div className="card quickstart-blockers-card">
           <div className="card-section-header">
             <div>
-              <p className="eyebrow">Before you charge</p>
               <h3 className="section-title">Current blockers</h3>
             </div>
           </div>
@@ -343,7 +333,6 @@ export function QuickStartPage() {
       <section className="card quickstart-progress-card">
         <div className="quickstart-progress-header">
           <div>
-            <p className="eyebrow">{allDone ? "Complete" : "Start here"}</p>
             <h3 className="section-title">{allDone ? "Core setup completed" : "Next step"}</h3>
           </div>
           <span className="badge">{loading ? "Checking..." : allDone ? `${completedSteps} of ${stepsWithState.length} done` : `Step ${Math.max(nextStepIndex + 1, 1)} of ${stepsWithState.length}`}</span>
@@ -354,7 +343,6 @@ export function QuickStartPage() {
           <div className="quickstart-featured-step">
             <div>
               <strong>{featuredTitle}</strong>
-              <p className="muted">{featuredDescription}</p>
             </div>
             <Link to={allDone ? heroActionHref : nextMilestone.href} className="button button-primary">{allDone ? heroActionLabel : nextMilestone.actionLabel}</Link>
           </div>
@@ -373,7 +361,6 @@ export function QuickStartPage() {
       <section className="card">
         <div className="card-section-header">
           <div>
-            <p className="eyebrow">Main flow</p>
             <h3 className="section-title">Complete these first</h3>
           </div>
         </div>
@@ -383,7 +370,6 @@ export function QuickStartPage() {
               <div className="quickstart-step-number">{step.done ? "OK" : index + 1}</div>
               <div className="quickstart-step-copy">
                 <strong>{step.title}</strong>
-                <p className="muted">{step.description}</p>
               </div>
               <Link to={step.actionHref} className="button button-secondary">{step.actionLabel}</Link>
             </div>
@@ -395,7 +381,6 @@ export function QuickStartPage() {
         <div className="card">
           <div className="card-section-header">
             <div>
-              <p className="eyebrow">Optional later</p>
               <h3 className="section-title">Do this after setup</h3>
             </div>
           </div>
@@ -404,7 +389,6 @@ export function QuickStartPage() {
               <div key={item.title} className="quickstart-item">
                 <div>
                   <h3>{item.title}</h3>
-                  <p className="muted">{item.description}</p>
                 </div>
                 <Link to={item.actionHref} className="button button-secondary">{item.actionLabel}</Link>
               </div>
@@ -415,7 +399,6 @@ export function QuickStartPage() {
         <div className="card">
           <div className="card-section-header">
             <div>
-              <p className="eyebrow">Keep in mind</p>
               <h3 className="section-title">Practical reminders</h3>
             </div>
           </div>

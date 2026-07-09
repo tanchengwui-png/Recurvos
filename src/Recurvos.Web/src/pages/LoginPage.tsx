@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { BrandLogo } from "../components/BrandLogo";
 import { Button } from "../components/ui/Button";
 import { FormLabel } from "../components/ui/FormLabel";
 import { HelperText } from "../components/ui/HelperText";
@@ -86,11 +87,7 @@ export function LoginPage() {
       <div className="login-layout">
         <section className="login-showcase card subtle-card">
           <a className="login-showcase-brand" href={buildPublicSiteUrl("/")}>
-            <img
-              src="/recurvos-billing-logo-v2.png"
-              alt="Recurvos Billing"
-              className="brand-logo login-showcase-logo"
-            />
+            <BrandLogo className="login-showcase-logo" />
           </a>
 
           <h1 className="brand-title">Automate invoices, subscriptions, and recurring billing for Malaysian businesses.</h1>
@@ -128,7 +125,7 @@ export function LoginPage() {
         <section className="card auth-card auth-card-surface login-panel">
           <header className="auth-header login-panel-header">
             <p className="eyebrow">Welcome back</p>
-            <h2>Sign in</h2>
+            <h2>Sign In</h2>
             <p className="auth-subtitle">Access your billing workspace and continue where you left off.</p>
           </header>
 

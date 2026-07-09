@@ -299,9 +299,7 @@ export function PlatformUsersPage() {
     <div className="page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">User management</p>
-          <h2>Platform users</h2>
-          <p className="muted">Manage platform admins, resend verification, reset passwords, and control subscriber user access from one owner screen.</p>
+          <h2>Platform Users</h2>
         </div>
       </header>
 
@@ -312,9 +310,7 @@ export function PlatformUsersPage() {
         <article className="card">
           <div className="card-section-header">
             <div>
-              <p className="eyebrow">Platform access</p>
               <h3 className="section-title">Create platform admin</h3>
-              <p className="muted form-intro">Add another admin who can help manage platform-side settings and operations.</p>
             </div>
             <span className="status-pill status-pill-active">{`${users.filter((item) => item.isPlatformAccess).length} platform user${users.filter((item) => item.isPlatformAccess).length === 1 ? "" : "s"}`}</span>
           </div>
@@ -345,21 +341,19 @@ export function PlatformUsersPage() {
         <article className="card">
           <div className="card-section-header">
             <div>
-              <p className="eyebrow">Find users</p>
               <h3 className="section-title">Search and filter</h3>
-              <p className="muted form-intro">Filter by access type, account status, and verification state before taking action.</p>
             </div>
           </div>
           <div className="form-stack">
             <label className="form-label">
               Search
-              <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, company, or role" />
+              <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search user name, email, company, or role" />
             </label>
             <div className="inline-fields settings-inline-fields-wide">
               <label className="form-label">
                 Access
                 <select value={accessFilter} onChange={(event) => setAccessFilter(event.target.value as typeof accessFilter)}>
-                  <option value="all">All users</option>
+                  <option value="all">All access types</option>
                   <option value="platform">Platform users</option>
                   <option value="subscriber">Subscriber users</option>
                 </select>
@@ -375,7 +369,7 @@ export function PlatformUsersPage() {
               <label className="form-label">
                 Verification
                 <select value={verificationFilter} onChange={(event) => setVerificationFilter(event.target.value as typeof verificationFilter)}>
-                  <option value="all">All users</option>
+                  <option value="all">All verification states</option>
                   <option value="verified">Verified only</option>
                   <option value="unverified">Unverified only</option>
                 </select>
@@ -386,23 +380,22 @@ export function PlatformUsersPage() {
         </article>
       </section>
 
-      <section className="management-summary-grid">
-        <article className="management-summary-card">
-          <p className="eyebrow">Overview</p>
-          <h3>{users.length}</h3>
-          <p className="muted">Total user accounts</p>
-        </article>
-        <article className="management-summary-card">
-          <p className="eyebrow">Platform</p>
-          <h3>{users.filter((item) => item.isPlatformAccess).length}</h3>
-          <p className="muted">Platform-side admins</p>
-        </article>
-        <article className="management-summary-card">
-          <p className="eyebrow">Need attention</p>
-          <h3>{users.filter((item) => !item.isEmailVerified || !item.isActive).length}</h3>
-          <p className="muted">Inactive or unverified users</p>
-        </article>
-      </section>
+      <div className="page-meta-row" aria-label="User summary">
+        <div className="page-meta-chips">
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Users</span>
+            <strong className="page-meta-chip-value">{users.length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Platform</span>
+            <strong className="page-meta-chip-value">{users.filter((item) => item.isPlatformAccess).length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Attention</span>
+            <strong className="page-meta-chip-value">{users.filter((item) => !item.isEmailVerified || !item.isActive).length}</strong>
+          </span>
+        </div>
+      </div>
 
       {renderCollapsibleUserTable(
         "Platform admins",

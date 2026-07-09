@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClipboardWithFallback } from "../hooks/useClipboardWithFallback";
@@ -825,7 +826,7 @@ export function InvoicesPage() {
 
   function renderSortHeader(label: string, column: InvoiceSortColumn, className?: string) {
     const isActive = sortState?.column === column;
-    const icon = isActive ? (sortState?.direction === "asc" ? "▲" : "▼") : "↕";
+    const icon = isActive ? (sortState?.direction === "asc" ? "▲" : "▼") : null;
 
     return (
       <th className={className} aria-sort={isActive ? (sortState?.direction === "asc" ? "ascending" : "descending") : "none"}>
@@ -836,7 +837,7 @@ export function InvoicesPage() {
           aria-label={`Sort by ${label}`}
         >
           <span>{label}</span>
-          <span className="table-sort-icon" aria-hidden="true">{icon}</span>
+          {icon ? <span className="table-sort-icon" aria-hidden="true">{icon}</span> : null}
         </button>
       </th>
     );
@@ -845,52 +846,51 @@ export function InvoicesPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Invoice engine</p>
+        <div className="page-header-copy">
           <h2>Invoices</h2>
-          <p className="muted">Track balance, billing period, source, payment actions, and invoice history.</p>
         </div>
       </header>
 
       {successMessage ? <HelperText>{successMessage}</HelperText> : null}
       {formError ? <HelperText tone="error">{formError}</HelperText> : null}
-      {billingReadiness && !billingReadiness.isReady ? (
-        <HelperText>
-          {`Complete the company billing profile before creating or sending invoices: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
-        </HelperText>
-      ) : null}
+
+      <div className="catalog-toolbar card subtle-card invoice-filter-bar">
+        <label className="form-label invoice-filter-search">
+          Search
+          <input
+            aria-label="Search invoices"
+            className="text-input"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search invoice number, customer, status, or source"
+          />
+        </label>
+        <label className="form-label invoice-filter-select">
+          Status
+          <select aria-label="Filter invoices by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "open" | "paid" | "overdue" | "voided")}>
+            <option value="all">All statuses</option>
+            <option value="open">Outstanding</option>
+            <option value="paid">Paid</option>
+            <option value="overdue">Overdue</option>
+            <option value="voided">Voided</option>
+          </select>
+        </label>
+        <label className="form-label invoice-filter-select">
+          Source
+          <select aria-label="Filter invoices by source" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | "manual" | "subscription" | "platform")}>
+            <option value="all">All sources</option>
+            <option value="manual">Manual</option>
+            <option value="subscription">Subscription</option>
+            <option value="platform">Platform subscription</option>
+          </select>
+        </label>
+      </div>
 
       <section className="card">
-        <div className="inline-fields pwa-filter-bar invoice-filter-bar" style={{ marginBottom: "1rem", alignItems: "end" }}>
-          <label className="form-label invoice-filter-search">
-            Search
-            <input
-              aria-label="Search invoices"
-              className="text-input"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search invoice number, customer, status, or source"
-            />
-          </label>
-          <label className="form-label invoice-filter-select">
-            Status
-            <select aria-label="Filter invoices by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "open" | "paid" | "overdue" | "voided")}>
-              <option value="all">All statuses</option>
-              <option value="open">Outstanding</option>
-              <option value="paid">Paid</option>
-              <option value="overdue">Overdue</option>
-              <option value="voided">Voided</option>
-            </select>
-          </label>
-          <label className="form-label invoice-filter-select">
-            Source
-            <select aria-label="Filter invoices by source" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as "all" | "manual" | "subscription" | "platform")}>
-              <option value="all">All sources</option>
-              <option value="manual">Manual</option>
-              <option value="subscription">Subscription</option>
-              <option value="platform">Platform subscription</option>
-            </select>
-          </label>
+        <div className="card-section-header">
+          <div>
+            <h3 className="section-title">Invoice records</h3>
+          </div>
         </div>
         {searchQuery || statusFilter !== "all" || sourceFilter !== "all" ? (
           <HelperText>{`${filteredItems.length} matching invoice${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
@@ -992,7 +992,20 @@ export function InvoicesPage() {
               </tr>
             </thead>
             <tbody>
-              {pagination.pagedItems.map((item) => (
+              {items.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={9}
+                  title="No invoices yet"
+                  description="Wait for subscription renewals to generate invoices automatically, or use invoice actions here once records exist."
+                  actions={<button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>}
+                />
+              ) : filteredItems.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={9}
+                  title="No matching invoices"
+                  description="Try a different keyword or filter to narrow the invoice list."
+                />
+              ) : pagination.pagedItems.map((item) => (
                 <Fragment key={item.id}>
                   <tr>
                     <td className="sticky-cell sticky-cell-left invoice-primary-cell">
@@ -1044,20 +1057,6 @@ export function InvoicesPage() {
             <div ref={bottomInnerRef} />
           </div>
         </div>
-        {items.length === 0 ? (
-          <div className="empty-state">
-            <h3>No invoices yet</h3>
-            <p className="muted">Wait for subscription renewals to generate invoices automatically, or use invoice actions here once records exist.</p>
-            <div className="empty-state-actions">
-              <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
-            </div>
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="empty-state">
-            <h3>No matching invoices</h3>
-            <p className="muted">Try a different keyword or filter to narrow the invoice list.</p>
-          </div>
-        ) : null}
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
 
         {paymentForm ? (
@@ -1548,6 +1547,20 @@ export function InvoicesPage() {
                           {selectedInvoice.periodStartUtc && selectedInvoice.periodEndUtc
                             ? `${new Date(selectedInvoice.periodStartUtc).toLocaleDateString()} - ${new Date(selectedInvoice.periodEndUtc).toLocaleDateString()}`
                             : "-"}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header">
+                      <p className="eyebrow">Billing Address</p>
+                    </div>
+                    <div className="invoice-detail-list">
+                      <div className="invoice-detail-list-row invoice-detail-list-row-top">
+                        <span>Saved with invoice</span>
+                        <strong className="invoice-detail-align-right" style={{ whiteSpace: "pre-line" }}>
+                          {selectedInvoice.companyAddressSnapshot || "-"}
                         </strong>
                       </div>
                     </div>

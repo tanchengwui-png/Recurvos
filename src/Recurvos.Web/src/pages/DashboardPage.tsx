@@ -13,7 +13,7 @@ import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { BillingReadiness, CompanyLookup, FeatureAccess } from "../types";
 
-type QuickRange = "thisMonth" | "last30" | "today" | "next7";
+type QuickRange = "thisMonth" | "last30" | "today" | "next7" | "custom";
 
 function formatTooltipCurrency(value: unknown) {
   return formatCurrency(typeof value === "number" ? value : Number(value ?? 0), "MYR");
@@ -28,6 +28,8 @@ function resolveQuickRange(range: QuickRange) {
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
   switch (range) {
+    case "custom":
+      return { startDateUtc: toDateInput(today), endDateUtc: toDateInput(new Date(today.getTime() + 24 * 60 * 60 * 1000)) };
     case "today":
       return { startDateUtc: toDateInput(today), endDateUtc: toDateInput(new Date(today.getTime() + 24 * 60 * 60 * 1000)) };
     case "last30":
@@ -131,15 +133,6 @@ export function DashboardPage() {
   const checklistSteps = [...readinessSteps, ...enabledSetupSteps.filter((step) => !["companies", "logo"].includes(step.key))];
   const completedSetupSteps = enabledSetupSteps.filter((step) => step.done).length;
   const completedChecklistSteps = checklistSteps.filter((step) => step.done);
-  const selectedCompanyLabel = selectedCompanyId
-    ? companies.find((company) => company.id === selectedCompanyId)?.name ?? "Selected company"
-    : "All companies";
-  const quickRangeLabel = ({
-    today: "Today",
-    thisMonth: "This Month",
-    last30: "Last 30 Days",
-    next7: "Next 7 Days",
-  } satisfies Record<QuickRange, string>)[quickRange];
   const dashboardSetupMove = useMemo(() => {
     if ((billingReadiness?.items ?? []).some((item) => item.required && !item.done)) {
       const blocker = billingReadiness!.items.find((item) => item.required && !item.done)!;
@@ -233,6 +226,10 @@ export function DashboardPage() {
 
   function applyQuickRange(range: QuickRange) {
     setQuickRange(range);
+    if (range === "custom") {
+      return;
+    }
+
     const next = resolveQuickRange(range);
     setStartDateUtc(next.startDateUtc);
     setEndDateUtc(next.endDateUtc);
@@ -242,34 +239,11 @@ export function DashboardPage() {
     <div className="page dashboard-page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">Overview</p>
-          <h2>Business dashboard</h2>
-          <p className="muted">How much you have collected, what renews next, what is overdue, and what needs action today.</p>
+          <h2>Dashboard</h2>
         </div>
       </header>
-      <section className="dashboard-hero-strip" aria-label="Dashboard scope">
-        <div className="dashboard-hero-chip">
-          <span>Scope</span>
-          <strong>{selectedCompanyLabel}</strong>
-        </div>
-        <div className="dashboard-hero-chip">
-          <span>Window</span>
-          <strong>{quickRangeLabel}</strong>
-        </div>
-        <div className="dashboard-hero-chip dashboard-hero-chip-accent">
-          <span>Focus</span>
-          <strong>{reportsEnabled ? "Collections and renewals" : "Setup required"}</strong>
-        </div>
-      </section>
 
       <section className="card subtle-card dashboard-filters dashboard-controls-card">
-        <div className="dashboard-filters-heading">
-          <div>
-            <p className="eyebrow">Range</p>
-            <h3 className="section-title">Filter dashboard</h3>
-          </div>
-          <p className="muted">Choose one company and one time window.</p>
-        </div>
         <div className="dashboard-filter-grid dashboard-filter-grid-mobile">
           <label className="form-label dashboard-filter-company">
             Company
@@ -280,14 +254,34 @@ export function DashboardPage() {
               ))}
             </select>
           </label>
-          <label className="form-label dashboard-filter-date">
-            Start date
-            <input className="text-input" type="date" value={startDateUtc} onChange={(event) => setStartDateUtc(event.target.value)} />
-          </label>
-          <label className="form-label dashboard-filter-date">
-            End date
-            <input className="text-input" type="date" value={endDateUtc} onChange={(event) => setEndDateUtc(event.target.value)} />
-          </label>
+          {quickRange === "custom" ? (
+            <>
+              <label className="form-label dashboard-filter-date">
+                Start date
+                <input
+                  className="text-input"
+                  type="date"
+                  value={startDateUtc}
+                  onChange={(event) => {
+                    setQuickRange("custom");
+                    setStartDateUtc(event.target.value);
+                  }}
+                />
+              </label>
+              <label className="form-label dashboard-filter-date">
+                End date
+                <input
+                  className="text-input"
+                  type="date"
+                  value={endDateUtc}
+                  onChange={(event) => {
+                    setQuickRange("custom");
+                    setEndDateUtc(event.target.value);
+                  }}
+                />
+              </label>
+            </>
+          ) : null}
         </div>
         <div className="dashboard-quick-filters">
           {[
@@ -295,11 +289,12 @@ export function DashboardPage() {
             ["thisMonth", "This Month"],
             ["last30", "Last 30 Days"],
             ["next7", "Next 7 Days"],
+            ["custom", "Custom"],
           ].map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={`dashboard-range-chip ${quickRange === value ? "dashboard-range-chip-active" : ""}`}
+              className={`dashboard-range-chip ${value === "custom" ? "dashboard-range-chip-custom" : ""} ${quickRange === value ? "dashboard-range-chip-active" : ""}`}
               onClick={() => applyQuickRange(value as QuickRange)}
             >
               {label}

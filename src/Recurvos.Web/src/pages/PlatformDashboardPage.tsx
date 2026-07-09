@@ -68,9 +68,8 @@ export function PlatformDashboardPage() {
     <div className="page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">Platform overview</p>
-          <h2>Owner dashboard</h2>
-          <p className="muted">Track subscriber health, billing exposure, and overall platform usage from one place.</p>
+          <h2>Owner Dashboard</h2>
+          <p className="page-subtitle">Platform overview.</p>
         </div>
         <div className="button-stack">
           <Link to="/platform/documents" className="button button-secondary">Document Preview</Link>

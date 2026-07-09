@@ -101,9 +101,7 @@ export function PlatformAuditLogsPage() {
     <div className="page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">Platform</p>
-          <h2>Audit logs</h2>
-          <p className="muted">Review what changed, who triggered it, and which subscriber company was affected before investigating a reported bug.</p>
+          <h2>Audit Logs</h2>
         </div>
         <div className="inline-actions">
           <label className="form-label">
@@ -123,31 +121,28 @@ export function PlatformAuditLogsPage() {
 
       {error ? <HelperText tone="error">{error}</HelperText> : null}
 
-      <section className="card feedback-owner-summary">
-        <div className="management-summary-grid">
-          <div className="management-summary-card">
-            <p className="eyebrow">Total</p>
-            <h3>{items.length}</h3>
-            <p className="muted">{hasLoaded ? "Loaded audit entries" : "Not loaded yet"}</p>
-          </div>
-          <div className="management-summary-card">
-            <p className="eyebrow">Companies</p>
-            <h3>{companyOptions.length}</h3>
-            <p className="muted">Companies in current result</p>
-          </div>
-          <div className="management-summary-card">
-            <p className="eyebrow">Modules</p>
-            <h3>{moduleOptions.length}</h3>
-            <p className="muted">Modules in current result</p>
-          </div>
+      <div className="page-meta-row" aria-label="Audit log summary">
+        <div className="page-meta-chips">
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Total</span>
+            <strong className="page-meta-chip-value">{items.length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Companies</span>
+            <strong className="page-meta-chip-value">{companyOptions.length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Modules</span>
+            <strong className="page-meta-chip-value">{moduleOptions.length}</strong>
+          </span>
         </div>
-      </section>
+      </div>
 
       <section className="card feedback-owner-filters">
         <div className="feedback-owner-filter-bar">
           <label className="form-label">
             Search
-            <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search company, user, action, entity, or metadata" />
+            <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search audit log company, user, action, entity, or metadata" />
           </label>
           <label className="form-label">
             Company

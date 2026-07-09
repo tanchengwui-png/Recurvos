@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { BrandLogo } from "../components/BrandLogo";
 import { buildAppSiteUrl } from "../lib/siteUrls";
 
 const operationalHighlights = [
@@ -64,11 +65,7 @@ export function LandingPage() {
       <main id="top" className="landing-main">
         <header className="landing-topbar">
           <Link to="/" className="landing-brand">
-            <img
-              src="/recurvos-billing-logo-v2.png"
-              alt="Recurvos Billing"
-              className="brand-logo landing-brand-logo"
-            />
+            <BrandLogo className="landing-brand-logo" />
           </Link>
 
           <div className="landing-topbar-actions">

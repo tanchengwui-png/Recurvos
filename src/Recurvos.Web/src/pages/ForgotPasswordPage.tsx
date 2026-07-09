@@ -32,7 +32,7 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <AuthLayout title="Forgot password?" subtitle="We will send a secure password reset link to your work email.">
+    <AuthLayout title="Forgot Password?" subtitle="We will send a secure password reset link to your work email.">
       {submitted ? (
         <div className="form-stack">
           <div className="selected-package-banner">

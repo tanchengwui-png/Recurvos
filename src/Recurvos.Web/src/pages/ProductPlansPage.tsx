@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { EmptyTableRow } from "../components/EmptyTableRow";
 import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { Button } from "../components/ui/Button";
@@ -235,12 +236,9 @@ export function ProductPlansPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Billing catalog</p>
+        <div className="page-header-copy">
           <h2>Plans</h2>
-          <p className="muted">Monthly, quarterly, yearly, and one-time billing plans for your products.</p>
         </div>
-        <button type="button" className="button button-primary" onClick={() => navigate("/plans/new")}>Add plan</button>
       </header>
       {message ? <HelperText>{message}</HelperText> : null}
 
@@ -263,6 +261,12 @@ export function ProductPlansPage() {
 
       <section className="card">
         {actionError ? <HelperText tone="error">{actionError}</HelperText> : null}
+        <div className="card-section-header">
+          <div>
+            <h3 className="section-title">Plans and pricing</h3>
+          </div>
+          <button type="button" className="button button-primary" onClick={() => navigate("/plans/new")}>Add plan</button>
+        </div>
         <div className="subscription-mobile-list">
           {plans.map((plan) => {
             const taxInclusiveAmount = calculateTaxInclusiveAmount(plan.unitAmount);
@@ -339,7 +343,19 @@ export function ProductPlansPage() {
                 </tr>
               </thead>
               <tbody>
-                {plans.map((plan) => (
+                {plans.length === 0 ? (
+                  <EmptyTableRow
+                    colSpan={5}
+                    title="No plans yet"
+                    description="Plans define how often and how much customers are charged. Start with a monthly or yearly plan."
+                    actions={(
+                      <>
+                        <Button type="button" onClick={() => navigate("/plans/new")}>Create first plan</Button>
+                        <Button type="button" variant="secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</Button>
+                      </>
+                    )}
+                  />
+                ) : plans.map((plan) => (
                   <tr key={plan.id}>
                     <td className="sticky-cell sticky-cell-left table-primary-cell">
                       <div className="table-primary-cell-stack">
@@ -391,16 +407,6 @@ export function ProductPlansPage() {
             <div ref={bottomInnerRef} />
           </div>
         </div>
-        {plans.length === 0 ? (
-          <div className="empty-state">
-            <h3>No plans yet</h3>
-            <p className="muted">Plans define how often and how much customers are charged. Start with a monthly or yearly plan.</p>
-            <div className="empty-state-actions">
-              <Button type="button" onClick={() => navigate("/plans/new")}>Create first plan</Button>
-              <Button type="button" variant="secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</Button>
-            </div>
-          </div>
-        ) : null}
         <TablePagination
           currentPage={currentPage}
           pageSize={pageSize}

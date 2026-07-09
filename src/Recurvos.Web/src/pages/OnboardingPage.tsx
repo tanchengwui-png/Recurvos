@@ -12,6 +12,19 @@ import { api } from "../lib/api";
 import { getPackageDisplayName, getPackageMarketingContent } from "../lib/packages";
 import type { PlatformPackage, RegisterResult } from "../types";
 
+const countryCodeOptions = [
+  { value: "+60", label: "MY +60" },
+  { value: "+65", label: "SG +65" },
+  { value: "+62", label: "ID +62" },
+  { value: "+66", label: "TH +66" },
+];
+
+function normalizeRegistrationPhone(countryCode: string, mobileNumber: string) {
+  const normalizedCountryCode = countryCode.startsWith("+") ? countryCode : `+${countryCode}`;
+  const digits = mobileNumber.replace(/\D/g, "").replace(/^0+/, "");
+  return `${normalizedCountryCode}${digits}`;
+}
+
 export function OnboardingPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -27,8 +40,11 @@ export function OnboardingPage() {
     companyName: "",
     registrationNumber: "",
     companyEmail: "",
+    phoneCountryCode: "+60",
+    phoneNumber: "",
     billingAddress: "",
-    fullName: "",
+    firstName: "",
+    lastName: "",
     email: "",
     password: "",
     acceptLegalTerms: false,
@@ -55,7 +71,22 @@ export function OnboardingPage() {
     setError("");
 
     try {
-      const response = await api.post<RegisterResult>("/auth/register", form);
+      const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
+      const phone = normalizeRegistrationPhone(form.phoneCountryCode, form.phoneNumber);
+
+      const response = await api.post<RegisterResult>("/auth/register", {
+        website: form.website,
+        packageCode: form.packageCode,
+        companyName: form.companyName,
+        registrationNumber: form.registrationNumber,
+        companyEmail: form.companyEmail,
+        phone,
+        billingAddress: form.billingAddress,
+        fullName,
+        email: form.email,
+        password: form.password,
+        acceptLegalTerms: form.acceptLegalTerms,
+      });
       setRegisterResult(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create account");
@@ -65,7 +96,7 @@ export function OnboardingPage() {
   }
 
   return (
-    <AuthLayout title="Create account" subtitle="Recurring billing for Malaysian businesses">
+    <AuthLayout title="Create Account" subtitle="Recurring billing for Malaysian businesses">
       {registerResult ? (
         <div className="form-stack">
           <div className="selected-package-banner">
@@ -170,9 +201,42 @@ export function OnboardingPage() {
               value={form.companyEmail}
               onChange={(event) => setForm((current) => ({ ...current, companyEmail: event.target.value }))}
             />
-            <small className="muted">Used on invoices and billing communication for the business.</small>
+            <small className="muted onboarding-field-note">Used on invoices and billing communication for the business.</small>
           </>
         </FormLabel>
+
+        <div className="form-stack">
+          <div className="inline-fields">
+            <FormLabel htmlFor="phoneCountryCode">
+              Country code
+              <select
+                id="phoneCountryCode"
+                value={form.phoneCountryCode}
+                onChange={(event) => setForm((current) => ({ ...current, phoneCountryCode: event.target.value }))}
+              >
+                {countryCodeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FormLabel>
+
+            <FormLabel htmlFor="phoneNumber">
+              Mobile no.
+              <TextInput
+                id="phoneNumber"
+                type="tel"
+                autoComplete="tel"
+                inputMode="tel"
+                placeholder="12 345 6789"
+                value={form.phoneNumber}
+                onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))}
+              />
+            </FormLabel>
+          </div>
+          <small className="muted onboarding-field-note">Used as the billing contact phone for invoices, reminders, and payment follow-up.</small>
+        </div>
 
         <FormLabel htmlFor="billingAddress">
           Billing address
@@ -185,19 +249,31 @@ export function OnboardingPage() {
               value={form.billingAddress}
               onChange={(event) => setForm((current) => ({ ...current, billingAddress: event.target.value }))}
             />
-            <small className="muted">Shown on invoices and receipts for your subscribers.</small>
+            <small className="muted onboarding-field-note">Shown on invoices and receipts for your subscribers.</small>
           </>
         </FormLabel>
 
-        <FormLabel htmlFor="fullName">
-          Your full name
-          <TextInput
-            id="fullName"
-            placeholder="Aisyah Rahman"
-            value={form.fullName}
-            onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))}
-          />
-        </FormLabel>
+        <div className="inline-fields">
+          <FormLabel htmlFor="firstName">
+            First name
+            <TextInput
+              id="firstName"
+              placeholder="Aisyah"
+              value={form.firstName}
+              onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))}
+            />
+          </FormLabel>
+
+          <FormLabel htmlFor="lastName">
+            Last name
+            <TextInput
+              id="lastName"
+              placeholder="Rahman"
+              value={form.lastName}
+              onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))}
+            />
+          </FormLabel>
+        </div>
 
         <FormLabel htmlFor="email">
           Your login email

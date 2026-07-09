@@ -8,6 +8,47 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
     public async Task EnsureAsync(CancellationToken cancellationToken = default)
     {
         await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Companies"
+            ADD COLUMN IF NOT EXISTS "LegalName" character varying(200) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Companies"
+            ADD COLUMN IF NOT EXISTS "RegistrationNumberType" character varying(100) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Companies"
+            ADD COLUMN IF NOT EXISTS "OldRegistrationNumber" character varying(100) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Companies"
+            ADD COLUMN IF NOT EXISTS "Tin" character varying(100) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Companies"
+            ADD COLUMN IF NOT EXISTS "MsicCode" character varying(50) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Companies"
+            ADD COLUMN IF NOT EXISTS "TourismTaxRegistrationNumber" character varying(100) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Companies"
+            ADD COLUMN IF NOT EXISTS "HomeCountry" character varying(100) NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            UPDATE "Companies"
+            SET "LegalName" = COALESCE(NULLIF(TRIM("Name"), ''), "LegalName")
+            WHERE "LegalName" IS NULL OR TRIM("LegalName") = '';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "Subscriptions"
             ADD COLUMN IF NOT EXISTS "CancellationReason" character varying(1000) NULL;
             """, cancellationToken);

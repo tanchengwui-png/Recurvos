@@ -42,6 +42,7 @@ public sealed class AuthService(
         var normalizedCompanyEmail = NormalizeEmail(request.CompanyEmail);
         var normalizedPackageCode = request.PackageCode.Trim().ToLowerInvariant();
         var normalizedRegistrationNumber = request.RegistrationNumber.Trim().ToUpperInvariant();
+        var normalizedCompanyPhone = request.Phone.Trim();
 
         if (await dbContext.Users.AnyAsync(x => x.Email.ToLower() == normalizedUserEmail, cancellationToken))
         {
@@ -61,7 +62,7 @@ public sealed class AuthService(
             Name = request.CompanyName.Trim(),
             RegistrationNumber = normalizedRegistrationNumber,
             Email = normalizedCompanyEmail,
-            Phone = string.Empty,
+            Phone = normalizedCompanyPhone,
             Address = string.IsNullOrWhiteSpace(request.BillingAddress) ? string.Empty : request.BillingAddress.Trim(),
             IsActive = true,
             IsPlatformAccount = false,

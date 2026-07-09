@@ -91,6 +91,34 @@ function getSubscriptionItemsPreview(subscription: Subscription) {
     : `${firstItem.productPlanName} + ${remainingItems.length} more`;
 }
 
+function getSubscriptionStatusClass(status: Subscription["status"], cancelAtPeriodEnd: boolean) {
+  if (status === "Cancelled") {
+    return "subscriptions-project-badge-danger";
+  }
+
+  if (status === "Paused") {
+    return "subscriptions-project-badge-muted";
+  }
+
+  if (cancelAtPeriodEnd) {
+    return "subscriptions-project-badge-warning";
+  }
+
+  if (status === "Active") {
+    return "subscriptions-project-badge-success";
+  }
+
+  return "subscriptions-project-badge-primary";
+}
+
+function getSubscriptionStatusLabel(status: Subscription["status"], cancelAtPeriodEnd: boolean) {
+  if (cancelAtPeriodEnd && status !== "Cancelled") {
+    return "Scheduled";
+  }
+
+  return status;
+}
+
 export function SubscriptionsPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -109,7 +137,6 @@ export function SubscriptionsPage() {
   const selectedSubscription = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [billingReadiness, setBillingReadiness] = useState<BillingReadiness | null>(null);
-  const [dueInvoiceCount, setDueInvoiceCount] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused" | "scheduled" | "cancelled">(() => {
     const value = searchParams.get("status");
@@ -169,16 +196,14 @@ export function SubscriptionsPage() {
 
     return true;
   });
-
   const pagination = useClientPagination(filteredItems, [filteredItems.length, searchQuery, statusFilter, billingFilter], 20);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
 
   async function load() {
     const requestId = ++loadRequestIdRef.current;
-    const [subscriptions, companyList, dueInvoices] = await Promise.all([
+    const [subscriptions, companyList] = await Promise.all([
       api.get<Subscription[]>("/subscriptions"),
       api.get<CompanyLookup[]>("/companies"),
-      api.get<{ count: number }>("/subscriptions/due-invoices/count"),
     ]);
 
     if (requestId !== loadRequestIdRef.current) {
@@ -186,7 +211,6 @@ export function SubscriptionsPage() {
     }
 
     setItems(subscriptions);
-    setDueInvoiceCount(dueInvoices.count);
 
     const activeCompanyId = companyList[0]?.id || "";
     if (!activeCompanyId) {
@@ -398,7 +422,7 @@ export function SubscriptionsPage() {
   }
 
   function getSubscriptionActions(item: Subscription) {
-    return [
+      return [
       {
         label: expandedId === item.id ? "Hide details" : "View details",
         onClick: () => setExpandedId((current) => current === item.id ? null : item.id),
@@ -481,37 +505,7 @@ export function SubscriptionsPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Lifecycle management</p>
-          <h2>Subscriptions</h2>
-          {dueInvoiceCount !== null ? (
-            <p className="muted">
-              {dueInvoiceCount > 0
-                ? `${dueInvoiceCount} subscription${dueInvoiceCount === 1 ? "" : "s"} ${dueInvoiceCount === 1 ? "is" : "are"} ready to invoice now.`
-                : "No subscriptions are waiting for their next invoice right now."}
-            </p>
-          ) : null}
-        </div>
-        <div className="page-header-actions">
-          <button type="button" className="button button-primary" onClick={() => navigate("/subscriptions/new")}>Add subscription</button>
-          <button
-            type="button"
-            className="button button-secondary"
-            onClick={() => setConfirmState({
-              title: "Run invoices now",
-              description: "Generate invoices for all subscriptions whose invoice date has been reached? This uses the same invoice-date logic as the scheduled billing run.",
-              action: async () => {
-                await runDueInvoicesNow();
-                setConfirmState(null);
-              },
-            })}
-          >
-            Run invoices now
-          </button>
-        </div>
-      </header>
+    <div className="page subscriptions-page">
       {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
       {billingReadiness && !billingReadiness.isReady ? (
@@ -519,38 +513,60 @@ export function SubscriptionsPage() {
           {`Complete the company billing profile before starting subscriptions: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
         </HelperText>
       ) : null}
-      <section className="card">
-        <div className="inline-fields pwa-filter-bar subscription-filter-bar" style={{ marginBottom: "1rem", alignItems: "end" }}>
-          <label className="form-label subscription-filter-search">
-            Search
-            <input
-              aria-label="Search subscriptions"
-              className="text-input"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search customer, company, plan, status, or notes"
-            />
-          </label>
-          <label className="form-label subscription-filter-select">
-            Status
-            <select aria-label="Filter subscriptions by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "paused" | "scheduled" | "cancelled")}>
-              <option value="all">All statuses</option>
-              <option value="active">Active</option>
-              <option value="paused">Paused</option>
-              <option value="scheduled">Scheduled to end</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </label>
-          <label className="form-label subscription-filter-select">
-            Billing
-            <select aria-label="Filter subscriptions by billing type" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value as "all" | "due" | "recurring" | "one-time" | "mixed")}>
-              <option value="all">All billing</option>
-              <option value="due">Due now</option>
-              <option value="recurring">Recurring</option>
-              <option value="one-time">One-time</option>
-              <option value="mixed">Mixed</option>
-            </select>
-          </label>
+      <div className="catalog-toolbar card subtle-card pwa-filter-bar subscription-filter-bar subscriptions-theme-toolbar">
+        <label className="form-label subscription-filter-search">
+          Search
+          <input
+            aria-label="Search subscriptions"
+            className="text-input"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search customer, company, plan, status, or notes"
+          />
+        </label>
+        <label className="form-label subscription-filter-select">
+          Status
+          <select aria-label="Filter subscriptions by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "paused" | "scheduled" | "cancelled")}>
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="scheduled">Scheduled to end</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+        <label className="form-label subscription-filter-select">
+          Billing
+          <select aria-label="Filter subscriptions by billing type" value={billingFilter} onChange={(event) => setBillingFilter(event.target.value as "all" | "due" | "recurring" | "one-time" | "mixed")}>
+            <option value="all">All billing</option>
+            <option value="due">Due now</option>
+            <option value="recurring">Recurring</option>
+            <option value="one-time">One-time</option>
+            <option value="mixed">Mixed</option>
+          </select>
+        </label>
+      </div>
+      <section className="card subscriptions-page-card">
+        <div className="card-section-header">
+          <div>
+            <h3 className="section-title">Subscription records</h3>
+          </div>
+          <div className="subscriptions-record-actions">
+            <button type="button" className="button button-primary" onClick={() => navigate("/subscriptions/new")}>Add subscription</button>
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => setConfirmState({
+                title: "Run invoices now",
+                description: "Generate invoices for all subscriptions whose invoice date has been reached? This uses the same invoice-date logic as the scheduled billing run.",
+                action: async () => {
+                  await runDueInvoicesNow();
+                  setConfirmState(null);
+                },
+              })}
+            >
+              Run invoices now
+            </button>
+          </div>
         </div>
         {searchQuery || statusFilter !== "all" || billingFilter !== "all" ? (
           <HelperText>{`${filteredItems.length} matching subscription${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
@@ -630,7 +646,15 @@ export function SubscriptionsPage() {
                     <Fragment key={item.id}>
                       <tr>
                         <td className="sticky-cell sticky-cell-left table-primary-cell">
-                          <div className="table-primary-cell-stack">
+                          <div className="subscriptions-project-primary">
+                            <div className="subscriptions-project-avatar" aria-hidden="true">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="4" y="4" width="16" height="16" rx="3" />
+                                <path d="M8 8h8" />
+                                <path d="M8 12h8" />
+                                <path d="M8 16h5" />
+                              </svg>
+                            </div>
                             <div className="stack">
                               <div>{item.customerName}</div>
                               <div className="eyebrow">{item.companyName}</div>
@@ -643,11 +667,12 @@ export function SubscriptionsPage() {
                                 </div>
                               ) : null}
                             </div>
-                            <RowActionMenu items={rowActions} />
                           </div>
                         </td>
                         <td>
-                          <div>{item.status}</div>
+                          <span className={`subscriptions-project-badge ${getSubscriptionStatusClass(item.status, item.cancelAtPeriodEnd)}`.trim()}>
+                            {getSubscriptionStatusLabel(item.status, item.cancelAtPeriodEnd)}
+                          </span>
                           {item.cancelAtPeriodEnd && item.currentPeriodEndUtc ? (
                             <div className="eyebrow">{`Scheduled to end on ${formatSubscriptionDate(item.currentPeriodEndUtc)}`}</div>
                           ) : null}
@@ -663,6 +688,9 @@ export function SubscriptionsPage() {
                         <td>
                           <div>{item.items.length} item{item.items.length === 1 ? "" : "s"}</div>
                           <div className="eyebrow">{item.items.map((child) => child.productPlanName).join(", ")}</div>
+                        </td>
+                        <td className="subscriptions-project-actions-cell">
+                          <RowActionMenu items={rowActions} label="..." />
                         </td>
                       </tr>
                     </Fragment>

@@ -54,7 +54,7 @@ export function VerifyEmailPage() {
   }
 
   return (
-    <AuthLayout title="Verify email" subtitle="Activate your account before you start billing">
+    <AuthLayout title="Verify Email" subtitle="Activate your account before you start billing">
       <div className="form-stack">
         {status === "verifying" ? <HelperText>Verifying your email now...</HelperText> : null}
         {status === "success" ? <HelperText>Your email is verified. Taking you into your workspace...</HelperText> : null}

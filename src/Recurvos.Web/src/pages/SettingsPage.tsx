@@ -182,72 +182,12 @@ export function SettingsPage() {
   const emailRemindersHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "email_reminders");
   const paymentGatewayConfigurationEnabled = featureAccess?.featureKeys.includes("payment_gateway_configuration") ?? false;
   const paymentGatewayConfigurationHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "payment_gateway_configuration");
-  const activeTabMeta = {
-    documents: {
-      eyebrow: "Documents",
-      title: "Invoice numbering and delivery",
-      intro: "Manage numbering rules, invoice display options, and automatic invoice email delivery.",
-    },
-    payment: {
-      eyebrow: "Payment collection",
-      title: "Subscriber payment details",
-      intro: "Set bank details, tax settings, due days, payment QR, and online payment gateway setup for the selected subscriber company.",
-    },
-    whatsapp: {
-      eyebrow: "Notifications",
-      title: "WhatsApp payment reminders",
-      intro: "Control the WhatsApp reminder setup and message template for this subscriber company.",
-    },
-    reminders: {
-      eyebrow: "Follow-up",
-      title: "Payment reminders",
-      intro: "Manage the reminder schedule that follows the invoice due date for unpaid invoices.",
-    },
+  const activeTabTitle = {
+    documents: "Documents",
+    payment: "Payment",
+    whatsapp: "WhatsApp",
+    reminders: "Reminders",
   }[activeTab];
-  const activePaymentTabMeta = {
-    manual: {
-      eyebrow: "Manual collection",
-      title: "Banking and due dates",
-      intro: "Keep the basic payment instructions in one place for bank transfer or manual collection.",
-    },
-    qr: {
-      eyebrow: "Invoice QR",
-      title: "QR upload",
-      intro: "Upload the QR image shown on invoices so customers can scan instead of typing account details.",
-    },
-    gateway: {
-      eyebrow: "Online payment",
-      title: "Gateway setup",
-      intro: "Configure subscriber-owned online checkout without mixing it into the manual payment fields.",
-    },
-    tax: {
-      eyebrow: "Tax",
-      title: "Invoice tax settings",
-      intro: "Control whether tax is shown and what label and rate appear on invoices.",
-    },
-  }[activePaymentTab];
-  const activeDocumentTabMeta = {
-    invoice: {
-      eyebrow: "Invoice numbering",
-      title: "Invoice number format",
-      intro: "Set the invoice prefix, digit count, next running number, and reset behavior.",
-    },
-    receipt: {
-      eyebrow: "Receipt numbering",
-      title: "Receipt number format",
-      intro: "Manage receipt prefix, digit count, next running number, and yearly reset separately.",
-    },
-    creditNote: {
-      eyebrow: "Credit note numbering",
-      title: "Credit note number format",
-      intro: "Manage credit note prefix, digit count, next running number, and yearly reset separately.",
-    },
-    delivery: {
-      eyebrow: "Document delivery",
-      title: "Invoice and receipt options",
-      intro: "Control what appears on documents and whether invoices are sent automatically by email.",
-    },
-  }[activeDocumentTab];
   const reminderHistoryTotalPages = Math.max(1, Math.ceil(reminderHistoryTotalCount / reminderHistoryPageSize));
   const reminderHistoryRangeStart = reminderHistoryTotalCount === 0 ? 0 : (reminderHistoryCurrentPage - 1) * reminderHistoryPageSize + 1;
   const reminderHistoryRangeEnd = reminderHistoryTotalCount === 0 ? 0 : Math.min(reminderHistoryTotalCount, reminderHistoryCurrentPage * reminderHistoryPageSize);
@@ -459,9 +399,7 @@ export function SettingsPage() {
     <div className="page">
       <header className="page-header">
         <div className="settings-header-copy">
-          <p className="eyebrow">Workspace</p>
           <h2>Settings</h2>
-          <p className="muted">Manage invoice numbering, payment instructions, and billing rules for the selected company.</p>
         </div>
         <div className="catalog-toolbar" style={{ gridTemplateColumns: "minmax(0, 280px)" }}>
           <select value={selectedCompanyId} onChange={(event) => {
@@ -472,67 +410,10 @@ export function SettingsPage() {
           </select>
         </div>
       </header>
-      <section id="install-help" className="card settings-install-help">
-        <div className="settings-panel-header">
-          <div>
-            <p className="eyebrow">Home screen</p>
-            <h4>Add Recurvos to your home screen</h4>
-            <p className="muted">Use the browser install option when available, or save Recurvos from Safari on iPhone for faster access.</p>
-          </div>
-        </div>
-        <div className="settings-install-help-grid">
-          <div className="settings-install-help-step">
-            <span className="settings-stat-label">Chrome or Edge</span>
-            <strong>Use the install button</strong>
-            <p className="muted">When Recurvos is ready to install, use the in-app prompt or the browser install action in the address bar menu.</p>
-          </div>
-          <div className="settings-install-help-step">
-            <span className="settings-stat-label">iPhone Safari</span>
-            <strong>Use Share, then Add to Home Screen</strong>
-            <p className="muted">Open the Share menu in Safari, choose Add to Home Screen, then confirm the shortcut name.</p>
-          </div>
-          <div className="settings-install-help-step">
-            <span className="settings-stat-label">Already installed</span>
-            <strong>Open it like an app</strong>
-            <p className="muted">Once installed, Recurvos opens without the browser chrome and the reminder card stops appearing.</p>
-          </div>
-        </div>
-      </section>
       {billingReadiness && !billingReadiness.isReady ? (
         <HelperText>
           {`Required before billing starts: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
         </HelperText>
-      ) : null}
-      {invoiceSettings ? (
-        <section className="card settings-overview-card">
-          <div className="settings-overview-main">
-            <p className="eyebrow">Selected company</p>
-            <h3>{companies.find((company) => company.id === selectedCompanyId)?.name ?? "Company settings"}</h3>
-            <p className="muted">Use this page to control what appears on invoices and where customers should pay.</p>
-          </div>
-          <div className="settings-overview-grid">
-            <div className="settings-overview-stat">
-              <span className="settings-stat-label">Invoice format</span>
-              <strong>{invoiceNumberExample}</strong>
-            </div>
-            <div className="settings-overview-stat">
-              <span className="settings-stat-label">Receipt format</span>
-              <strong>{receiptNumberExample}</strong>
-            </div>
-            <div className="settings-overview-stat">
-              <span className="settings-stat-label">Credit note format</span>
-              <strong>{creditNoteNumberExample}</strong>
-            </div>
-            <div className="settings-overview-stat">
-              <span className="settings-stat-label">Payment QR</span>
-              <strong>{invoiceSettings.hasPaymentQr ? "Ready" : "Missing"}</strong>
-            </div>
-            <div className="settings-overview-stat">
-              <span className="settings-stat-label">Form status</span>
-              <strong>{invoiceSettingsDirty ? "Unsaved changes" : "Saved"}</strong>
-            </div>
-          </div>
-        </section>
       ) : null}
       <section className="card settings-tab-card">
         <div className="settings-tab-strip" role="tablist" aria-label="Subscriber settings sections">
@@ -545,9 +426,7 @@ export function SettingsPage() {
       <section className="card settings-form-card">
         <div className="card-section-header">
           <div>
-            <p className="eyebrow">{activeTabMeta.eyebrow}</p>
-            <h3 className="section-title">{activeTabMeta.title}</h3>
-            <p className="muted form-intro">{activeTabMeta.intro}</p>
+            <h3 className="section-title">{activeTabTitle}</h3>
           </div>
           <span className={`status-pill ${invoiceSettingsDirty ? "status-pill-inactive" : "status-pill-active"}`}>
             {invoiceSettingsDirty ? "Unsaved edits" : "Saved"}
@@ -558,40 +437,17 @@ export function SettingsPage() {
           <div className="form-stack">
             {activeTab === "documents" ? (
               <>
-                <HelperText>
-                  Set the invoice, receipt, and credit note code, minimum digits, and next running number in one place.
-                </HelperText>
-                <div className="settings-document-summary-grid">
-                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "invoice" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>
-                    <span className="settings-stat-label">Invoice</span>
-                    <strong>{invoiceNumberExample}</strong>
-                  </button>
-                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "receipt" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("receipt")}>
-                    <span className="settings-stat-label">Receipt</span>
-                    <strong>{receiptNumberExample}</strong>
-                  </button>
-                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "creditNote" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("creditNote")}>
-                    <span className="settings-stat-label">Credit note</span>
-                    <strong>{creditNoteNumberExample}</strong>
-                  </button>
-                  <button type="button" className={`settings-mini-tab-card ${activeDocumentTab === "delivery" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>
-                    <span className="settings-stat-label">Delivery</span>
-                    <strong>{documentOptionsDirty ? "Unsaved options" : "Options saved"}</strong>
-                  </button>
-                </div>
                 <div className="settings-subtab-strip" role="tablist" aria-label="Document settings sections">
                   <button type="button" className={`settings-subtab-button ${activeDocumentTab === "invoice" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("invoice")}>Invoice</button>
                   <button type="button" className={`settings-subtab-button ${activeDocumentTab === "receipt" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("receipt")}>Receipt</button>
                   <button type="button" className={`settings-subtab-button ${activeDocumentTab === "creditNote" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("creditNote")}>Credit note</button>
                   <button type="button" className={`settings-subtab-button ${activeDocumentTab === "delivery" ? "settings-subtab-button-active" : ""}`} onClick={() => setActiveDocumentTab("delivery")}>Delivery</button>
                 </div>
-                <p className="muted settings-subtab-intro">{activeDocumentTabMeta.intro}</p>
                 {activeDocumentTab === "invoice" ? (
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
-                      <h4>{activeDocumentTabMeta.title}</h4>
+                      <h4>Invoice number format</h4>
                     </div>
                     <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
                       {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
@@ -665,8 +521,7 @@ export function SettingsPage() {
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
-                      <h4>{activeDocumentTabMeta.title}</h4>
+                      <h4>Credit note number format</h4>
                     </div>
                     <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
                       {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
@@ -740,8 +595,7 @@ export function SettingsPage() {
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
-                      <h4>{activeDocumentTabMeta.title}</h4>
+                      <h4>Receipt number format</h4>
                     </div>
                     <span className={`status-pill ${numberingDirty ? "status-pill-inactive" : "status-pill-active"}`}>
                       {numberingDirty ? "Unsaved numbering" : "Numbering saved"}
@@ -815,8 +669,7 @@ export function SettingsPage() {
                 <div className="settings-panel">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">{activeDocumentTabMeta.eyebrow}</p>
-                      <h4>{activeDocumentTabMeta.title}</h4>
+                      <h4>Invoice and receipt options</h4>
                     </div>
                   </div>
                   <div className="settings-toggle-group">
@@ -887,36 +740,14 @@ export function SettingsPage() {
             ) : null}
             {activeTab === "payment" ? (
               <>
-                <HelperText>
-                  Set how this subscriber collects payment, how long invoices stay open, and whether tax is shown.
-                </HelperText>
                 <div className="settings-panel settings-panel-accent">
                   <div className="settings-panel-header">
                     <div>
-                      <p className="eyebrow">Payment collection</p>
                       <h4>Subscriber payment details</h4>
                     </div>
                     <span className={`status-pill ${paymentSectionDirty ? "status-pill-inactive" : "status-pill-active"}`}>
                       {paymentSectionDirty ? "Unsaved payment setup" : "Payment setup saved"}
                     </span>
-                  </div>
-                  <div className="settings-payment-summary-grid">
-                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "manual" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("manual")}>
-                      <span className="settings-stat-label">Manual</span>
-                      <strong>{invoiceSettings.bankName ? invoiceSettings.bankName : "Bank details"}</strong>
-                    </button>
-                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "qr" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("qr")}>
-                      <span className="settings-stat-label">QR</span>
-                      <strong>{invoiceSettings.hasPaymentQr || paymentQrFile ? "QR ready" : "Optional"}</strong>
-                    </button>
-                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "gateway" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("gateway")}>
-                      <span className="settings-stat-label">Gateway</span>
-                      <strong>{invoiceSettings.paymentGatewayReady ? "Configured" : "Not configured"}</strong>
-                    </button>
-                    <button type="button" className={`settings-mini-tab-card ${activePaymentTab === "tax" ? "settings-mini-tab-card-active" : ""}`} onClick={() => setActivePaymentTab("tax")}>
-                      <span className="settings-stat-label">Tax</span>
-                      <strong>{invoiceSettings.isTaxEnabled ? `${invoiceSettings.taxName || "Tax"} ${invoiceSettings.taxRate ?? ""}%` : "Disabled"}</strong>
-                    </button>
                   </div>
                   <div className="settings-subtab-strip" role="tablist" aria-label="Payment setup sections">
                     <button type="button" className={`settings-subtab-button ${activePaymentTab === "manual" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("manual")}>Manual</button>
@@ -924,7 +755,6 @@ export function SettingsPage() {
                     <button type="button" className={`settings-subtab-button ${activePaymentTab === "gateway" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("gateway")}>Gateway</button>
                     <button type="button" className={`settings-subtab-button ${activePaymentTab === "tax" ? "settings-subtab-button-active" : ""}`} onClick={() => setActivePaymentTab("tax")}>Tax</button>
                   </div>
-                  <p className="muted settings-subtab-intro">{activePaymentTabMeta.intro}</p>
                   <div className="settings-numbering-workspace">
                     {activePaymentTab === "manual" ? (
                     <section className="settings-subpanel settings-numbering-card">
@@ -1291,9 +1121,6 @@ export function SettingsPage() {
             ) : null}
             {activeTab === "whatsapp" ? (
               <>
-                <HelperText>
-                  Control the shared-platform WhatsApp reminder setup and the message this subscriber sends.
-                </HelperText>
                 <div className="settings-panel settings-panel-wide">
                   <div className="settings-panel-header">
                     <div>

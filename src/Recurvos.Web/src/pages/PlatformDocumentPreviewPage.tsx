@@ -84,9 +84,8 @@ export function PlatformDocumentPreviewPage() {
     <div className="page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">Document preview</p>
-          <h2>Preview invoice and receipt templates</h2>
-          <p className="muted">Test the platform document layout without saving any invoice or payment record. Use these sample values to check spacing, numbering, branding, and wording before customers ever see the final PDF.</p>
+          <h2>Document Preview</h2>
+          <p className="page-subtitle">Invoice and receipt preview.</p>
         </div>
       </header>
 

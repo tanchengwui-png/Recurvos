@@ -116,10 +116,8 @@ export function PlatformPackagesPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Platform billing</p>
+        <div className="page-header-copy">
           <h2>Packages</h2>
-          <p className="muted">Manage pricing, limits, and the actual capabilities each package unlocks for subscribers.</p>
         </div>
       </header>
 

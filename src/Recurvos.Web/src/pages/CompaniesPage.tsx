@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { HelperText } from "../components/ui/HelperText";
@@ -7,7 +8,20 @@ import { useClientPagination } from "../hooks/useClientPagination";
 import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { api } from "../lib/api";
+import { formatCompanyAddress, getCompanyAddressTitle, parseLegacyCompanyAddress } from "../lib/companyAddresses";
 import type { CompanyLookup, FeatureAccess, PlatformPackage } from "../types";
+
+function renderRegistrationNumberBlock(item: CompanyLookup) {
+  const registrationNumber = item.registrationNumber || "Registration number not set";
+  const oldRegistrationNumber = item.oldRegistrationNumber?.trim();
+
+  return (
+    <div className="company-registration-stack">
+      <div className="company-registration-primary">{registrationNumber}</div>
+      {oldRegistrationNumber ? <div className="company-registration-secondary">{oldRegistrationNumber}</div> : null}
+    </div>
+  );
+}
 
 export function CompaniesPage() {
   const navigate = useNavigate();
@@ -16,7 +30,7 @@ export function CompaniesPage() {
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const [items, setItems] = useState<CompanyLookup[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
+  const [expandedLogoUrl, setExpandedLogoUrl] = useState("");
   const [packageLimit, setPackageLimit] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
@@ -35,10 +49,11 @@ export function CompaniesPage() {
       || [
         item.name,
         item.registrationNumber,
+        item.oldRegistrationNumber,
         item.email,
         item.phone,
         item.address,
-      ].some((value) => value.toLowerCase().includes(normalizedSearchQuery));
+      ].some((value) => value?.toLowerCase().includes(normalizedSearchQuery));
 
     if (!matchesSearch) {
       return false;
@@ -75,7 +90,6 @@ export function CompaniesPage() {
     ]);
 
     setItems(companies);
-    setFeatureAccess(access);
     const activePackage = packages.find((item) => item.code === access?.packageCode);
     setPackageLimit(activePackage?.maxCompanies ?? null);
   }
@@ -156,81 +170,117 @@ export function CompaniesPage() {
     };
   }, [selectedCompany]);
 
+  useEffect(() => {
+    let isActive = true;
+    let objectUrl = "";
+
+    async function loadLogoPreview() {
+      if (!selectedCompany?.hasLogo) {
+        if (isActive) {
+          setExpandedLogoUrl("");
+        }
+        return;
+      }
+
+      try {
+        const response = await api.download(`/companies/${selectedCompany.id}/logo`);
+        objectUrl = URL.createObjectURL(response.blob);
+        if (isActive) {
+          setExpandedLogoUrl(objectUrl);
+        }
+      } catch {
+        if (isActive) {
+          setExpandedLogoUrl("");
+        }
+      }
+    }
+
+    void loadLogoPreview();
+
+    return () => {
+      isActive = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [selectedCompany?.hasLogo, selectedCompany?.id]);
+
   function getCompanyActions(item: CompanyLookup) {
     return [
       { label: expandedId === item.id ? "Hide details" : "View details", onClick: () => setExpandedId((current) => current === item.id ? null : item.id) },
       { label: "Edit company", onClick: () => navigate(`/companies/${item.id}/edit`) },
-      { label: item.hasLogo ? "Update logo" : "Upload logo", onClick: () => navigate(`/companies/${item.id}/edit`) },
     ];
   }
 
   const activeCompanies = items.filter((item) => item.isActive).length;
   const companiesWithLogo = items.filter((item) => item.hasLogo).length;
   const packageLimitLabel = packageLimit === null ? "-" : packageLimit <= 0 ? "Unlimited" : String(packageLimit);
+  const selectedCompanyAddresses = selectedCompany
+    ? (selectedCompany.addresses.length > 0 ? selectedCompany.addresses : (() => {
+        const legacyAddress = parseLegacyCompanyAddress(selectedCompany.address);
+        return legacyAddress ? [legacyAddress] : [];
+      })())
+    : [];
 
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Business setup</p>
+        <div className="page-header-copy">
           <h2>Companies</h2>
-          <p className="muted">Manage the billing profiles that appear on invoices, reminders, and payment records.</p>
-          <p className="muted">
-            Billing profiles used: {items.length}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}
-          </p>
         </div>
-        <button type="button" className="button button-primary" onClick={() => navigate("/companies/new")}>Add company</button>
       </header>
       {message ? <HelperText>{message}</HelperText> : null}
-      <section className="management-summary-grid">
-        <article className="management-summary-card">
-          <p className="eyebrow">Usage</p>
-          <h3>{items.length}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}</h3>
-          <p className="muted">Billing profiles currently used under this subscriber account.</p>
-        </article>
-        <article className="management-summary-card">
-          <p className="eyebrow">Active</p>
-          <h3>{activeCompanies}</h3>
-          <p className="muted">Companies available for invoice and subscription workflows.</p>
-        </article>
-        <article className="management-summary-card">
-          <p className="eyebrow">Branding</p>
-          <h3>{companiesWithLogo}</h3>
-          <p className="muted">Billing profiles with invoice logo branding already uploaded.</p>
-        </article>
-      </section>
+      <div className="catalog-toolbar card subtle-card company-filter-bar">
+        <label className="form-label company-filter-search">
+          Search
+          <input
+            aria-label="Search companies"
+            className="text-input"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search company name, registration, email, phone, or address"
+          />
+        </label>
+        <label className="form-label company-filter-select">
+          Status
+          <select aria-label="Filter companies by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "inactive")}>
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </label>
+        <label className="form-label company-filter-select">
+          Logo
+          <select aria-label="Filter companies by logo" value={logoFilter} onChange={(event) => setLogoFilter(event.target.value as "all" | "with-logo" | "without-logo")}>
+            <option value="all">All logos</option>
+            <option value="with-logo">With logo</option>
+            <option value="without-logo">Without logo</option>
+          </select>
+        </label>
+      </div>
       <section className="card">
-        <div className="inline-fields pwa-filter-bar company-filter-bar" style={{ marginBottom: "1rem", alignItems: "end" }}>
-          <label className="form-label company-filter-search">
-            Search
-            <input
-              aria-label="Search companies"
-              className="text-input"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search name, registration, email, phone, or address"
-            />
-          </label>
-          <label className="form-label company-filter-select">
-            Status
-            <select aria-label="Filter companies by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "inactive")}>
-              <option value="all">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </label>
-          <label className="form-label company-filter-select">
-            Branding
-            <select aria-label="Filter companies by branding" value={logoFilter} onChange={(event) => setLogoFilter(event.target.value as "all" | "with-logo" | "without-logo")}>
-              <option value="all">All logos</option>
-              <option value="with-logo">With logo</option>
-              <option value="without-logo">Without logo</option>
-            </select>
-          </label>
+        <div className="card-section-header">
+          <div className="section-header-cluster">
+            <h3 className="section-title">Companies</h3>
+            <div className="page-meta-row page-meta-row-inline" aria-label="Company summary">
+              <div className="page-meta-chips">
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Profiles</span>
+                  <strong className="page-meta-chip-value">{items.length}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}</strong>
+                </span>
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Active</span>
+                  <strong className="page-meta-chip-value">{activeCompanies}</strong>
+                </span>
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Logos</span>
+                  <strong className="page-meta-chip-value">{companiesWithLogo}</strong>
+                </span>
+              </div>
+            </div>
+          </div>
+          <button type="button" className="button button-primary" onClick={() => navigate("/companies/new")}>Add company</button>
         </div>
-        {searchQuery || statusFilter !== "all" || logoFilter !== "all" ? (
-          <HelperText>{`${filteredItems.length} matching compan${filteredItems.length === 1 ? "y" : "ies"} found.`}</HelperText>
-        ) : null}
         <div className="subscription-mobile-list">
           {pagination.pagedItems.map((item) => (
             <article key={item.id} className="subscription-mobile-card">
@@ -262,9 +312,11 @@ export function CompaniesPage() {
                   <span className="subscription-mobile-meta-label">Phone</span>
                   <span className="subscription-mobile-meta-value">{item.phone || "Phone not set"}</span>
                 </div>
-                <div className="subscription-mobile-meta-row">
-                  <span className="subscription-mobile-meta-label">Branding</span>
-                  <span className="subscription-mobile-meta-value">{item.hasLogo ? "Logo uploaded" : "No logo"}</span>
+                <div className="subscription-mobile-meta-row company-registration-meta-row">
+                  <span className="subscription-mobile-meta-label">Registration Number</span>
+                  <div className="subscription-mobile-meta-value">
+                    {renderRegistrationNumberBlock(item)}
+                  </div>
                 </div>
                 <div className="subscription-mobile-meta-row">
                   <span className="subscription-mobile-meta-label">Address</span>
@@ -290,12 +342,30 @@ export function CompaniesPage() {
               <tr>
                 <th className="sticky-cell sticky-cell-left">Name</th>
                 <th>Status</th>
+                <th>Registration Number</th>
                 <th>Contact</th>
-                <th>Branding</th>
               </tr>
             </thead>
             <tbody>
-              {pagination.pagedItems.map((item) => (
+              {items.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={4}
+                  title="No companies yet"
+                  description="Start by adding the business entity that will appear on invoices, reminders, and payment records."
+                  actions={(
+                    <>
+                      <button type="button" className="button button-primary" onClick={() => navigate("/companies/new")}>Create first company</button>
+                      <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
+                    </>
+                  )}
+                />
+              ) : filteredItems.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={4}
+                  title="No matching companies"
+                  description="Try a different search term or relax the filters to see more billing profiles."
+                />
+              ) : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>
                   <td className="sticky-cell sticky-cell-left table-primary-cell">
                     <div className="table-primary-cell-stack">
@@ -312,12 +382,11 @@ export function CompaniesPage() {
                     </span>
                   </td>
                   <td>
-                    <div>{item.email || "-"}</div>
-                    <div className="eyebrow">{item.phone || "Phone not set"}</div>
+                    {renderRegistrationNumberBlock(item)}
                   </td>
                   <td>
-                    <div>{item.hasLogo ? "Logo uploaded" : "No logo"}</div>
-                    <div className="eyebrow">{item.address || "Address not set"}</div>
+                    <div>{item.email || "-"}</div>
+                    <div className="eyebrow">{item.phone || "Phone not set"}</div>
                   </td>
                 </tr>
               ))}
@@ -328,26 +397,6 @@ export function CompaniesPage() {
             <div ref={bottomInnerRef} />
           </div>
         </div>
-        {items.length === 0 ? (
-          <div className="empty-state">
-            <h3>No companies yet</h3>
-            <p className="muted">Start by adding the business entity that will appear on invoices, reminders, and payment records.</p>
-            {featureAccess?.packageCode ? (
-              <p className="muted">
-                Package limit: {packageLimitLabel} billing profile{packageLimit === 1 ? "" : "s"} on {featureAccess.packageCode}.
-              </p>
-            ) : null}
-            <div className="empty-state-actions">
-              <button type="button" className="button button-primary" onClick={() => navigate("/companies/new")}>Create first company</button>
-              <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
-            </div>
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="empty-state">
-            <h3>No matching companies</h3>
-            <p className="muted">Try a different search term or relax the filters to see more billing profiles.</p>
-          </div>
-        ) : null}
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       {selectedCompany ? (
@@ -369,44 +418,99 @@ export function CompaniesPage() {
             </div>
             <div className="invoice-detail-drawer-body">
               <div className="invoice-detail-panel">
-                <div className="invoice-detail-summary">
-                  <div className="invoice-detail-stat">
-                    <p className="eyebrow">Status</p>
-                    <strong>{selectedCompany.isActive ? "Active" : "Inactive"}</strong>
+                <div className="company-detail-hero">
+                  <div className="company-detail-logo-card">
+                    {expandedLogoUrl ? (
+                      <img src={expandedLogoUrl} alt={`${selectedCompany.name} logo`} className="company-detail-logo-image" />
+                    ) : (
+                      <div className="company-detail-logo-placeholder">
+                        <strong>{selectedCompany.hasLogo ? "Logo unavailable" : "No logo uploaded"}</strong>
+                        <span>{selectedCompany.hasLogo ? "The saved company logo could not be previewed right now." : "A company logo has not been added yet."}</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="invoice-detail-stat">
-                    <p className="eyebrow">Logo</p>
-                    <strong>{selectedCompany.hasLogo ? "Uploaded" : "Not uploaded"}</strong>
-                  </div>
-                  <div className="invoice-detail-stat">
-                    <p className="eyebrow">Email</p>
-                    <strong>{selectedCompany.email || "-"}</strong>
-                  </div>
-                  <div className="invoice-detail-stat">
-                    <p className="eyebrow">Phone</p>
-                    <strong>{selectedCompany.phone || "-"}</strong>
-                  </div>
-                </div>
-                <div className="invoice-detail-layout">
-                  <div className="invoice-detail-main">
-                    <div className="invoice-detail-block">
-                      <div className="invoice-detail-block-header"><p className="eyebrow">Profile</p></div>
-                      <div className="invoice-detail-list">
-                        <div className="invoice-detail-list-row"><span>Company name</span><strong>{selectedCompany.name}</strong></div>
-                        <div className="invoice-detail-list-row"><span>Registration No.</span><strong>{selectedCompany.registrationNumber || "-"}</strong></div>
-                        <div className="invoice-detail-list-row"><span>Industry</span><strong>{selectedCompany.industry || "-"}</strong></div>
-                        <div className="invoice-detail-list-row"><span>Nature of business</span><strong>{selectedCompany.natureOfBusiness || "-"}</strong></div>
+                  <div className="company-detail-hero-copy">
+                    <div>
+                      <p className="eyebrow">Company overview</p>
+                      <h3>{selectedCompany.legalName || selectedCompany.name}</h3>
+                      <p className="muted">{selectedCompany.registrationNumber || "Registration number not set"}</p>
+                    </div>
+                    <div className="invoice-detail-summary company-detail-summary">
+                      <div className="invoice-detail-stat">
+                        <p className="eyebrow">Status</p>
+                        <strong>{selectedCompany.isActive ? "Active" : "Inactive"}</strong>
+                      </div>
+                      <div className="invoice-detail-stat">
+                        <p className="eyebrow">Logo</p>
+                        <strong>{selectedCompany.hasLogo ? "Uploaded" : "Not uploaded"}</strong>
+                      </div>
+                      <div className="invoice-detail-stat">
+                        <p className="eyebrow">Email</p>
+                        <strong>{selectedCompany.email || "-"}</strong>
+                      </div>
+                      <div className="invoice-detail-stat">
+                        <p className="eyebrow">Phone</p>
+                        <strong>{selectedCompany.phone || "-"}</strong>
                       </div>
                     </div>
                   </div>
-                  <div className="invoice-detail-aside">
-                    <div className="invoice-detail-block">
-                      <div className="invoice-detail-block-header"><p className="eyebrow">Contact</p></div>
-                      <div className="invoice-detail-list">
-                        <div className="invoice-detail-list-row"><span>Email</span><strong>{selectedCompany.email || "-"}</strong></div>
-                        <div className="invoice-detail-list-row"><span>Phone</span><strong>{selectedCompany.phone || "-"}</strong></div>
-                        <div className="invoice-detail-list-row invoice-detail-list-row-top"><span>Address</span><strong className="invoice-detail-align-right">{selectedCompany.address || "-"}</strong></div>
-                      </div>
+                </div>
+                <div className="company-detail-sections">
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header"><p className="eyebrow">Company Information</p></div>
+                    <div className="company-detail-grid">
+                      <div className="company-detail-item"><span>Company Name</span><strong>{selectedCompany.name || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Legal Name</span><strong>{selectedCompany.legalName || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Registration Number Type</span><strong>{selectedCompany.registrationNumberType || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Registration Number</span><strong>{selectedCompany.registrationNumber || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Old Registration Number</span><strong>{selectedCompany.oldRegistrationNumber || "-"}</strong></div>
+                      <div className="company-detail-item"><span>MSIC Code</span><strong>{selectedCompany.msicCode || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Industry</span><strong>{selectedCompany.industry || "-"}</strong></div>
+                      <div className="company-detail-item"><span>TIN</span><strong>{selectedCompany.tin || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Nature of Business</span><strong>{selectedCompany.natureOfBusiness || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Status</span><strong>{selectedCompany.isActive ? "Active" : "Inactive"}</strong></div>
+                    </div>
+                  </div>
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header"><p className="eyebrow">Contact</p></div>
+                    <div className="company-detail-grid">
+                      <div className="company-detail-item"><span>Email</span><strong>{selectedCompany.email || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Phone</span><strong>{selectedCompany.phone || "-"}</strong></div>
+                    </div>
+                  </div>
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header"><p className="eyebrow">Addresses</p></div>
+                    <div className="company-detail-address-list">
+                      {selectedCompanyAddresses.length > 0 ? selectedCompanyAddresses.map((address, index) => (
+                        <article key={address.id} className="company-detail-address-card">
+                          <div className="company-detail-address-card-header">
+                            <div className="company-detail-address-card-heading">
+                              <strong>{getCompanyAddressTitle(address, index)}</strong>
+                              {address.isDefault ? <span className="status-pill status-pill-active">Default</span> : null}
+                            </div>
+                          </div>
+                          <div className="company-detail-grid">
+                            <div className="company-detail-item company-detail-item-wide"><span>Address Line 1</span><strong>{address.addressLine1 || "-"}</strong></div>
+                            <div className="company-detail-item company-detail-item-wide"><span>Address Line 2</span><strong>{address.addressLine2 || "-"}</strong></div>
+                            <div className="company-detail-item company-detail-item-wide"><span>Address Line 3</span><strong>{address.addressLine3 || "-"}</strong></div>
+                            <div className="company-detail-item"><span>Postcode</span><strong>{address.postcode || "-"}</strong></div>
+                            <div className="company-detail-item"><span>City</span><strong>{address.city || "-"}</strong></div>
+                            <div className="company-detail-item"><span>State</span><strong>{address.state || "-"}</strong></div>
+                            <div className="company-detail-item"><span>Country</span><strong>{address.country || "-"}</strong></div>
+                            <div className="company-detail-item company-detail-item-wide"><span>Formatted Address</span><strong style={{ whiteSpace: "pre-line" }}>{formatCompanyAddress(address) || "-"}</strong></div>
+                          </div>
+                        </article>
+                      )) : <p className="muted">No addresses saved.</p>}
+                    </div>
+                  </div>
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header"><p className="eyebrow">Other Information</p></div>
+                    <div className="company-detail-grid">
+                      <div className="company-detail-item"><span>Home Country</span><strong>{selectedCompany.homeCountry || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Home Currency</span><strong>{selectedCompany.homeCurrency || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Tourism Tax Registration Number</span><strong>{selectedCompany.tourismTaxRegistrationNumber || "-"}</strong></div>
+                      <div className="company-detail-item"><span>Logo Status</span><strong>{selectedCompany.hasLogo ? "Uploaded" : "Not uploaded"}</strong></div>
+                      <div className="company-detail-item company-detail-item-wide"><span>Company ID</span><strong>{selectedCompany.id}</strong></div>
                     </div>
                   </div>
                 </div>

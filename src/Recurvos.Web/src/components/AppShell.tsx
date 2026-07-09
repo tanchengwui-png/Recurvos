@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { BrandLogo } from "./BrandLogo";
 import { ConfirmModal } from "./ConfirmModal";
 import { InstallPromptCard } from "./InstallPromptCard";
 import { api } from "../lib/api";
@@ -7,6 +8,19 @@ import { getAuth, setAuth } from "../lib/auth";
 import { useInstallPromptState } from "../hooks/useInstallPromptState";
 import { isStandalonePwa } from "../lib/pwa";
 import type { BillingReadiness, CompanyLookup, FeatureAccess, FeedbackNotificationSummary, PaymentConfirmation, SubscriberPackageBillingSummary } from "../types";
+
+type NavEntry = {
+  label: string;
+  path: string;
+  icon: string;
+  disabled?: boolean;
+  hint?: string;
+};
+
+type NavSection = {
+  title: string;
+  items: NavEntry[];
+};
 
 function formatPackageLabel(packageCode?: string | null) {
   if (!packageCode) {
@@ -100,13 +114,177 @@ function getPageLabel(pathname: string, isPlatformOwner: boolean) {
   return "Workspace";
 }
 
+function renderNavIcon(icon: string) {
+  const commonProps = {
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  switch (icon) {
+    case "dashboard":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 13.5h7V20H4z" />
+          <path d="M13 4h7v6.5h-7z" />
+          <path d="M13 13.5h7V20h-7z" />
+          <path d="M4 4h7v7.5H4z" />
+        </svg>
+      );
+    case "company":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 20h16" />
+          <path d="M6 20V7l6-3 6 3v13" />
+          <path d="M9 10h.01" />
+          <path d="M15 10h.01" />
+          <path d="M9 14h.01" />
+          <path d="M15 14h.01" />
+        </svg>
+      );
+    case "box":
+      return (
+        <svg {...commonProps}>
+          <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+          <path d="m12 12 8-4.5" />
+          <path d="m12 12-8-4.5" />
+          <path d="M12 12v9" />
+        </svg>
+      );
+    case "list":
+      return (
+        <svg {...commonProps}>
+          <path d="M8 6h12" />
+          <path d="M8 12h12" />
+          <path d="M8 18h12" />
+          <path d="M4 6h.01" />
+          <path d="M4 12h.01" />
+          <path d="M4 18h.01" />
+        </svg>
+      );
+    case "users":
+      return (
+        <svg {...commonProps}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <path d="M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+          <path d="M20 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case "repeat":
+      return (
+        <svg {...commonProps}>
+          <path d="M17 2l4 4-4 4" />
+          <path d="M3 11V9a3 3 0 0 1 3-3h15" />
+          <path d="m7 22-4-4 4-4" />
+          <path d="M21 13v2a3 3 0 0 1-3 3H3" />
+        </svg>
+      );
+    case "invoice":
+      return (
+        <svg {...commonProps}>
+          <path d="M7 3h8l4 4v14H7z" />
+          <path d="M15 3v4h4" />
+          <path d="M10 12h6" />
+          <path d="M10 16h6" />
+        </svg>
+      );
+    case "payment":
+      return (
+        <svg {...commonProps}>
+          <rect x="3" y="6" width="18" height="12" rx="2" />
+          <path d="M3 10h18" />
+          <path d="M7 15h3" />
+        </svg>
+      );
+    case "finance":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 19h16" />
+          <path d="M7 16V9" />
+          <path d="M12 16V5" />
+          <path d="M17 16v-4" />
+        </svg>
+      );
+    case "rocket":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 19c2.5-.5 4-2 4.5-4.5L18 6c-2.5-.5-4.5 0-6 1.5L8.5 11C7 12.5 6.5 14.5 6 17Z" />
+          <path d="m13 11 3 3" />
+          <path d="M6 17 4 19" />
+        </svg>
+      );
+    case "message":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 6h16v10H8l-4 4z" />
+          <path d="M8 10h8" />
+          <path d="M8 13h5" />
+        </svg>
+      );
+    case "plan":
+      return (
+        <svg {...commonProps}>
+          <path d="M4 8h16" />
+          <path d="M4 12h16" />
+          <path d="M4 16h10" />
+          <path d="M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+        </svg>
+      );
+    case "settings":
+      return (
+        <svg {...commonProps}>
+          <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 1 0 12 8.5z" />
+          <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.9.6Z" />
+        </svg>
+      );
+    case "mail":
+      return (
+        <svg {...commonProps}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="m4 7 8 6 8-6" />
+        </svg>
+      );
+    case "document":
+      return (
+        <svg {...commonProps}>
+          <path d="M7 3h8l4 4v14H7z" />
+          <path d="M15 3v4h4" />
+          <path d="M10 12h6" />
+          <path d="M10 16h4" />
+        </svg>
+      );
+    case "phone":
+      return (
+        <svg {...commonProps}>
+          <path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+          <path d="M11 17h2" />
+          <path d="M9 7h6" />
+        </svg>
+      );
+    default:
+      return (
+        <svg {...commonProps}>
+          <path d="M5 12h14" />
+          <path d="M12 5v14" />
+        </svg>
+      );
+  }
+}
+
 export function AppShell() {
   const auth = getAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const contentRef = useRef<HTMLElement | null>(null);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [packageBilling, setPackageBilling] = useState<SubscriberPackageBillingSummary | null>(null);
   const [companyCount, setCompanyCount] = useState<number | null>(null);
@@ -117,6 +295,7 @@ export function AppShell() {
 
   useEffect(() => {
     setMobileNavOpen(false);
+    setAccountMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -158,6 +337,31 @@ export function AppShell() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [mobileNavOpen]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(display-mode: standalone)");
@@ -225,37 +429,37 @@ export function AppShell() {
   const featureKeys = new Set((featureAccess?.featureKeys ?? []).map((key) => key.toLowerCase()));
   const primaryLinks = auth?.isPlatformOwner
     ? [
-        ["Dashboard", "/"],
-        ["Subscribers", "/subscribers"],
-        ["Users", "/platform/users"],
-        ["Feedback", "/platform/feedback"],
-        ["Email Logs", "/platform/email-logs"],
-        ["Audit Logs", "/platform/audit-logs"],
-        ["Packages", "/platform/packages"],
-        ["Document Preview", "/platform/documents"],
-        ["WhatsApp Sessions", "/platform/whatsapp-sessions"],
-        ["Settings", "/platform/settings"],
+        { label: "Dashboard", path: "/", icon: "dashboard" },
+        { label: "Subscribers", path: "/subscribers", icon: "users" },
+        { label: "Users", path: "/platform/users", icon: "users" },
+        { label: "Feedback", path: "/platform/feedback", icon: "message" },
+        { label: "Email Logs", path: "/platform/email-logs", icon: "mail" },
+        { label: "Audit Logs", path: "/platform/audit-logs", icon: "list" },
+        { label: "Packages", path: "/platform/packages", icon: "plan" },
+        { label: "Document Preview", path: "/platform/documents", icon: "document" },
+        { label: "WhatsApp Sessions", path: "/platform/whatsapp-sessions", icon: "phone" },
+        { label: "Settings", path: "/platform/settings", icon: "settings" },
       ]
     : [
-        { label: "Dashboard", path: "/", disabled: false, hint: "" },
-        { label: "Companies", path: "/companies", disabled: false, hint: "" },
-        { label: "Products", path: "/products", disabled: false, hint: "" },
-        { label: "Plans", path: "/plans", disabled: false, hint: "" },
-        { label: "Customers", path: "/customers", disabled: !featureKeys.has("customer_management"), hint: getFeatureRequirementLabel(featureAccess, "customer_management") },
-        { label: "Subscriptions", path: "/subscriptions", disabled: !featureKeys.has("recurring_invoices"), hint: getFeatureRequirementLabel(featureAccess, "recurring_invoices") },
-        { label: "Invoices", path: "/invoices", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
-        { label: "Payments", path: "/payments", disabled: !featureKeys.has("payment_tracking"), hint: getFeatureRequirementLabel(featureAccess, "payment_tracking") },
-        { label: "Finance", path: "/finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+        { label: "Dashboard", path: "/", icon: "dashboard", disabled: false, hint: "" },
+        { label: "Companies", path: "/companies", icon: "company", disabled: false, hint: "" },
+        { label: "Products", path: "/products", icon: "box", disabled: false, hint: "" },
+        { label: "Plans", path: "/plans", icon: "plan", disabled: false, hint: "" },
+        { label: "Customers", path: "/customers", icon: "users", disabled: !featureKeys.has("customer_management"), hint: getFeatureRequirementLabel(featureAccess, "customer_management") },
+        { label: "Subscriptions", path: "/subscriptions", icon: "repeat", disabled: !featureKeys.has("recurring_invoices"), hint: getFeatureRequirementLabel(featureAccess, "recurring_invoices") },
+        { label: "Invoices", path: "/invoices", icon: "invoice", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Payments", path: "/payments", icon: "payment", disabled: !featureKeys.has("payment_tracking"), hint: getFeatureRequirementLabel(featureAccess, "payment_tracking") },
+        { label: "Finance", path: "/finance", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
       ];
   const accountLinks = auth?.isPlatformOwner
     ? []
     : ([
-        ["Quick Start", "/help/quick-start"],
-        ["Feedback", "/feedback"],
-        ["My Plan", "/package-billing"],
-        ["Settings", "/settings"],
-        ["Notification History", "/whatsapp-messages"],
-      ] as const);
+        { label: "Quick Start", path: "/help/quick-start", icon: "rocket" },
+        { label: "Feedback", path: "/feedback", icon: "message" },
+        { label: "My Plan", path: "/package-billing", icon: "plan" },
+        { label: "Settings", path: "/settings", icon: "settings" },
+        { label: "Notification History", path: "/whatsapp-messages", icon: "mail" },
+      ] satisfies NavEntry[]);
   const showFloatingQuickStart = Boolean(auth && !auth.isPlatformOwner && location.pathname !== "/help/quick-start");
   const resolvedPackageStatus = (packageBilling?.packageStatus ?? featureAccess?.packageStatus ?? "").toLowerCase();
   const showBillingReminder = Boolean(
@@ -277,6 +481,16 @@ export function AppShell() {
     installPrompt.shouldShowPrompt,
   );
   const currentPageLabel = getPageLabel(location.pathname, auth?.isPlatformOwner ?? false);
+  const navSections: NavSection[] = auth?.isPlatformOwner
+    ? [
+        { title: "Main", items: [{ label: "Dashboard", path: "/", icon: "dashboard" }, { label: "Subscribers", path: "/subscribers", icon: "users" }] },
+        { title: "Platform", items: (primaryLinks as NavEntry[]).filter((item) => !["Dashboard", "Subscribers"].includes(item.label)) },
+      ]
+    : [
+        { title: "Main", items: (primaryLinks as NavEntry[]).filter((item) => ["Dashboard", "Companies", "Products", "Plans"].includes(item.label)) },
+        { title: "Apps", items: (primaryLinks as NavEntry[]).filter((item) => !["Dashboard", "Companies", "Products", "Plans"].includes(item.label)) },
+        { title: "Account", items: accountLinks },
+      ];
 
   function formatDate(value: string) {
     return new Intl.DateTimeFormat("en-MY", {
@@ -338,11 +552,7 @@ export function AppShell() {
       />
       <aside className={`sidebar ${mobileNavOpen ? "sidebar-open" : ""}`}>
         <div className="sidebar-brand">
-          <img
-            src="/recurvos-billing-logo-v2.png"
-            alt="Recurvos Billing"
-            className="brand-logo sidebar-brand-logo"
-          />
+          <BrandLogo className="sidebar-brand-logo" />
         </div>
         <button
           type="button"
@@ -352,9 +562,16 @@ export function AppShell() {
         >
           Close
         </button>
-        <div className="sidebar-account card subtle-card">
-          <p>{auth?.isPlatformOwner ? auth?.companyName : auth?.fullName}</p>
-          <p className="muted">{auth?.email}</p>
+        <div className="sidebar-account">
+          <div className="sidebar-user-panel">
+            <div className="sidebar-user-avatar">
+              {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
+            </div>
+            <div className="sidebar-user-copy">
+              <p className="sidebar-user-name">{auth?.isPlatformOwner ? auth?.companyName : auth?.fullName}</p>
+              <p className="muted">{auth?.email}</p>
+            </div>
+          </div>
           {auth?.isPlatformOwner ? (
             <p className="muted">Platform owner account</p>
           ) : (
@@ -382,65 +599,51 @@ export function AppShell() {
               : "Manage subscriptions, invoices, and payments in one place"}
           </p>
         </div>
-        <nav className="nav">
-          {auth?.isPlatformOwner
-            ? (primaryLinks as string[][]).map(([label, path]) => (
-                <NavLink
-                  key={path}
-                  to={path}
-                  className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
-                  onClick={() => setMobileNavOpen(false)}
-                >
-                  {label}
-                </NavLink>
-              ))
-            : (primaryLinks as Array<{ label: string; path: string; disabled: boolean; hint: string }>).map((item) => (
-                item.disabled ? (
-                  <button
-                    key={item.path}
-                    type="button"
-                    className="nav-link nav-link-disabled"
-                    title={item.hint}
-                    onClick={() => {}}
-                  >
-                    {item.label}
-                    <span className="nav-link-badge nav-link-badge-muted">{item.hint.replace("Available on ", "")}</span>
-                  </button>
-                ) : (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
-                    onClick={() => setMobileNavOpen(false)}
-                  >
-                    {item.label}
-                    {item.label === "Payments" && pendingPaymentConfirmationCount > 0 ? (
-                      <span className="nav-link-badge">{pendingPaymentConfirmationCount}</span>
-                    ) : null}
-                  </NavLink>
-                )
-              ))}
-        </nav>
-        {accountLinks.length > 0 ? (
-          <div className="sidebar-section">
-            <p className="sidebar-section-label">Account</p>
-            <nav className="nav nav-secondary">
-              {accountLinks.map(([label, path]) => (
-                <NavLink
-                  key={path}
-                  to={path}
-                  className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
-                  onClick={() => setMobileNavOpen(false)}
-                >
-                  {label}
-                  {label === "Feedback" && feedbackUnreadCount > 0 ? (
-                    <span className="nav-link-badge">{feedbackUnreadCount}</span>
-                  ) : null}
-                </NavLink>
-              ))}
-            </nav>
-          </div>
-        ) : null}
+        <div className="sidebar-scroll-nav">
+          {navSections.map((section) => (
+            section.items.length > 0 ? (
+              <div key={section.title} className="sidebar-section">
+                <p className="sidebar-section-label">{section.title}</p>
+                <nav className="nav nav-secondary">
+                  {section.items.map((item) => (
+                    item.disabled ? (
+                      <button
+                        key={item.path}
+                        type="button"
+                        className="nav-link nav-link-disabled"
+                        title={item.hint}
+                        onClick={() => {}}
+                      >
+                        <span className="nav-link-main">
+                          <span className="nav-link-icon">{renderNavIcon(item.icon)}</span>
+                          <span>{item.label}</span>
+                        </span>
+                        <span className="nav-link-badge nav-link-badge-muted">{(item.hint ?? "").replace("Available on ", "")}</span>
+                      </button>
+                    ) : (
+                      <NavLink
+                        key={item.path}
+                        to={item.path}
+                        className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
+                        onClick={() => setMobileNavOpen(false)}
+                      >
+                        <span className="nav-link-main">
+                          <span className="nav-link-icon">{renderNavIcon(item.icon)}</span>
+                          <span>{item.label}</span>
+                        </span>
+                        {item.label === "Payments" && pendingPaymentConfirmationCount > 0 ? (
+                          <span className="nav-link-badge">{pendingPaymentConfirmationCount}</span>
+                        ) : item.label === "Feedback" && feedbackUnreadCount > 0 ? (
+                          <span className="nav-link-badge">{feedbackUnreadCount}</span>
+                        ) : null}
+                      </NavLink>
+                    )
+                  ))}
+                </nav>
+              </div>
+            ) : null
+          ))}
+        </div>
         <div className="sidebar-signout">
           <button
             className="button button-secondary"
@@ -468,7 +671,7 @@ export function AppShell() {
             <span />
           </button>
           <div className="mobile-appbar-copy">
-            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Billing"}</p>
+            <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Account"}</p>
             <strong>{currentPageLabel}</strong>
             <span className="mobile-appbar-subtitle">{auth?.isPlatformOwner ? auth?.companyName : auth?.companyName ?? "Account"}</span>
           </div>
@@ -481,66 +684,139 @@ export function AppShell() {
             {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
           </button>
         </header>
-        {billingReminder ? (
-          <section className={`billing-reminder-banner billing-reminder-banner-${billingReminder.tone}`}>
-            <div>
-              <p className="eyebrow">Account reminder</p>
-              <h3>{billingReminder.title}</h3>
-              <p>{billingReminder.body}</p>
+        <header className="desktop-appbar">
+          <div className="desktop-appbar-left">
+            <div className="desktop-appbar-title-block">
+              <p className="desktop-appbar-kicker">{auth?.isPlatformOwner ? "Platform Workspace" : "Billing Workspace"}</p>
+              <h1 className="desktop-appbar-title">{currentPageLabel}</h1>
             </div>
-            <button
-              type="button"
-              className="button"
-              onClick={() => {
-                setMobileNavOpen(false);
-                navigate("/package-billing");
-              }}
-            >
-              View my plan
-            </button>
-          </section>
-        ) : null}
-        {showPaymentConfirmationReminder ? (
-          <section className="billing-reminder-banner billing-reminder-banner-warning">
-            <div>
-              <p className="eyebrow">Payment confirmation</p>
-              <h3>Customer payment confirmation needs review</h3>
-              <p>
-                {pendingPaymentConfirmationCount === 1
-                  ? "1 payment confirmation is waiting for approval."
-                  : `${pendingPaymentConfirmationCount} payment confirmations are waiting for approval.`}
-              </p>
+          </div>
+          <div className="desktop-appbar-right">
+            <div ref={accountMenuRef} className="desktop-appbar-user-menu">
+              <button
+                type="button"
+                className={`desktop-appbar-user-chip ${accountMenuOpen ? "desktop-appbar-user-chip-open" : ""}`}
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
+                onClick={() => setAccountMenuOpen((current) => !current)}
+              >
+                <div className="desktop-appbar-user-avatar">
+                  {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
+                </div>
+                <div className="desktop-appbar-user-copy">
+                  <strong>{auth?.fullName ?? auth?.companyName ?? "Account"}</strong>
+                  <span>{auth?.isPlatformOwner ? "Platform Owner" : "Business Dashboard"}</span>
+                </div>
+                <span className={`desktop-appbar-user-caret ${accountMenuOpen ? "desktop-appbar-user-caret-open" : ""}`} aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </span>
+              </button>
+              {accountMenuOpen ? (
+                <div className="desktop-account-dropdown" role="menu" aria-label="Account details">
+                  <div className="desktop-account-dropdown-header">
+                    <div className="desktop-account-dropdown-avatar">
+                      {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="desktop-account-dropdown-copy">
+                      <strong>{auth?.isPlatformOwner ? auth?.companyName : auth?.fullName}</strong>
+                      <span>{auth?.email}</span>
+                    </div>
+                  </div>
+                  {auth?.isPlatformOwner ? (
+                    <p className="desktop-account-dropdown-note">Platform owner account</p>
+                  ) : (
+                    <>
+                      <div className="desktop-account-dropdown-meta">
+                        <div className="desktop-account-dropdown-row">
+                          <span className="desktop-account-dropdown-label">Package</span>
+                          <strong>{formatPackageLabel(featureAccess?.packageCode)}</strong>
+                        </div>
+                        <div className="desktop-account-dropdown-row">
+                          <span className="desktop-account-dropdown-label">Status</span>
+                          <span className={`status-pill ${featureAccess?.packageStatus?.toLowerCase() === "active" ? "status-pill-active" : "status-pill-inactive"}`}>
+                            {formatStatusLabel(featureAccess?.packageStatus) || "-"}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="desktop-account-dropdown-stat">
+                        {companyCount === null ? "Billing profiles: -" : `Billing profiles: ${companyCount}`}
+                      </p>
+                    </>
+                  )}
+                  <p className="desktop-account-dropdown-note">
+                    {auth?.isPlatformOwner
+                      ? "Manage subscriber businesses across the Recurvos platform"
+                      : "Manage subscriptions, invoices, and payments in one place"}
+                  </p>
+                </div>
+              ) : null}
             </div>
-            <button
-              type="button"
-              className="button"
-              onClick={() => {
+          </div>
+        </header>
+        <div className="content-body">
+          {billingReminder ? (
+            <section className={`billing-reminder-banner billing-reminder-banner-${billingReminder.tone}`}>
+              <div>
+                <p className="eyebrow">Account reminder</p>
+                <h3>{billingReminder.title}</h3>
+                <p>{billingReminder.body}</p>
+              </div>
+              <button
+                type="button"
+                className="button"
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  navigate("/package-billing");
+                }}
+              >
+                View my plan
+              </button>
+            </section>
+          ) : null}
+          {showPaymentConfirmationReminder ? (
+            <section className="billing-reminder-banner billing-reminder-banner-warning">
+              <div>
+                <p className="eyebrow">Payment confirmation</p>
+                <h3>Customer payment confirmation needs review</h3>
+                <p>
+                  {pendingPaymentConfirmationCount === 1
+                    ? "1 payment confirmation is waiting for approval."
+                    : `${pendingPaymentConfirmationCount} payment confirmations are waiting for approval.`}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="button"
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  navigate("/payments?tab=pending");
+                }}
+              >
+                Review payments
+              </button>
+            </section>
+          ) : null}
+          {showInstallPrompt ? (
+            <InstallPromptCard
+              canTriggerInstall={installPrompt.canTriggerInstall}
+              isManualInstallOnly={installPrompt.isManualInstallOnly}
+              onDismiss={installPrompt.dismiss}
+              onPrimaryAction={() => {
                 setMobileNavOpen(false);
-                navigate("/payments?tab=pending");
+
+                if (installPrompt.canTriggerInstall) {
+                  void installPrompt.promptInstall();
+                  return;
+                }
+
+                navigate("/settings#install-help");
               }}
-            >
-              Review payments
-            </button>
-          </section>
-        ) : null}
-        {showInstallPrompt ? (
-          <InstallPromptCard
-            canTriggerInstall={installPrompt.canTriggerInstall}
-            isManualInstallOnly={installPrompt.isManualInstallOnly}
-            onDismiss={installPrompt.dismiss}
-            onPrimaryAction={() => {
-              setMobileNavOpen(false);
-
-              if (installPrompt.canTriggerInstall) {
-                void installPrompt.promptInstall();
-                return;
-              }
-
-              navigate("/settings#install-help");
-            }}
-          />
-        ) : null}
-        <Outlet />
+            />
+          ) : null}
+          <Outlet />
+        </div>
       </main>
       {showFloatingQuickStart ? (
         <button

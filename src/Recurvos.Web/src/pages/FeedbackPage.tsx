@@ -186,10 +186,8 @@ export function FeedbackPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Support</p>
+        <div className="page-header-copy">
           <h2>Feedback</h2>
-          <p className="muted">Share bugs, suggestions, or billing issues with the platform owner.</p>
         </div>
       </header>
 

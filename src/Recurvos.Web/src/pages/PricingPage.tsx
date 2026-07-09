@@ -18,7 +18,7 @@ export function PricingPage() {
   }, []);
 
   return (
-    <AuthLayout wide title="Choose a package" subtitle="Pick the package that fits your billing workflow, then create your subscriber account.">
+    <AuthLayout wide title="Choose a Package" subtitle="Pick the package that fits your billing workflow, then create your subscriber account.">
       {error ? <p className="helper-text helper-text-error">{error}</p> : null}
       <div className="pricing-grid">
         {packages.map((item) => {

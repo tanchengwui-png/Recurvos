@@ -7,6 +7,7 @@ namespace Recurvos.Infrastructure.Persistence;
 public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
     public DbSet<Company> Companies => Set<Company>();
+    public DbSet<CompanyAddress> CompanyAddresses => Set<CompanyAddress>();
     public DbSet<CompanyInvoiceSettings> CompanyInvoiceSettings => Set<CompanyInvoiceSettings>();
     public DbSet<User> Users => Set<User>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
@@ -159,6 +160,39 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasIndex(x => x.SubscriberId);
 
         modelBuilder.Entity<Company>()
+            .Property(x => x.LegalName)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<Company>()
+            .Property(x => x.RegistrationNumberType)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Company>()
+            .Property(x => x.OldRegistrationNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Company>()
+            .Property(x => x.Tin)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Company>()
+            .Property(x => x.MsicCode)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<Company>()
+            .Property(x => x.TourismTaxRegistrationNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Company>()
+            .Property(x => x.HomeCountry)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Company>()
+            .Property(x => x.Currency)
+            .HasMaxLength(3)
+            .IsRequired();
+
+        modelBuilder.Entity<Company>()
             .Property(x => x.SelectedPackage)
             .HasMaxLength(20);
 
@@ -182,6 +216,48 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasForeignKey(x => x.SubscriberId)
             .OnDelete(DeleteBehavior.Restrict)
             .IsRequired(false);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .ToTable("company_addresses");
+
+        modelBuilder.Entity<CompanyAddress>()
+            .HasIndex(x => x.CompanyId);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.AddressLine1)
+            .HasMaxLength(250)
+            .IsRequired();
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.AddressLine2)
+            .HasMaxLength(250);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.AddressLine3)
+            .HasMaxLength(250);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.Postcode)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.City)
+            .HasMaxLength(150);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.State)
+            .HasMaxLength(150);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.Country)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        modelBuilder.Entity<CompanyAddress>()
+            .HasOne(x => x.Company)
+            .WithMany(x => x.Addresses)
+            .HasForeignKey(x => x.CompanyId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<CompanyInvoiceSettings>()
             .ToTable("company_invoice_settings");
@@ -519,6 +595,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Invoice>()
             .HasIndex(x => new { x.CompanyId, x.InvoiceNumber })
             .IsUnique();
+
+        modelBuilder.Entity<Invoice>()
+            .Property(x => x.CompanyAddressSnapshot)
+            .HasMaxLength(2000);
 
         modelBuilder.Entity<Invoice>()
             .HasIndex(x => x.PaymentConfirmationTokenHash)

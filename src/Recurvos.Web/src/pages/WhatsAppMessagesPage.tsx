@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { EmptyTableRow } from "../components/EmptyTableRow";
 import { TablePagination } from "../components/TablePagination";
 import { HelperText } from "../components/ui/HelperText";
 import { useDragToScroll } from "../hooks/useDragToScroll";
@@ -195,6 +196,7 @@ export function WhatsAppMessagesPage() {
     const value = searchParams.get("source");
     return value === "invoice" || value === "reminder" ? value : "all";
   });
+  const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
   const [currentPage, setCurrentPage] = useState(() => {
     const value = Number(searchParams.get("page") ?? "1");
     return Number.isFinite(value) && value > 0 ? value : 1;
@@ -216,6 +218,7 @@ export function WhatsAppMessagesPage() {
   const totalPages = Math.max(1, Math.ceil((data?.totalCount ?? 0) / pageSize));
   const rangeStart = (data?.totalCount ?? 0) === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const rangeEnd = (data?.totalCount ?? 0) === 0 ? 0 : Math.min(data?.totalCount ?? 0, currentPage * pageSize);
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
   async function load() {
     setLoading(true);
@@ -257,6 +260,7 @@ export function WhatsAppMessagesPage() {
 
   useEffect(() => {
     const nextParams = new URLSearchParams(searchParams);
+    const trimmedSearch = searchQuery.trim();
 
     if (channelTab !== "whatsapp") {
       nextParams.set("channel", channelTab);
@@ -282,6 +286,12 @@ export function WhatsAppMessagesPage() {
       nextParams.delete("source");
     }
 
+    if (trimmedSearch) {
+      nextParams.set("search", trimmedSearch);
+    } else {
+      nextParams.delete("search");
+    }
+
     if (currentPage > 1) {
       nextParams.set("page", String(currentPage));
     } else {
@@ -299,11 +309,11 @@ export function WhatsAppMessagesPage() {
     if (nextQuery !== currentQuery) {
       setSearchParams(nextParams, { replace: true });
     }
-  }, [channelTab, currentPage, emailStatusFilter, pageSize, searchParams, setSearchParams, sourceFilter, statusFilter]);
+  }, [channelTab, currentPage, emailStatusFilter, pageSize, searchParams, searchQuery, setSearchParams, sourceFilter, statusFilter]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [channelTab, statusFilter, sourceFilter]);
+  }, [channelTab, searchQuery, statusFilter, sourceFilter]);
 
   useEffect(() => {
     if (!selectedMessage && !selectedEmail) {
@@ -342,16 +352,44 @@ export function WhatsAppMessagesPage() {
   const failedCount = data?.items.filter((item) => ["failed", "cancelled"].includes(item.status.toLowerCase())).length ?? 0;
   const emailSentCount = emailItems.filter((item) => item.succeeded).length;
   const emailFailedCount = emailItems.filter((item) => !item.succeeded).length;
+  const filteredWhatsAppItems = (data?.items ?? []).filter((item) => {
+    if (!normalizedSearchQuery) {
+      return true;
+    }
+
+    return [
+      item.invoiceNumber,
+      item.customerName,
+      item.recipientPhoneNumber,
+      formatMessageSource(item),
+      formatMessageStatus(item.status),
+    ].some((value) => value.toLowerCase().includes(normalizedSearchQuery));
+  });
   const filteredEmailItems = emailItems.filter((item) => {
     if (emailStatusFilter === "sent") {
-      return item.succeeded;
+      if (!item.succeeded) {
+        return false;
+      }
     }
 
     if (emailStatusFilter === "failed") {
-      return !item.succeeded;
+      if (item.succeeded) {
+        return false;
+      }
     }
 
-    return true;
+    if (!normalizedSearchQuery) {
+      return true;
+    }
+
+    return [
+      item.subject,
+      item.customerName ?? "",
+      item.originalRecipient,
+      item.invoiceNumber ?? "",
+      item.notificationType ?? "",
+      resolveEmailStatus(item),
+    ].some((value) => value.toLowerCase().includes(normalizedSearchQuery));
   });
   const {
     topScrollRef: emailTopScrollRef,
@@ -363,11 +401,46 @@ export function WhatsAppMessagesPage() {
   const overviewQueuedCount = channelTab === "email" ? 0 : queuedCount;
   const overviewSentCount = channelTab === "email" ? emailSentCount : sentCount;
   const overviewFailedCount = channelTab === "email" ? emailFailedCount : failedCount;
+  const summaryChips = (
+    <div className="page-meta-row" aria-label="Notification history summary">
+      <div className="page-meta-chips">
+        <span className="page-meta-chip">
+          <span className="page-meta-chip-label">Queued</span>
+          <strong className="page-meta-chip-value">{overviewQueuedCount}</strong>
+        </span>
+        <span className="page-meta-chip">
+          <span className="page-meta-chip-label">Sent</span>
+          <strong className="page-meta-chip-value">{overviewSentCount}</strong>
+        </span>
+        <span className="page-meta-chip">
+          <span className="page-meta-chip-label">Failed</span>
+          <strong className="page-meta-chip-value">{overviewFailedCount}</strong>
+        </span>
+      </div>
+    </div>
+  );
 
   function renderWhatsAppSection() {
     return (
       <>
-        <div className="catalog-toolbar card subtle-card pwa-filter-bar">
+        <div className="catalog-toolbar card subtle-card notification-filter-bar">
+          <label className="form-label notification-filter-channel">
+            Channel
+            <select aria-label="Filter notification history by channel" value={channelTab} onChange={(event) => setChannelTab(event.target.value as "whatsapp" | "email")}>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="email">Email</option>
+            </select>
+          </label>
+          <label className="form-label notification-filter-search">
+            Search
+            <input
+              aria-label="Search WhatsApp notifications"
+              className="text-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search invoice, customer, phone, or source"
+            />
+          </label>
           <select aria-label="Filter WhatsApp messages by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "queued" | "sent" | "failed" | "cancelled")}>
             <option value="all">All statuses</option>
             <option value="queued">Queued</option>
@@ -383,11 +456,12 @@ export function WhatsAppMessagesPage() {
         </div>
 
           <section className="card notification-history-table-card">
+            {summaryChips}
             {error ? <HelperText tone="error">{error}</HelperText> : null}
             {loading ? <HelperText>Loading WhatsApp messages...</HelperText> : null}
 
           <div className="subscription-mobile-list">
-            {data?.items.map((item) => (
+            {filteredWhatsAppItems.map((item) => (
               <article key={item.id} className="subscription-mobile-card">
                 <div className="subscription-mobile-card-header">
                   <div className="subscription-mobile-identity">
@@ -442,7 +516,13 @@ export function WhatsAppMessagesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data?.items.map((item) => (
+                    {!loading && filteredWhatsAppItems.length === 0 ? (
+                      <EmptyTableRow
+                        colSpan={6}
+                        title="No WhatsApp messages yet"
+                        description="Queued, sent, and failed WhatsApp billing messages will appear here once subscriber notifications start flowing."
+                      />
+                    ) : filteredWhatsAppItems.map((item) => (
                       <tr key={item.id}>
                         <td className="table-primary-cell">
                           <div className="table-primary-cell-stack">
@@ -487,13 +567,6 @@ export function WhatsAppMessagesPage() {
               </div>
             </div>
 
-          {!loading && (data?.items.length ?? 0) === 0 ? (
-            <div className="empty-state">
-              <h3>No WhatsApp messages yet</h3>
-              <p className="muted">Queued, sent, and failed WhatsApp billing messages will appear here once subscriber notifications start flowing.</p>
-            </div>
-          ) : null}
-
           <TablePagination
             currentPage={currentPage}
             pageSize={pageSize}
@@ -512,7 +585,24 @@ export function WhatsAppMessagesPage() {
   function renderEmailSection() {
     return (
       <>
-        <div className="catalog-toolbar card subtle-card pwa-filter-bar">
+        <div className="catalog-toolbar card subtle-card notification-filter-bar">
+          <label className="form-label notification-filter-channel">
+            Channel
+            <select aria-label="Filter notification history by channel" value={channelTab} onChange={(event) => setChannelTab(event.target.value as "whatsapp" | "email")}>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="email">Email</option>
+            </select>
+          </label>
+          <label className="form-label notification-filter-search">
+            Search
+            <input
+              aria-label="Search email notifications"
+              className="text-input"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search subject, customer, email, or invoice"
+            />
+          </label>
           <select aria-label="Filter email history by status" value={emailStatusFilter} onChange={(event) => setEmailStatusFilter(event.target.value as "all" | "sent" | "failed")}>
             <option value="all">All statuses</option>
             <option value="sent">Sent</option>
@@ -521,6 +611,7 @@ export function WhatsAppMessagesPage() {
         </div>
 
         <section className="card notification-history-table-card">
+          {summaryChips}
           {emailError ? <HelperText tone="error">{emailError}</HelperText> : null}
           {emailLoading ? <HelperText>Loading email history...</HelperText> : null}
 
@@ -580,7 +671,13 @@ export function WhatsAppMessagesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEmailItems.map((item) => (
+                  {!emailLoading && filteredEmailItems.length === 0 ? (
+                    <EmptyTableRow
+                      colSpan={5}
+                      title="No email notifications yet"
+                      description="Invoice and reminder email delivery records will appear here once email sending has been used for this subscriber."
+                    />
+                  ) : filteredEmailItems.map((item) => (
                     <tr key={item.id}>
                       <td className="table-primary-cell">
                         <div className="table-primary-cell-stack">
@@ -624,12 +721,6 @@ export function WhatsAppMessagesPage() {
             </div>
           </div>
 
-          {!emailLoading && filteredEmailItems.length === 0 ? (
-            <div className="empty-state">
-              <h3>No email notifications yet</h3>
-              <p className="muted">Invoice and reminder email delivery records will appear here once email sending has been used for this subscriber.</p>
-            </div>
-          ) : null}
         </section>
       </>
     );
@@ -638,50 +729,10 @@ export function WhatsAppMessagesPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Notifications</p>
+        <div className="page-header-copy">
           <h2>Notification History</h2>
-          <p className="muted">Use one page to review billing communication across WhatsApp and email for this subscriber.</p>
         </div>
       </header>
-
-      <section className="card settings-tab-card">
-        <div className="settings-tab-strip" role="tablist" aria-label="Notification channels">
-          <button type="button" className={`settings-tab-button ${channelTab === "whatsapp" ? "settings-tab-button-active" : ""}`} onClick={() => setChannelTab("whatsapp")}>
-            <span className="notification-history-tab-label">
-              <span className="notification-history-channel-icon notification-history-channel-icon-whatsapp" aria-hidden="true">
-                <span className="notification-history-channel-icon-letter">W</span>
-              </span>
-              WhatsApp
-            </span>
-          </button>
-          <button type="button" className={`settings-tab-button ${channelTab === "email" ? "settings-tab-button-active" : ""}`} onClick={() => setChannelTab("email")}>
-            <span className="notification-history-tab-label">
-              <span className="notification-history-channel-icon notification-history-channel-icon-email" aria-hidden="true">
-                <span className="notification-history-channel-icon-letter">@</span>
-              </span>
-              Email
-            </span>
-          </button>
-        </div>
-      </section>
-
-      <section className="card whatsapp-message-overview">
-        <div className="whatsapp-message-overview-grid">
-          <div className="whatsapp-message-stat">
-            <span className="eyebrow">Queued</span>
-            <strong>{overviewQueuedCount}</strong>
-          </div>
-          <div className="whatsapp-message-stat">
-            <span className="eyebrow">Sent</span>
-            <strong>{overviewSentCount}</strong>
-          </div>
-          <div className="whatsapp-message-stat">
-            <span className="eyebrow">Failed or cancelled</span>
-            <strong>{overviewFailedCount}</strong>
-          </div>
-        </div>
-      </section>
 
       {channelTab === "email" ? (
         renderEmailSection()

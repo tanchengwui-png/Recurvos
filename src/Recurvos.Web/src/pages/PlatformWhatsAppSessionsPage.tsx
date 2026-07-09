@@ -102,9 +102,8 @@ export function PlatformWhatsAppSessionsPage() {
     <div className="page">
       <header className="page-header">
         <div className="platform-whatsapp-header-copy">
-          <p className="eyebrow">Platform messaging</p>
           <h2>WhatsApp Sessions</h2>
-          <p className="muted">Manage the shared WhatsApp sender used for subscriber reminders, test message delivery, and monitor session health in one place.</p>
+          <p className="page-subtitle">Shared sender status.</p>
         </div>
         <div className="button-stack">
           <Link className="button button-secondary" to="/platform/settings">Back to settings</Link>

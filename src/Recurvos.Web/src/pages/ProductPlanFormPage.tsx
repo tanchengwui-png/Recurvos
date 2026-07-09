@@ -187,10 +187,8 @@ export function ProductPlanFormPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">{form.id ? "Edit plan" : "Add plan"}</p>
+        <div className="page-header-copy">
           <h2>{form.id ? "Update billing plan" : "Create billing plan"}</h2>
-          <p className="muted">Plans set the price and billing cycle for a product. Trial is configured when creating the subscription.</p>
         </div>
         <button type="button" className="button button-secondary" onClick={() => navigate("/plans")}>Back to plans</button>
       </header>

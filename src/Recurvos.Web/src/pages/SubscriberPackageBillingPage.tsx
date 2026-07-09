@@ -70,7 +70,8 @@ export function SubscriberPackageBillingPage() {
   const [reactivationPreview, setReactivationPreview] = useState<SubscriberPackageReactivationPreview | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const pagination = useClientPagination(summary?.invoices ?? [], [summary?.invoices.length ?? 0]);
+  const [documentSearch, setDocumentSearch] = useState("");
+  const [documentStatusFilter, setDocumentStatusFilter] = useState<"all" | "open" | "paid" | "pending">("all");
   const openInvoices = summary?.invoices.filter((invoice) => invoice.amountDue > 0).length ?? 0;
   const outstandingBalance = summary?.invoices.reduce((total, invoice) => total + invoice.amountDue, 0) ?? 0;
   const readyReceipts = summary?.invoices.filter((invoice) => invoice.hasReceipt).length ?? 0;
@@ -80,6 +81,34 @@ export function SubscriberPackageBillingPage() {
   const isActivePackage = packageStatus === "active";
   const hasPendingUpgrade = !!summary?.pendingUpgradePackageCode || !!summary?.pendingUpgradePackageName;
   const currentPackageName = summary?.packageName ?? summary?.packageCode ?? "your current package";
+  const normalizedDocumentSearch = documentSearch.trim().toLowerCase();
+  const filteredInvoices = (summary?.invoices ?? []).filter((invoice) => {
+    const matchesSearch = !normalizedDocumentSearch
+      || [
+        invoice.invoiceNumber,
+        invoice.packageName,
+        invoice.status,
+      ].some((value) => value.toLowerCase().includes(normalizedDocumentSearch));
+
+    if (!matchesSearch) {
+      return false;
+    }
+
+    if (documentStatusFilter === "open") {
+      return invoice.amountDue > 0 && !invoice.hasPendingPaymentConfirmation;
+    }
+
+    if (documentStatusFilter === "paid") {
+      return invoice.amountDue <= 0;
+    }
+
+    if (documentStatusFilter === "pending") {
+      return invoice.hasPendingPaymentConfirmation;
+    }
+
+    return true;
+  });
+  const pagination = useClientPagination(filteredInvoices, [filteredInvoices.length, documentSearch, documentStatusFilter]);
 
   useEffect(() => {
     void load();
@@ -307,46 +336,27 @@ export function SubscriberPackageBillingPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Subscriber billing</p>
-          <h2>My plan</h2>
-          <p className="muted">See your current package, settle outstanding invoices, and download your billing documents.</p>
+        <div className="page-header-copy">
+          <h2>My Plan</h2>
         </div>
       </header>
 
       {summary ? (
-        <section className="card subscriber-billing-hero">
-          <div className="subscriber-billing-hero-copy">
-            <div>
-              <p className="eyebrow">Current package</p>
-              <h3>{summary.packageName ?? summary.packageCode ?? "No package assigned"}</h3>
+        <>
+          <div className="catalog-toolbar card subtle-card subscriber-billing-toolbar">
+            <div className="subscriber-billing-toolbar-copy">
+              <strong>{summary.packageName ?? summary.packageCode ?? "No package assigned"}</strong>
               <p className="muted">
                 {summary.packageAmount && summary.currency
                   ? `${formatMoney(summary.packageAmount, summary.currency)}${summary.billingIntervalLabel ? ` | ${summary.billingIntervalLabel}` : ""}`
                   : "Package billing details are not available yet."}
               </p>
             </div>
-            <div className="subscriber-billing-metrics">
-              <div className="subscriber-billing-metric">
-                <span className="settings-stat-label">Open invoices</span>
-                <strong>{openInvoices}</strong>
-              </div>
-              <div className="subscriber-billing-metric">
-                <span className="settings-stat-label">Outstanding</span>
-                <strong>{summary.currency ? formatMoney(outstandingBalance, summary.currency) : "-"}</strong>
-              </div>
-              <div className="subscriber-billing-metric">
-                <span className="settings-stat-label">Receipts ready</span>
-                <strong>{readyReceipts}</strong>
-              </div>
-            </div>
-          </div>
-          <div className="subscriber-billing-status">
             <span className={`status-pill ${summary.packageStatus?.toLowerCase() === "active" ? "status-pill-active" : "status-pill-inactive"}`}>
               {formatStatusLabel(summary.packageStatus)}
             </span>
           </div>
-        </section>
+        </>
       ) : null}
 
       {summary?.packageStatus === "grace_period" && summary.gracePeriodEndsAtUtc && !hasPendingUpgrade ? (
@@ -406,7 +416,7 @@ export function SubscriberPackageBillingPage() {
             <p className="eyebrow">Billing profile required</p>
             <strong>Add your company billing address before payment</strong>
             <p className="muted">
-              Go to <Link className="inline-link" to="/companies">Companies</Link>, edit your company, and fill in the Address field.
+              Go to <Link className="inline-link" to="/companies">Companies</Link>, edit your company, and add at least one company address.
             </p>
           </div>
         </section>
@@ -551,13 +561,59 @@ export function SubscriberPackageBillingPage() {
 
       <section className="card">
         <div className="dashboard-widget-header">
-          <div>
-            <p className="eyebrow">Documents</p>
+          <div className="section-header-cluster">
             <h3 className="section-title">Invoices and receipts</h3>
+            {summary ? (
+              <div className="page-meta-row page-meta-row-inline page-meta-row-spaced" aria-label="Package billing summary">
+                <div className="page-meta-chips">
+                  <span className="page-meta-chip">
+                    <span className="page-meta-chip-label">Plan</span>
+                    <strong className="page-meta-chip-value">{summary.packageName ?? summary.packageCode ?? "-"}</strong>
+                  </span>
+                  <span className="page-meta-chip">
+                    <span className="page-meta-chip-label">Open</span>
+                    <strong className="page-meta-chip-value">{openInvoices}</strong>
+                  </span>
+                  <span className="page-meta-chip">
+                    <span className="page-meta-chip-label">Outstanding</span>
+                    <strong className="page-meta-chip-value">{summary.currency ? formatMoney(outstandingBalance, summary.currency) : "-"}</strong>
+                  </span>
+                  <span className="page-meta-chip">
+                    <span className="page-meta-chip-label">Receipts</span>
+                    <strong className="page-meta-chip-value">{readyReceipts}</strong>
+                  </span>
+                </div>
+              </div>
+            ) : null}
           </div>
           {summary?.invoices.length ? (
             <span className="badge">{summary.invoices.length} document{summary.invoices.length === 1 ? "" : "s"}</span>
           ) : null}
+        </div>
+        <div className="catalog-toolbar card subtle-card subscriber-billing-doc-toolbar">
+          <label className="form-label subscriber-billing-doc-search">
+            Search
+            <input
+              aria-label="Search plan billing documents"
+              className="text-input"
+              value={documentSearch}
+              onChange={(event) => setDocumentSearch(event.target.value)}
+              placeholder="Search invoice, package, or status"
+            />
+          </label>
+          <label className="form-label subscriber-billing-doc-filter">
+            Status
+            <select
+              aria-label="Filter plan billing documents by status"
+              value={documentStatusFilter}
+              onChange={(event) => setDocumentStatusFilter(event.target.value as "all" | "open" | "paid" | "pending")}
+            >
+              <option value="all">All documents</option>
+              <option value="open">Open balance</option>
+              <option value="paid">Paid</option>
+              <option value="pending">Pending review</option>
+            </select>
+          </label>
         </div>
 
         {!summary || summary.invoices.length === 0 ? (

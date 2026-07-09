@@ -157,8 +157,7 @@ export function PaymentsPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Payment operations</p>
+        <div className="page-header-copy">
           <h2>Payments</h2>
         </div>
       </header>
@@ -166,25 +165,20 @@ export function PaymentsPage() {
       {error ? <HelperText tone="error">{error}</HelperText> : null}
       <section className="card settings-tab-card">
         <div className="settings-tab-strip" role="tablist" aria-label="Payments sections">
-          <button type="button" className={`settings-tab-button ${activeTab === "pending" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("pending")}>Pending</button>
-          <button type="button" className={`settings-tab-button ${activeTab === "history" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("history")}>History</button>
-          <button type="button" className={`settings-tab-button ${activeTab === "records" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("records")}>Payments</button>
+          <button type="button" className={`settings-tab-button ${activeTab === "pending" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("pending")}>
+            <span>Pending</span>
+            <strong>{pendingConfirmations.length}</strong>
+          </button>
+          <button type="button" className={`settings-tab-button ${activeTab === "history" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("history")}>
+            <span>History</span>
+            <strong>{processedConfirmations.length}</strong>
+          </button>
+          <button type="button" className={`settings-tab-button ${activeTab === "records" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("records")}>
+            <span>Payments</span>
+            <strong>{filteredItems.length}</strong>
+          </button>
         </div>
       </section>
-      <div className="payments-tab-summary-grid">
-        <button type="button" className={`settings-mini-tab-card ${activeTab === "pending" ? "settings-mini-tab-card-active" : ""}`} onClick={() => selectTab("pending")}>
-          <span className="settings-stat-label">Pending</span>
-          <strong>{pendingConfirmations.length} awaiting review</strong>
-        </button>
-        <button type="button" className={`settings-mini-tab-card ${activeTab === "history" ? "settings-mini-tab-card-active" : ""}`} onClick={() => selectTab("history")}>
-          <span className="settings-stat-label">History</span>
-          <strong>{processedConfirmations.length} processed</strong>
-        </button>
-        <button type="button" className={`settings-mini-tab-card ${activeTab === "records" ? "settings-mini-tab-card-active" : ""}`} onClick={() => selectTab("records")}>
-          <span className="settings-stat-label">Payments</span>
-          <strong>{filteredItems.length} recorded payments</strong>
-        </button>
-      </div>
       {activeTab === "pending" ? (
       <div className="payments-grid">
         <section className="card payments-card finance-card">
@@ -467,7 +461,6 @@ export function PaymentsPage() {
             <option value="amount-asc">Amount low-high</option>
             <option value="status">Status</option>
           </select>
-          <p className="muted">{filteredItems.length} payments</p>
         </div>
         {pagination.pagedItems.length > 0 ? (
           <div className="payments-mobile-list">

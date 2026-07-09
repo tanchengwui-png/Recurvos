@@ -116,10 +116,8 @@ export function ProductFormPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">{form.id ? "Edit product" : "Add product"}</p>
+        <div className="page-header-copy">
           <h2>{form.id ? "Update catalog item" : "Create catalog item"}</h2>
-          <p className="muted">Products define what you sell. Plans handle pricing and billing.</p>
         </div>
         <button type="button" className="button button-secondary" onClick={() => navigate("/products")}>Back to products</button>
       </header>

@@ -19,6 +19,9 @@ public sealed class RegisterRequest
     [Required, MaxLength(200), EmailAddress]
     public string CompanyEmail { get; set; } = string.Empty;
 
+    [Required, MaxLength(50)]
+    public string Phone { get; set; } = string.Empty;
+
     [MaxLength(500)]
     public string BillingAddress { get; set; } = string.Empty;
 

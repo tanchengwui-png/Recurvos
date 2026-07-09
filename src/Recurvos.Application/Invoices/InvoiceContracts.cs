@@ -44,6 +44,8 @@ public sealed class CreateInvoiceRequest
     [Required]
     public Guid CustomerId { get; set; }
 
+    public Guid? CompanyAddressId { get; set; }
+
     [Required]
     public DateTime DueDateUtc { get; set; }
 
@@ -145,6 +147,7 @@ public sealed record InvoiceDto(
     decimal PaidAmount,
     decimal BalanceAmount,
     string Currency,
+    string? CompanyAddressSnapshot,
     string? PdfPath,
     IReadOnlyCollection<InvoiceLineItemDto> LineItems,
     IReadOnlyCollection<InvoiceHistoryDto> History,

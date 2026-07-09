@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { packageTrustSummary } from "../lib/packages";
+import { BrandLogo } from "./BrandLogo";
 
 export function AuthLayout({
   title,
@@ -21,11 +22,7 @@ export function AuthLayout({
     <div className="auth-page">
       <div className={`auth-stack ${wide ? "auth-stack-wide" : ""}`.trim()}>
         <div className="auth-brand">
-          <img
-            src="/recurvos-billing-logo-v2.png"
-            alt="Recurvos Billing"
-            className="brand-logo auth-brand-logo"
-          />
+          <BrandLogo className="auth-brand-logo" />
         </div>
 
         <section className="card auth-card auth-card-surface">

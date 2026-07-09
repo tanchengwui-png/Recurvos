@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="340" height="96" viewBox="0 0 340 96" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Recurvos Account logo</title>
+  <desc id="desc">Recurvos Account logo with a green and blue shield mark, Recurvos in blue gray, and Account in blue uppercase text.</desc>
+  <defs>
+    <linearGradient id="shieldBg" x1="25" y1="10" x2="76" y2="77" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FBFF"/>
+      <stop offset="1" stop-color="#E4EEF8"/>
+    </linearGradient>
+    <linearGradient id="greenStroke" x1="24" y1="14" x2="57" y2="57" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#71D16A"/>
+      <stop offset="1" stop-color="#0D9E58"/>
+    </linearGradient>
+    <linearGradient id="blueStroke" x1="39" y1="24" x2="82" y2="81" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#34C8F6"/>
+      <stop offset="1" stop-color="#1566D6"/>
+    </linearGradient>
+    <filter id="softShadow" x="0" y="0" width="110" height="96" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#B7C8DA" flood-opacity=".35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <path d="M32 13H72L70.3 44.5C69.2 63.7 55.1 76.8 41.4 83C27.4 77 15.9 63.6 15 45.4L13 13H32Z" fill="url(#shieldBg)" stroke="#D8E4EF" stroke-width="1.4"/>
+    <path d="M25.5 22.5C16 33.3 16.6 48.9 26.3 59.2C31 64.2 36.9 67.3 42.9 69.7C38.4 63 36.9 55.1 38.3 46.9C39.8 38.3 44.3 30 52.2 21.4C43 18.2 32.2 18.3 25.5 22.5Z" fill="url(#greenStroke)" opacity=".98"/>
+    <path d="M46.8 26.7C39.4 34.8 35.6 42.8 34.6 50.5C33.4 59.7 36.4 68.2 42.9 74.2C59.6 72.7 73 58.5 73 41.4C73 31.1 67.9 21.9 60 16.4C56.1 19.4 51.4 22.1 46.8 26.7Z" fill="url(#blueStroke)" opacity=".98"/>
+    <path d="M31.1 35.7L36.7 41.2L47 29.6" stroke="#2DA75A" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M31.5 47.4H53" stroke="#2E85D0" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M31.5 54.9H53" stroke="#2E85D0" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M31.5 62.4H47.6" stroke="#2E85D0" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M22.8 21.2C29 16.8 39.1 15.7 49.1 18.3" stroke="#8EE37E" stroke-width="2.4" stroke-linecap="round" opacity=".9"/>
+    <path d="M45.1 73C56.6 71.2 66.9 63.1 71.3 52.2" stroke="#4CA6F0" stroke-width="2.4" stroke-linecap="round" opacity=".92"/>
+  </g>
+
+  <g transform="translate(102 18)">
+    <text x="0" y="25" fill="#5C738B" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="28" font-weight="500" letter-spacing="-0.6">Recurvos</text>
+    <text x="2" y="53" fill="#2581C4" font-family="Segoe UI, Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="5.1">ACCOUNT</text>
+  </g>
+</svg>

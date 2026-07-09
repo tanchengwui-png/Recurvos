@@ -34,6 +34,14 @@ public sealed class CompaniesController(ICompanyService companyService) : Contro
         return company is null ? NotFound() : Ok(company);
     }
 
+    [HttpPost("{id:guid}/factory-reset")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<IActionResult> FactoryReset(Guid id, CompanyFactoryResetRequest request, CancellationToken cancellationToken)
+    {
+        await companyService.FactoryResetAsync(id, request, cancellationToken);
+        return NoContent();
+    }
+
     [HttpPost("{id:guid}/logo")]
     [Authorize(Policy = "ManageBilling")]
     [RequestSizeLimit(5_000_000)]
@@ -59,6 +67,14 @@ public sealed class CompaniesController(ICompanyService companyService) : Contro
         {
             return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
         }
+    }
+
+    [HttpDelete("{id:guid}/logo")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<CompanyLookupDto>> RemoveLogo(Guid id, CancellationToken cancellationToken)
+    {
+        var company = await companyService.RemoveLogoAsync(id, cancellationToken);
+        return company is null ? NotFound() : Ok(company);
     }
 
     [HttpGet("{companyId:guid}/product-plans")]

@@ -55,9 +55,7 @@ export function PlatformEmailLogsPage() {
     <div className="page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">Platform</p>
-          <h2>Email logs</h2>
-          <p className="muted">Check whether outgoing emails were sent by SMTP or written to the local folder, and see failures without opening the server console.</p>
+          <h2>Email Logs</h2>
         </div>
         <button type="button" className="button button-secondary" onClick={() => void load()}>
           Refresh
@@ -66,30 +64,26 @@ export function PlatformEmailLogsPage() {
 
       {error ? <HelperText tone="error">{error}</HelperText> : null}
 
-      <section className="card feedback-owner-summary">
-        <div className="management-summary-grid">
-          <div className="management-summary-card">
-            <p className="eyebrow">Total</p>
-            <h3>{items.length}</h3>
-            <p className="muted">Latest email attempts</p>
-          </div>
-          <div className="management-summary-card">
-            <p className="eyebrow">Succeeded</p>
-            <h3>{items.filter((item) => item.succeeded).length}</h3>
-            <p className="muted">Delivered or captured successfully</p>
-          </div>
-          <div className="management-summary-card">
-            <p className="eyebrow">Failed</p>
-            <h3>{items.filter((item) => !item.succeeded).length}</h3>
-            <p className="muted">SMTP or delivery errors</p>
-          </div>
-          <div className="management-summary-card">
-            <p className="eyebrow">Redirected</p>
-            <h3>{items.filter((item) => item.wasRedirected).length}</h3>
-            <p className="muted">Email shield applied</p>
-          </div>
+      <div className="page-meta-row" aria-label="Email log summary">
+        <div className="page-meta-chips">
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Total</span>
+            <strong className="page-meta-chip-value">{items.length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Succeeded</span>
+            <strong className="page-meta-chip-value">{items.filter((item) => item.succeeded).length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Failed</span>
+            <strong className="page-meta-chip-value">{items.filter((item) => !item.succeeded).length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Redirected</span>
+            <strong className="page-meta-chip-value">{items.filter((item) => item.wasRedirected).length}</strong>
+          </span>
         </div>
-      </section>
+      </div>
 
       <section className="card feedback-owner-filters">
         <div className="feedback-owner-filter-bar">

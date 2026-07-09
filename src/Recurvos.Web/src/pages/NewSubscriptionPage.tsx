@@ -222,10 +222,9 @@ export function NewSubscriptionPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Create subscription</p>
-          <h2>Start customer billing</h2>
-          <p className="muted">Use a dedicated screen for subscription setup, then return to the list once it is saved.</p>
+        <div className="page-header-copy">
+          <h2>Start Customer Billing</h2>
+          <p className="page-subtitle">Create a new subscription.</p>
         </div>
         <button type="button" className="button button-secondary" onClick={() => navigate("/subscriptions")}>Back to subscriptions</button>
       </header>

@@ -90,10 +90,8 @@ export function CustomerFormPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">{editingCustomerId ? "Edit customer" : "Add new"}</p>
+        <div className="page-header-copy">
           <h2>{editingCustomerId ? "Update customer profile" : "Create customer profile"}</h2>
-          <p className="muted">Use the details shown on invoices and reminders.</p>
         </div>
         <button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Back to customers</button>
       </header>

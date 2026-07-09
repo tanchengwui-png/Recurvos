@@ -163,9 +163,7 @@ export function PlatformFeedbackPage() {
     <div className="page">
       <header className="page-header">
         <div className="dashboard-header-copy">
-          <p className="eyebrow">Platform</p>
-          <h2>Subscriber feedback</h2>
-          <p className="muted">Review incoming issues and requests as a queue, then open one item at a time for a cleaner update workflow.</p>
+          <h2>Subscriber Feedback</h2>
         </div>
         <button type="button" className="button button-secondary" onClick={() => void load()}>
           Refresh
@@ -174,25 +172,22 @@ export function PlatformFeedbackPage() {
 
       {error ? <HelperText tone="error">{error}</HelperText> : null}
 
-      <section className="card feedback-owner-summary">
-        <div className="management-summary-grid">
-          <div className="management-summary-card">
-            <p className="eyebrow">Needs attention</p>
-            <h3>{items.filter((item) => item.status === "New" || item.status === "InReview").length}</h3>
-            <p className="muted">New and in review</p>
-          </div>
-          <div className="management-summary-card">
-            <p className="eyebrow">Planned or waiting</p>
-            <h3>{items.filter((item) => item.status === "Planned").length}</h3>
-            <p className="muted">Work acknowledged</p>
-          </div>
-          <div className="management-summary-card">
-            <p className="eyebrow">Resolved</p>
-            <h3>{items.filter((item) => item.status === "Resolved" || item.status === "Closed").length}</h3>
-            <p className="muted">Past feedback history</p>
-          </div>
+      <div className="page-meta-row" aria-label="Feedback summary">
+        <div className="page-meta-chips">
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Attention</span>
+            <strong className="page-meta-chip-value">{items.filter((item) => item.status === "New" || item.status === "InReview").length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Planned</span>
+            <strong className="page-meta-chip-value">{items.filter((item) => item.status === "Planned").length}</strong>
+          </span>
+          <span className="page-meta-chip">
+            <span className="page-meta-chip-label">Resolved</span>
+            <strong className="page-meta-chip-value">{items.filter((item) => item.status === "Resolved" || item.status === "Closed").length}</strong>
+          </span>
         </div>
-      </section>
+      </div>
 
       <section className="card feedback-owner-filters">
         <div className="feedback-owner-filter-bar">

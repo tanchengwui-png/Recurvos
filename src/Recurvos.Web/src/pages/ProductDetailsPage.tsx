@@ -95,10 +95,8 @@ export function ProductDetailsPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Product details</p>
+        <div className="page-header-copy">
           <h2>{product.name}</h2>
-          <p className="muted">{product.description || "Manage plans, defaults, and pricing for this product."}</p>
         </div>
       </header>
 

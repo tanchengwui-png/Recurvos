@@ -6,7 +6,14 @@ public sealed class Company : BaseEntity
 {
     public Guid? SubscriberId { get; set; }
     public string Name { get; set; } = string.Empty;
+    public string? LegalName { get; set; }
+    public string? RegistrationNumberType { get; set; }
     public string RegistrationNumber { get; set; } = string.Empty;
+    public string? OldRegistrationNumber { get; set; }
+    public string? Tin { get; set; }
+    public string? MsicCode { get; set; }
+    public string? TourismTaxRegistrationNumber { get; set; }
+    public string? HomeCountry { get; set; }
     public string Email { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
@@ -25,6 +32,7 @@ public sealed class Company : BaseEntity
     public DateTime? TrialEndsAtUtc { get; set; }
     public User? Subscriber { get; set; }
     public CompanyInvoiceSettings? InvoiceSettings { get; set; }
+    public ICollection<CompanyAddress> Addresses { get; set; } = new List<CompanyAddress>();
     public ICollection<User> Users { get; set; } = new List<User>();
     public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
 }

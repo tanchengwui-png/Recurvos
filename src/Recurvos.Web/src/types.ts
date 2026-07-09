@@ -268,6 +268,7 @@ export type Invoice = {
   paidAmount: number;
   balanceAmount: number;
   currency: string;
+  companyAddressSnapshot?: string | null;
   pdfPath?: string | null;
   lineItems: { description: string; quantity: number; unitAmount: number; totalAmount: number }[];
   history: { createdAtUtc: string; action: string; description: string }[];
@@ -923,10 +924,29 @@ export type FeedbackNotificationSummary = {
 export type CompanyLookup = {
   id: string;
   name: string;
+  legalName?: string | null;
+  registrationNumberType?: string | null;
   registrationNumber: string;
+  oldRegistrationNumber?: string | null;
+  tin?: string | null;
+  msicCode?: string | null;
+  tourismTaxRegistrationNumber?: string | null;
+  homeCountry?: string | null;
+  homeCurrency: string;
   email: string;
   phone: string;
   address: string;
+  addresses: {
+    id: string;
+    addressLine1: string;
+    addressLine2?: string | null;
+    addressLine3?: string | null;
+    postcode?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country: string;
+    isDefault: boolean;
+  }[];
   industry?: string | null;
   natureOfBusiness?: string | null;
   isActive: boolean;

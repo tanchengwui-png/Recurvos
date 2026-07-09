@@ -122,6 +122,7 @@ public sealed class InvoiceService(
 
         var invoiceNumber = await GenerateInvoiceNumberAsync(companyId, cancellationToken);
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(companyId, cancellationToken);
+        var companyAddress = await ResolveCompanyInvoiceAddressAsync(companyId, request.CompanyAddressId, cancellationToken);
         var lineItems = request.LineItems.Select(item => new InvoiceLineItem
         {
             CompanyId = companyId,
@@ -156,11 +157,13 @@ public sealed class InvoiceService(
             AmountDue = grandTotal,
             AmountPaid = 0,
             Currency = "MYR",
+            CompanyAddressSnapshot = companyAddress,
             LineItems = lineItems
         };
 
         var pdf = await CreateManualInvoicePdfAsync(
             companyId,
+            companyAddress,
             customer.Name,
             customer.Email,
             customer.BillingAddress,
@@ -229,8 +232,10 @@ public sealed class InvoiceService(
             string.IsNullOrWhiteSpace(request.TaxName) ? "SST" : request.TaxName.Trim(),
             request.IsTaxEnabled ? request.TaxRate : null,
             request.IsTaxEnabled && !string.IsNullOrWhiteSpace(request.TaxRegistrationNo) ? request.TaxRegistrationNo.Trim() : null);
+        var companyId = GetCompanyId();
         var pdf = await CreateManualInvoicePdfAsync(
-            GetCompanyId(),
+            companyId,
+            await ResolveCompanyInvoiceAddressAsync(companyId, null, cancellationToken),
             request.CustomerName.Trim(),
             string.IsNullOrWhiteSpace(request.CustomerEmail) ? null : request.CustomerEmail.Trim(),
             string.IsNullOrWhiteSpace(request.CustomerAddress) ? null : request.CustomerAddress.Trim(),
@@ -249,8 +254,9 @@ public sealed class InvoiceService(
     public async Task<(byte[] Content, string FileName, string ContentType)> GenerateReceiptPreviewPdfAsync(PreviewReceiptRequest request, CancellationToken cancellationToken = default)
     {
         var issueDateUtc = DateTime.UtcNow;
-        var company = await dbContext.Companies.FirstAsync(x => x.Id == GetCompanyId(), cancellationToken);
+        var company = await dbContext.Companies.Include(x => x.Addresses).FirstAsync(x => x.Id == GetCompanyId(), cancellationToken);
         var invoiceSettings = await dbContext.CompanyInvoiceSettings.FirstOrDefaultAsync(x => x.CompanyId == company.Id, cancellationToken);
+        var companyAddress = ResolveDefaultCompanyAddress(company);
         var receiptNumber = string.IsNullOrWhiteSpace(request.ReceiptNumber)
             ? $"{invoiceSettings?.ReceiptPrefix ?? "RCT"}-PREVIEW-{issueDateUtc:yyyyMMdd-HHmmss}"
             : request.ReceiptNumber.Trim();
@@ -261,7 +267,7 @@ public sealed class InvoiceService(
             company.Name,
             company.RegistrationNumber,
             company.Email,
-            invoiceSettings?.ShowCompanyAddressOnReceipt == true ? company.Address : null,
+            invoiceSettings?.ShowCompanyAddressOnReceipt == true ? companyAddress : null,
             await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
             request.CustomerName.Trim(),
             null,
@@ -611,7 +617,7 @@ public sealed class InvoiceService(
                 company.Name,
                 company.RegistrationNumber,
                 company.Email,
-                invoiceSettings?.ShowCompanyAddressOnReceipt == true ? company.Address : null,
+                invoiceSettings?.ShowCompanyAddressOnReceipt == true ? ResolveInvoiceCompanyAddressSnapshot(invoice, company.Address) : null,
                 await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
                 invoice.Customer.Name,
                 invoice.Customer.BillingAddress,
@@ -692,8 +698,9 @@ public sealed class InvoiceService(
                 continue;
             }
 
-            var company = await dbContext.Companies.FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
+            var company = await dbContext.Companies.Include(x => x.Addresses).FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
             var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(subscription.CompanyId, cancellationToken);
+            var companyAddress = ResolveDefaultCompanyAddress(company);
 
             while (true)
             {
@@ -775,6 +782,7 @@ public sealed class InvoiceService(
                     AmountDue = grandTotal,
                     AmountPaid = 0,
                     Currency = eligibleDueItems.First().Currency,
+                    CompanyAddressSnapshot = companyAddress,
                     LineItems = lineItems
                 };
 
@@ -783,7 +791,7 @@ public sealed class InvoiceService(
                     company.RegistrationNumber,
                     company.Email,
                     company.Phone,
-                    company.Address,
+                    companyAddress,
                     invoiceSettings?.ShowCompanyAddressOnInvoice ?? true,
                     await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
                     invoiceSettings?.BankName,
@@ -1663,7 +1671,7 @@ public sealed class InvoiceService(
             company.RegistrationNumber,
             company.Email,
             company.Phone,
-            company.Address,
+            ResolveInvoiceCompanyAddressSnapshot(invoice, company.Address),
             invoiceSettings?.ShowCompanyAddressOnInvoice ?? true,
             await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
             invoiceSettings?.BankName,
@@ -1844,6 +1852,7 @@ public sealed class InvoiceService(
 
     private async Task<byte[]> CreateManualInvoicePdfAsync(
         Guid companyId,
+        string? companyAddress,
         string customerName,
         string? customerEmail,
         string? customerAddress,
@@ -1864,7 +1873,7 @@ public sealed class InvoiceService(
             company.RegistrationNumber,
             company.Email,
             company.Phone,
-            company.Address,
+            companyAddress,
             invoiceSettings?.ShowCompanyAddressOnInvoice ?? true,
             await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
             invoiceSettings?.BankName,
@@ -1905,7 +1914,8 @@ public sealed class InvoiceService(
 
         SubscriptionService.SyncAggregateSnapshot(subscription);
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(subscription.CompanyId, cancellationToken);
-        var company = subscription.Company ?? await dbContext.Companies.FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
+        var company = subscription.Company ?? await dbContext.Companies.Include(x => x.Addresses).FirstAsync(x => x.Id == subscription.CompanyId, cancellationToken);
+        var companyAddress = ResolveDefaultCompanyAddress(company);
         var eligibleItems = new List<SubscriptionItem>();
         var nowUtc = DateTime.UtcNow;
         foreach (var item in subscription.Items.Where(x =>
@@ -1993,7 +2003,7 @@ public sealed class InvoiceService(
             company.RegistrationNumber,
             company.Email,
             company.Phone,
-            company.Address,
+            companyAddress,
             invoiceSettings?.ShowCompanyAddressOnInvoice ?? true,
             await ReadCompanyLogoAsync(company.LogoPath, cancellationToken),
             invoiceSettings?.BankName,
@@ -2044,6 +2054,7 @@ public sealed class InvoiceService(
             AmountDue = grandTotal,
             AmountPaid = 0,
             Currency = subscription.Currency,
+            CompanyAddressSnapshot = companyAddress,
             LineItems = lineItems
         };
 
@@ -2133,6 +2144,56 @@ public sealed class InvoiceService(
         !taxProfile.IsEnabled || !taxProfile.Rate.HasValue
             ? 0m
             : Math.Round(subtotal * taxProfile.Rate.Value / 100m, 2, MidpointRounding.AwayFromZero);
+
+    private async Task<string?> ResolveCompanyInvoiceAddressAsync(Guid companyId, Guid? companyAddressId, CancellationToken cancellationToken)
+    {
+        var company = await dbContext.Companies
+            .Include(x => x.Addresses)
+            .FirstAsync(x => x.Id == companyId, cancellationToken);
+
+        if (companyAddressId.HasValue)
+        {
+            var selectedAddress = company.Addresses.FirstOrDefault(x => x.Id == companyAddressId.Value)
+                ?? throw new InvalidOperationException("Selected company address could not be found.");
+            return FormatCompanyAddress(selectedAddress);
+        }
+
+        return ResolveDefaultCompanyAddress(company);
+    }
+
+    private static string? ResolveDefaultCompanyAddress(Company company)
+    {
+        var address = company.Addresses.FirstOrDefault(x => x.IsDefault)
+            ?? company.Addresses.OrderBy(x => x.CreatedAtUtc).FirstOrDefault();
+        return address is null ? company.Address : FormatCompanyAddress(address);
+    }
+
+    private static string? ResolveInvoiceCompanyAddressSnapshot(Invoice invoice, string? fallbackAddress) =>
+        string.IsNullOrWhiteSpace(invoice.CompanyAddressSnapshot) ? fallbackAddress : invoice.CompanyAddressSnapshot;
+
+    private static string FormatCompanyAddress(CompanyAddress address)
+    {
+        var cityLine = string.Join(", ", new[]
+        {
+            NormalizeOptionalText(address.City),
+            NormalizeOptionalText(address.State),
+            NormalizeOptionalText(address.Postcode),
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
+
+        return string.Join(
+            "\n",
+            new[]
+            {
+                address.AddressLine1.Trim(),
+                NormalizeOptionalText(address.AddressLine2),
+                NormalizeOptionalText(address.AddressLine3),
+                cityLine,
+                NormalizeOptionalText(address.Country),
+            }.Where(value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static string? NormalizeOptionalText(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private sealed record CompanyTaxProfile(bool IsEnabled, string Name, decimal? Rate, string? RegistrationNo);
     private sealed record GeneratedSubscriptionInvoice(Invoice? Invoice, byte[] PdfContent);
@@ -2363,6 +2424,7 @@ public sealed class InvoiceService(
             invoice.AmountPaid,
             invoice.AmountDue,
             invoice.Currency,
+            invoice.CompanyAddressSnapshot,
             invoice.PdfPath,
             invoice.LineItems.Select(x => new InvoiceLineItemDto(x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)).ToList(),
             history.TryGetValue(invoice.Id, out var entries) ? entries : Array.Empty<InvoiceHistoryDto>(),

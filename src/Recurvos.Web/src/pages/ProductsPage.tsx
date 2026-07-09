@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { EmptyTableRow } from "../components/EmptyTableRow";
 import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { useDragToScroll } from "../hooks/useDragToScroll";
@@ -22,7 +23,6 @@ export function ProductsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [packageLimit, setPackageLimit] = useState<number | null>(null);
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(searchParams.get("company") || null);
@@ -56,7 +56,6 @@ export function ProductsPage() {
     setItems(result.items);
     setTotalCount(result.totalCount);
     setCompanies(companyList);
-    setFeatureAccess(access);
     const activePackage = packages.find((item) => item.code === access?.packageCode);
     setPackageLimit(activePackage?.maxProducts ?? null);
   }
@@ -192,38 +191,14 @@ export function ProductsPage() {
   return (
     <div className="page">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Billing catalog</p>
+        <div className="page-header-copy">
           <h2>Products</h2>
-          <p className="muted">Product = what customer buys. Plan = how much and how often customer is charged.</p>
-          <p className="muted">
-            Products used: {totalCount}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}
-          </p>
         </div>
-        <button type="button" className="button button-primary" onClick={() => navigate("/products/new")}>Add product</button>
       </header>
       {message ? <HelperText>{message}</HelperText> : null}
 
-      <section className="management-summary-grid">
-        <article className="management-summary-card">
-          <p className="eyebrow">Usage</p>
-          <h3>{totalCount}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}</h3>
-          <p className="muted">Products currently used under this subscriber account.</p>
-        </article>
-        <article className="management-summary-card">
-          <p className="eyebrow">Active</p>
-          <h3>{activeProducts}</h3>
-          <p className="muted">Products currently available for invoicing and active plans.</p>
-        </article>
-        <article className="management-summary-card">
-          <p className="eyebrow">Recurring</p>
-          <h3>{subscriptionProducts}</h3>
-          <p className="muted">Catalog items set up for subscription billing instead of one-time charges.</p>
-        </article>
-      </section>
-
       <div className="catalog-toolbar card subtle-card products-filter-bar">
-        <TextInput aria-label="Search products" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name or code" />
+        <TextInput aria-label="Search products" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product name or code" />
         <select aria-label="Filter products by company" value={selectedCompanyId ?? ""} onChange={(event) => setSelectedCompanyId(event.target.value || "")}>
           <option value="">All companies</option>
           {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
@@ -233,16 +208,30 @@ export function ProductsPage() {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
-        <p className="muted products-filter-meta">{totalCount} products</p>
       </div>
 
       <section className="card">
         <div className="card-section-header">
-          <div>
-            <p className="eyebrow">Catalog list</p>
+          <div className="section-header-cluster">
             <h3 className="section-title">Products and plans</h3>
-            <p className="muted">Create products first, then attach one or more plans for pricing and billing cadence.</p>
+            <div className="page-meta-row page-meta-row-inline" aria-label="Product summary">
+              <div className="page-meta-chips">
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Total</span>
+                  <strong className="page-meta-chip-value">{totalCount}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}</strong>
+                </span>
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Active</span>
+                  <strong className="page-meta-chip-value">{activeProducts}</strong>
+                </span>
+                <span className="page-meta-chip">
+                  <span className="page-meta-chip-label">Recurring</span>
+                  <strong className="page-meta-chip-value">{subscriptionProducts}</strong>
+                </span>
+              </div>
+            </div>
           </div>
+          <button type="button" className="button button-primary" onClick={() => navigate("/products/new")}>Add product</button>
         </div>
         <div className="subscription-mobile-list">
           {items.map((item) => (
@@ -309,7 +298,19 @@ export function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {items.length === 0 ? (
+                <EmptyTableRow
+                  colSpan={5}
+                  title="No products yet"
+                  description="Create your first product and attach monthly, quarterly, yearly, or one-time plans."
+                  actions={(
+                    <>
+                      <Button type="button" onClick={() => navigate("/products/new")}>Create first product</Button>
+                      <Button type="button" variant="secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</Button>
+                    </>
+                  )}
+                />
+              ) : items.map((item) => (
                 <tr key={item.id}>
                   <td className="sticky-cell sticky-cell-left table-primary-cell">
                     <div className="table-primary-cell-stack">
@@ -344,21 +345,6 @@ export function ProductsPage() {
             <div ref={bottomInnerRef} />
           </div>
         </div>
-        {items.length === 0 ? (
-          <div className="empty-state">
-            <h3>No products yet</h3>
-            <p className="muted">Create your first product and attach monthly, quarterly, yearly, or one-time plans.</p>
-            {featureAccess?.packageCode ? (
-              <p className="muted">
-                Package limit: {packageLimitLabel} products on {featureAccess.packageCode}.
-              </p>
-            ) : null}
-            <div className="empty-state-actions">
-              <Button type="button" onClick={() => navigate("/products/new")}>Create first product</Button>
-              <Button type="button" variant="secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</Button>
-            </div>
-          </div>
-        ) : null}
         <TablePagination
           currentPage={currentPage}
           pageSize={pageSize}
