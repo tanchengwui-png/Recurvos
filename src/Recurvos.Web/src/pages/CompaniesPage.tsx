@@ -460,7 +460,8 @@ export function CompaniesPage() {
                           <div className="company-detail-address-card-header">
                             <div className="company-detail-address-card-heading">
                               <strong>{getCompanyAddressTitle(address, index)}</strong>
-                              {address.isDefault ? <span className="status-pill status-pill-active">Default</span> : null}
+                              {address.isDefaultBilling ? <span className="status-pill status-pill-active">Default Billing</span> : null}
+                              {address.isDefaultShipping ? <span className="status-pill status-pill-active">Default Shipping</span> : null}
                             </div>
                           </div>
                           <div className="company-detail-grid">

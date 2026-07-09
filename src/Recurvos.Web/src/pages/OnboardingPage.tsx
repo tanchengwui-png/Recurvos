@@ -7,23 +7,12 @@ import { FormLabel } from "../components/ui/FormLabel";
 import { HelperText } from "../components/ui/HelperText";
 import { InlineLink } from "../components/ui/InlineLink";
 import { PasswordInput } from "../components/ui/PasswordInput";
+import { PhoneNumberField } from "../components/ui/PhoneNumberField";
 import { TextInput } from "../components/ui/TextInput";
 import { api } from "../lib/api";
 import { getPackageDisplayName, getPackageMarketingContent } from "../lib/packages";
+import { combinePhoneNumber, DEFAULT_PHONE_COUNTRY_CODE } from "../lib/phoneNumbers";
 import type { PlatformPackage, RegisterResult } from "../types";
-
-const countryCodeOptions = [
-  { value: "+60", label: "MY +60" },
-  { value: "+65", label: "SG +65" },
-  { value: "+62", label: "ID +62" },
-  { value: "+66", label: "TH +66" },
-];
-
-function normalizeRegistrationPhone(countryCode: string, mobileNumber: string) {
-  const normalizedCountryCode = countryCode.startsWith("+") ? countryCode : `+${countryCode}`;
-  const digits = mobileNumber.replace(/\D/g, "").replace(/^0+/, "");
-  return `${normalizedCountryCode}${digits}`;
-}
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -40,7 +29,7 @@ export function OnboardingPage() {
     companyName: "",
     registrationNumber: "",
     companyEmail: "",
-    phoneCountryCode: "+60",
+    phoneCountryCode: DEFAULT_PHONE_COUNTRY_CODE,
     phoneNumber: "",
     billingAddress: "",
     firstName: "",
@@ -72,7 +61,12 @@ export function OnboardingPage() {
 
     try {
       const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
-      const phone = normalizeRegistrationPhone(form.phoneCountryCode, form.phoneNumber);
+      const phone = combinePhoneNumber(form.phoneCountryCode, form.phoneNumber);
+
+      if (!phone) {
+        setError("Enter a country code and phone number.");
+        return;
+      }
 
       const response = await api.post<RegisterResult>("/auth/register", {
         website: form.website,
@@ -205,38 +199,16 @@ export function OnboardingPage() {
           </>
         </FormLabel>
 
-        <div className="form-stack">
-          <div className="inline-fields">
-            <FormLabel htmlFor="phoneCountryCode">
-              Country code
-              <select
-                id="phoneCountryCode"
-                value={form.phoneCountryCode}
-                onChange={(event) => setForm((current) => ({ ...current, phoneCountryCode: event.target.value }))}
-              >
-                {countryCodeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FormLabel>
-
-            <FormLabel htmlFor="phoneNumber">
-              Mobile no.
-              <TextInput
-                id="phoneNumber"
-                type="tel"
-                autoComplete="tel"
-                inputMode="tel"
-                placeholder="12 345 6789"
-                value={form.phoneNumber}
-                onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))}
-              />
-            </FormLabel>
-          </div>
-          <small className="muted onboarding-field-note">Used as the billing contact phone for invoices, reminders, and payment follow-up.</small>
-        </div>
+        <PhoneNumberField
+          countryCodeId="phoneCountryCode"
+          phoneNumberId="phoneNumber"
+          countryCodeValue={form.phoneCountryCode}
+          phoneNumberValue={form.phoneNumber}
+          onCountryCodeChange={(value) => setForm((current) => ({ ...current, phoneCountryCode: value }))}
+          onPhoneNumberChange={(value) => setForm((current) => ({ ...current, phoneNumber: value }))}
+          phoneNumberLabel="Phone Number"
+          note="Used as the billing contact phone for invoices, reminders, and payment follow-up."
+        />
 
         <FormLabel htmlFor="billingAddress">
           Billing address

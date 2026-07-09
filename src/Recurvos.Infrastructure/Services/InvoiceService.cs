@@ -2163,7 +2163,7 @@ public sealed class InvoiceService(
 
     private static string? ResolveDefaultCompanyAddress(Company company)
     {
-        var address = company.Addresses.FirstOrDefault(x => x.IsDefault)
+        var address = company.Addresses.FirstOrDefault(x => x.IsDefaultBilling)
             ?? company.Addresses.OrderBy(x => x.CreatedAtUtc).FirstOrDefault();
         return address is null ? company.Address : FormatCompanyAddress(address);
     }

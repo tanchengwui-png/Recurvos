@@ -39,6 +39,8 @@ public sealed class CompanyAddressUpsertRequest
     public string? State { get; set; }
     public string Country { get; set; } = string.Empty;
     public bool IsDefault { get; set; }
+    public bool IsDefaultBilling { get; set; }
+    public bool IsDefaultShipping { get; set; }
 }
 
 public sealed record CompanyAddressDto(
@@ -50,7 +52,9 @@ public sealed record CompanyAddressDto(
     string? City,
     string? State,
     string Country,
-    bool IsDefault);
+    bool IsDefault,
+    bool IsDefaultBilling,
+    bool IsDefaultShipping);
 
 public sealed record CompanyLookupDto(
     Guid Id,

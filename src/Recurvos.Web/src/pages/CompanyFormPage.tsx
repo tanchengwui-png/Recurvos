@@ -4,11 +4,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { MsicCodeModal } from "../components/MsicCodeModal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { PhoneNumberField } from "../components/ui/PhoneNumberField";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api, buildApiUrl } from "../lib/api";
 import { getAuth, setAuth } from "../lib/auth";
-import { formatCompanyAddress, getCompanyAddressTitle, parseLegacyCompanyAddress, type CompanyAddress } from "../lib/companyAddresses";
+import { formatCompanyAddress, parseLegacyCompanyAddress, type CompanyAddress } from "../lib/companyAddresses";
 import { countryOptions, currencyOptions, malaysiaStateOptions, registrationNumberTypeOptions } from "../lib/localeOptions";
 import { msicEntryByCode } from "../lib/msicOfficial";
+import { combinePhoneNumber, DEFAULT_PHONE_COUNTRY_CODE, splitStoredPhoneNumber } from "../lib/phoneNumbers";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { CompanyLookup, PlatformUploadPolicy } from "../types";
 
@@ -24,7 +27,8 @@ type EditableCompanyAddress = {
   city: string;
   state: string;
   country: string;
-  isDefault: boolean;
+  isDefaultBilling: boolean;
+  isDefaultShipping: boolean;
 };
 
 const emptyForm = {
@@ -64,12 +68,38 @@ function createEditableAddress(overrides: Partial<EditableCompanyAddress> = {}):
     city: overrides.city ?? "",
     state: overrides.state ?? "",
     country: overrides.country ?? "",
-    isDefault: overrides.isDefault ?? false,
+    isDefaultBilling: overrides.isDefaultBilling ?? false,
+    isDefaultShipping: overrides.isDefaultShipping ?? false,
+  };
+}
+
+function isMalaysiaCountry(country: string) {
+  return country.trim().toLowerCase() === "malaysia";
+}
+
+function findMalaysiaStateOption(value: string) {
+  const normalizedValue = value.trim().toLowerCase();
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return malaysiaStateOptions.find((option) => option.value.trim().toLowerCase() === normalizedValue) ?? null;
+}
+
+function normalizeAddressForCountry(address: EditableCompanyAddress): EditableCompanyAddress {
+  if (!isMalaysiaCountry(address.country)) {
+    return address;
+  }
+
+  const matchingStateOption = findMalaysiaStateOption(address.state);
+  return {
+    ...address,
+    state: matchingStateOption?.value ?? "",
   };
 }
 
 function mapCompanyAddressToEditable(address: CompanyAddress, persisted = true): EditableCompanyAddress {
-  return createEditableAddress({
+  return normalizeAddressForCountry(createEditableAddress({
     clientId: address.id,
     persistedId: persisted ? address.id : undefined,
     addressLine1: address.addressLine1,
@@ -79,29 +109,36 @@ function mapCompanyAddressToEditable(address: CompanyAddress, persisted = true):
     city: address.city ?? "",
     state: address.state ?? "",
     country: address.country,
-    isDefault: address.isDefault,
-  });
+    isDefaultBilling: address.isDefaultBilling || (!address.isDefaultBilling && !address.isDefaultShipping && address.isDefault),
+    isDefaultShipping: address.isDefaultShipping || (!address.isDefaultBilling && !address.isDefaultShipping && address.isDefault),
+  }));
 }
 
-function ensureSingleDefault(addresses: EditableCompanyAddress[]) {
+function ensureAddressDefaults(addresses: EditableCompanyAddress[]) {
   if (addresses.length === 0) {
-    return [createEditableAddress({ isDefault: true })];
+    return [createEditableAddress({ isDefaultBilling: true, isDefaultShipping: true })];
   }
 
-  let defaultIndex = addresses.findIndex((address) => address.isDefault);
-  if (defaultIndex < 0) {
-    defaultIndex = 0;
+  let billingDefaultIndex = addresses.findIndex((address) => address.isDefaultBilling);
+  if (billingDefaultIndex < 0) {
+    billingDefaultIndex = 0;
+  }
+
+  let shippingDefaultIndex = addresses.findIndex((address) => address.isDefaultShipping);
+  if (shippingDefaultIndex < 0) {
+    shippingDefaultIndex = 0;
   }
 
   return addresses.map((address, index) => ({
     ...address,
-    isDefault: index === defaultIndex,
+    isDefaultBilling: index === billingDefaultIndex,
+    isDefaultShipping: index === shippingDefaultIndex,
   }));
 }
 
 function getInitialAddresses(company?: CompanyLookup | null) {
   if (company?.addresses.length) {
-    return ensureSingleDefault(company.addresses.map((address) => mapCompanyAddressToEditable(address)));
+    return ensureAddressDefaults(company.addresses.map((address) => mapCompanyAddressToEditable(address)));
   }
 
   const legacyAddress = company?.address ? parseLegacyCompanyAddress(company.address) : null;
@@ -109,7 +146,7 @@ function getInitialAddresses(company?: CompanyLookup | null) {
     return [mapCompanyAddressToEditable(legacyAddress, false)];
   }
 
-  return [createEditableAddress({ isDefault: true })];
+  return [createEditableAddress({ isDefaultBilling: true, isDefaultShipping: true })];
 }
 
 export function CompanyFormPage() {
@@ -118,12 +155,14 @@ export function CompanyFormPage() {
   const editingCompanyId = id ?? null;
   const [items, setItems] = useState<CompanyLookup[]>([]);
   const [form, setForm] = useState(emptyForm);
-  const [addresses, setAddresses] = useState<EditableCompanyAddress[]>(() => [createEditableAddress({ isDefault: true })]);
+  const [addresses, setAddresses] = useState<EditableCompanyAddress[]>(() => [createEditableAddress({ isDefaultBilling: true, isDefaultShipping: true })]);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreviewUrl, setLogoPreviewUrl] = useState("");
   const [logoInsight, setLogoInsight] = useState("");
-  const [logoMeta, setLogoMeta] = useState<{ width: number; height: number; warning: string; recommendation: string } | null>(null);
+  const [logoMeta, setLogoMeta] = useState<{ width: number; height: number; warning: string } | null>(null);
   const [error, setError] = useState("");
+  const [phoneCountryCode, setPhoneCountryCode] = useState(DEFAULT_PHONE_COUNTRY_CODE);
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy>(DEFAULT_UPLOAD_POLICY);
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [isMsicModalOpen, setIsMsicModalOpen] = useState(false);
@@ -144,7 +183,9 @@ export function CompanyFormPage() {
       setUploadPolicy(policy);
 
       if (!editingCompanyId) {
-        setAddresses([createEditableAddress({ isDefault: true })]);
+        setAddresses([createEditableAddress({ isDefaultBilling: true, isDefaultShipping: true })]);
+        setPhoneCountryCode(DEFAULT_PHONE_COUNTRY_CODE);
+        setPhoneNumber("");
         return;
       }
 
@@ -171,6 +212,9 @@ export function CompanyFormPage() {
         natureOfBusiness: company.natureOfBusiness ?? "",
         isActive: company.isActive,
       });
+      const parsedPhone = splitStoredPhoneNumber(company.phone);
+      setPhoneCountryCode(parsedPhone.countryCode);
+      setPhoneNumber(parsedPhone.phoneNumber);
       setAddresses(getInitialAddresses(company));
     }
 
@@ -239,8 +283,6 @@ export function CompanyFormPage() {
       const smallestSide = Math.min(image.width, image.height);
       let warning = "";
       let insight = "Looks good for invoices";
-      let recommendation = "Best choice: a simple wide logo with large readable text.";
-
       if (ratio < 2.2) {
         insight = "This logo is a bit tall and may feel cramped";
         warning = "Wide logos usually fit invoices better than tall ones.";
@@ -256,32 +298,38 @@ export function CompanyFormPage() {
         warning = "This file is smaller than recommended. Around 600 x 200 pixels usually works well.";
       }
 
-      if (ratio >= 2.2 && ratio <= 5.5 && smallestSide >= 120 && image.width >= 280 && image.height >= 88) {
-        recommendation = "Looks good. Customers will see the logo close to this size on invoices.";
-      }
-
       setLogoInsight(insight);
       setLogoMeta({
         width: image.width,
         height: image.height,
         warning,
-        recommendation,
       });
     };
     image.src = logoPreviewUrl;
   }, [logoPreviewUrl]);
 
   function updateAddress(clientId: string, patch: Partial<EditableCompanyAddress>) {
-    setAddresses((current) => ensureSingleDefault(current.map((address) => (
+    setAddresses((current) => ensureAddressDefaults(current.map((address) => (
       address.clientId === clientId ? { ...address, ...patch } : address
     ))));
+  }
+
+  function updateAddressCountry(clientId: string, country: string) {
+    setAddresses((current) => ensureAddressDefaults(current.map((address) => {
+      if (address.clientId !== clientId) {
+        return address;
+      }
+
+      const nextAddress = { ...address, country };
+      return normalizeAddressForCountry(nextAddress);
+    })));
   }
 
   function addAddress() {
     setAddresses((current) => [
       ...current,
       createEditableAddress({
-        country: current.find((address) => address.isDefault)?.country ?? "",
+        country: current.find((address) => address.isDefaultBilling)?.country ?? current[0]?.country ?? "",
       }),
     ]);
   }
@@ -295,15 +343,16 @@ export function CompanyFormPage() {
 
       const remaining = current.filter((address) => address.clientId !== clientId);
       setError("");
-      return ensureSingleDefault(remaining);
+      return ensureAddressDefaults(remaining);
     });
   }
 
-  function setDefaultAddress(clientId: string) {
-    setAddresses((current) => current.map((address) => ({
+  function setDefaultAddress(clientId: string, type: "billing" | "shipping") {
+    setAddresses((current) => ensureAddressDefaults(current.map((address) => ({
       ...address,
-      isDefault: address.clientId === clientId,
-    })));
+      isDefaultBilling: type === "billing" ? address.clientId === clientId : address.isDefaultBilling,
+      isDefaultShipping: type === "shipping" ? address.clientId === clientId : address.isDefaultShipping,
+    }))));
   }
 
   async function submit(event: FormEvent) {
@@ -311,8 +360,23 @@ export function CompanyFormPage() {
     setError("");
 
     const normalizedLegalName = form.legalName.trim();
-    const normalizedAddresses = ensureSingleDefault(addresses);
-    const defaultAddress = normalizedAddresses.find((address) => address.isDefault) ?? normalizedAddresses[0];
+    const normalizedAddresses = ensureAddressDefaults(addresses.map((address) => normalizeAddressForCountry(address)));
+    const populatedAddresses = normalizedAddresses.filter((address) =>
+      address.addressLine1.trim()
+      || address.addressLine2.trim()
+      || address.addressLine3.trim()
+      || address.postcode.trim()
+      || address.city.trim()
+      || address.state.trim()
+      || address.country.trim());
+    const defaultAddress = populatedAddresses.find((address) => address.isDefaultBilling) ?? populatedAddresses[0];
+    const normalizedPhone = combinePhoneNumber(phoneCountryCode, phoneNumber);
+
+    if (!normalizedPhone) {
+      setError("Enter a country code and phone number.");
+      return;
+    }
+
     const payload = {
       name: normalizedLegalName || form.name.trim(),
       legalName: normalizedLegalName,
@@ -325,9 +389,9 @@ export function CompanyFormPage() {
       homeCountry: form.homeCountry,
       homeCurrency: form.homeCurrency,
       email: form.email,
-      phone: form.phone,
+      phone: normalizedPhone,
       address: defaultAddress ? formatCompanyAddress(defaultAddress) : "",
-      addresses: normalizedAddresses.map((address) => ({
+      addresses: populatedAddresses.map((address) => ({
         id: address.persistedId ?? null,
         addressLine1: address.addressLine1,
         addressLine2: address.addressLine2,
@@ -336,7 +400,9 @@ export function CompanyFormPage() {
         city: address.city,
         state: address.state,
         country: address.country,
-        isDefault: address.isDefault,
+        isDefault: address.isDefaultBilling,
+        isDefaultBilling: address.isDefaultBilling,
+        isDefaultShipping: address.isDefaultShipping,
       })),
       industry: form.industry,
       natureOfBusiness: form.natureOfBusiness,
@@ -428,10 +494,6 @@ export function CompanyFormPage() {
     ? [{ value: form.registrationNumberType, label: form.registrationNumberType }, ...registrationNumberTypeOptions]
     : registrationNumberTypeOptions;
 
-  const availableCountryOptions = form.homeCountry && !countryOptions.some((option) => option.value === form.homeCountry)
-    ? [{ value: form.homeCountry, label: form.homeCountry }, ...countryOptions]
-    : countryOptions;
-
   const availableCurrencyOptions = form.homeCurrency && !currencyOptions.some((option) => option.value === form.homeCurrency)
     ? [{ value: form.homeCurrency, label: form.homeCurrency }, ...currencyOptions]
     : currencyOptions;
@@ -452,86 +514,78 @@ export function CompanyFormPage() {
             <div className="company-profile-address-header">
               <h3 id="company-information-title" className="section-title">Company Information</h3>
             </div>
-            <div className="company-profile-split">
-              <div className="company-profile-column">
-                <label className="form-label company-profile-field">
-                  Registration Number Type
-                  <select value={form.registrationNumberType} onChange={(event) => setForm((current) => ({ ...current, registrationNumberType: event.target.value }))}>
-                    <option value="">Select registration type</option>
-                    {availableRegistrationNumberTypeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="form-label company-profile-field">
-                  <span className="form-label-inline">Registration Number {requiredMark}</span>
-                  <input className="text-input" value={form.registrationNumber} onChange={(event) => setForm((current) => ({ ...current, registrationNumber: event.target.value }))} />
-                </label>
-                <label className="form-label company-profile-field">
-                  TIN
-                  <input className="text-input" value={form.tin} onChange={(event) => setForm((current) => ({ ...current, tin: event.target.value }))} />
-                </label>
-                <label className="form-label company-profile-field">
-                  <span className="form-label-inline">Home Country {requiredMark}</span>
-                  <select value={form.homeCountry} onChange={(event) => setForm((current) => ({ ...current, homeCountry: event.target.value }))}>
-                    <option value="">Select country</option>
-                    {availableCountryOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="company-profile-column">
-                <label className="form-label company-profile-field">
-                  <span className="form-label-inline">Legal Name {requiredMark}</span>
-                  <input className="text-input" value={form.legalName} onChange={(event) => setForm((current) => ({ ...current, legalName: event.target.value, name: event.target.value }))} />
-                </label>
-                <label className="form-label company-profile-field">
-                  Old Registration Number
-                  <input className="text-input" value={form.oldRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, oldRegistrationNumber: event.target.value }))} />
-                </label>
-                <label className="form-label company-profile-field">
-                  Tourism Tax Registration Number
-                  <input className="text-input" value={form.tourismTaxRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, tourismTaxRegistrationNumber: event.target.value }))} />
-                </label>
-                <label className="form-label company-profile-field">
-                  <span className="form-label-inline">Home Currency {requiredMark}</span>
-                  <select value={form.homeCurrency} onChange={(event) => setForm((current) => ({ ...current, homeCurrency: event.target.value }))}>
-                    {availableCurrencyOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+            <div className="company-profile-fields-grid">
+              <label className="form-label company-profile-field">
+                <span className="form-label-inline">Legal Name {requiredMark}</span>
+                <input className="text-input" value={form.legalName} onChange={(event) => setForm((current) => ({ ...current, legalName: event.target.value, name: event.target.value }))} />
+              </label>
+              <label className="form-label company-profile-field">
+                Registration Number Type
+                <select value={form.registrationNumberType} onChange={(event) => setForm((current) => ({ ...current, registrationNumberType: event.target.value }))}>
+                  <option value="">Select registration type</option>
+                  {availableRegistrationNumberTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-label company-profile-field">
+                <span className="form-label-inline">Registration Number {requiredMark}</span>
+                <input className="text-input" value={form.registrationNumber} onChange={(event) => setForm((current) => ({ ...current, registrationNumber: event.target.value }))} />
+              </label>
+              <label className="form-label company-profile-field">
+                Old Registration Number
+                <input className="text-input" value={form.oldRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, oldRegistrationNumber: event.target.value }))} />
+              </label>
+              <label className="form-label company-profile-field">
+                TIN
+                <input className="text-input" value={form.tin} onChange={(event) => setForm((current) => ({ ...current, tin: event.target.value }))} />
+              </label>
+              <label className="form-label company-profile-field">
+                Tourism Tax Registration Number
+                <input className="text-input" value={form.tourismTaxRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, tourismTaxRegistrationNumber: event.target.value }))} />
+              </label>
+              <label className="form-label company-profile-field">
+                <span className="form-label-inline">Home Country {requiredMark}</span>
+                <SearchableSelect
+                  value={form.homeCountry}
+                  onChange={(value) => setForm((current) => ({ ...current, homeCountry: value }))}
+                  options={countryOptions}
+                  placeholder="Select a Country"
+                  searchPlaceholder="Search countries"
+                  ariaLabel="Home Country"
+                />
+              </label>
+              <label className="form-label company-profile-field">
+                <span className="form-label-inline">Home Currency {requiredMark}</span>
+                <select value={form.homeCurrency} onChange={(event) => setForm((current) => ({ ...current, homeCurrency: event.target.value }))}>
+                  {availableCurrencyOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
           </section>
           <section className="company-profile-section" aria-labelledby="company-business-information-title">
             <div className="company-profile-address-header">
               <h3 id="company-business-information-title" className="section-title">Business Information</h3>
             </div>
-            <div className="company-profile-split">
-              <div className="company-profile-column">
-                <label className="form-label company-profile-field">
-                  MSIC Code
-                  <button type="button" className="text-input msic-picker-trigger" onClick={() => setIsMsicModalOpen(true)}>
-                    <span className={selectedMsicEntry ? "msic-picker-trigger-value" : "msic-picker-trigger-placeholder"}>
-                      {selectedMsicEntry ? `${selectedMsicEntry.code} - ${selectedMsicEntry.item}` : "Select official 5-digit MSIC code"}
-                    </span>
-                  </button>
-                  {selectedMsicEntry ? <span className="muted msic-picker-caption">{`${selectedMsicEntry.division} | ${selectedMsicEntry.group}`}</span> : null}
-                </label>
-                <label className="form-label company-profile-field">
-                  Industry
-                  <input className="text-input" value={form.industry} readOnly placeholder="Selected from official MSIC code" />
-                </label>
-              </div>
-              <div className="company-profile-column">
-                <label className="form-label company-profile-field">
-                  Nature of Business
-                  <input className="text-input" value={form.natureOfBusiness} readOnly placeholder="Selected from official MSIC code" />
-                </label>
-              </div>
+            <div className="company-profile-fields-grid">
+              <label className="form-label company-profile-field company-profile-field-wide">
+                MSIC Code
+                <button type="button" className="text-input msic-picker-trigger" onClick={() => setIsMsicModalOpen(true)}>
+                  <span className={selectedMsicEntry ? "msic-picker-trigger-value" : "msic-picker-trigger-placeholder"}>
+                    {selectedMsicEntry ? `${selectedMsicEntry.code} - ${selectedMsicEntry.item}` : "Select official 5-digit MSIC code"}
+                  </span>
+                </button>
+              </label>
+              <label className="form-label company-profile-field">
+                Industry
+                <input className="text-input" value={form.industry} readOnly placeholder="Selected from official MSIC code" />
+              </label>
+              <label className="form-label company-profile-field">
+                Nature of Business
+                <input className="text-input" value={form.natureOfBusiness} readOnly placeholder="Selected from official MSIC code" />
+              </label>
             </div>
           </section>
           <section className="company-profile-section" aria-labelledby="company-contact-title">
@@ -546,50 +600,67 @@ export function CompanyFormPage() {
                 </label>
               </div>
               <div className="company-profile-column">
-                <label className="form-label company-profile-field">
-                  <span className="form-label-inline">Phone {requiredMark}</span>
-                  <input className="text-input" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-                </label>
+                <PhoneNumberField
+                  countryCodeId="company-phone-country-code"
+                  phoneNumberId="company-phone-number"
+                  countryCodeValue={phoneCountryCode}
+                  phoneNumberValue={phoneNumber}
+                  onCountryCodeChange={setPhoneCountryCode}
+                  onPhoneNumberChange={setPhoneNumber}
+                  phoneNumberLabel={<span className="form-label-inline">Phone Number {requiredMark}</span>}
+                />
               </div>
             </div>
           </section>
           <section className="company-profile-address-section" aria-labelledby="company-address-information-title">
             <div className="company-profile-address-header">
               <h3 id="company-address-information-title" className="section-title">Address List</h3>
-              <p className="muted">Add one or more company addresses. The default address is used automatically unless another address is selected elsewhere.</p>
+              <p className="muted">Add one or more company addresses. Choose separate billing and shipping defaults for downstream workflows.</p>
             </div>
             <div className="company-profile-address-list">
-              {addresses.map((address, index) => {
-                const availableAddressCountryOptions = address.country && !countryOptions.some((option) => option.value === address.country)
-                  ? [{ value: address.country, label: address.country }, ...countryOptions]
-                  : countryOptions;
-                const availableStateOptions = address.state && !malaysiaStateOptions.some((option) => option.value === address.state)
-                  ? [{ value: address.state, label: address.state }, ...malaysiaStateOptions]
-                  : malaysiaStateOptions;
+              {addresses.map((address) => {
+                const isMalaysiaAddress = isMalaysiaCountry(address.country);
 
                 return (
                   <article key={address.clientId} className="company-profile-address-card">
                     <div className="company-profile-address-card-header">
-                      <div className="company-profile-address-card-heading">
-                        <h4>{getCompanyAddressTitle(address, index)}</h4>
-                        <div className="company-profile-address-card-badges">
-                          <span className={`status-pill ${address.isDefault ? "status-pill-active" : "status-pill-inactive"}`}>
-                            {address.isDefault ? "Default" : `Address ${index + 1}`}
-                          </span>
-                        </div>
-                      </div>
                       <div className="company-profile-address-card-actions">
-                        {!address.isDefault ? (
-                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(address.clientId)}>
-                            Set as default
+                        {!address.isDefaultBilling ? (
+                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(address.clientId, "billing")}>
+                            Set as Default Billing Address
                           </button>
-                        ) : null}
+                        ) : (
+                          <button type="button" className="button button-small company-profile-address-status-button" disabled>
+                            Default Billing
+                          </button>
+                        )}
+                        {!address.isDefaultShipping ? (
+                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(address.clientId, "shipping")}>
+                            Set as Default Shipping Address
+                          </button>
+                        ) : (
+                          <button type="button" className="button button-small company-profile-address-status-button" disabled>
+                            Default Shipping
+                          </button>
+                        )}
                         <button type="button" className="button button-secondary button-small" onClick={() => deleteAddress(address.clientId)} disabled={addresses.length === 1}>
                           Delete
                         </button>
                       </div>
                     </div>
                     <div className="company-profile-address-card-grid">
+                      <label className="form-label company-profile-field company-profile-address-card-wide">
+                        Country
+                        <SearchableSelect
+                          value={address.country}
+                          onChange={(value) => updateAddressCountry(address.clientId, value)}
+                          options={countryOptions}
+                          placeholder="Select a Country"
+                          searchPlaceholder="Search countries"
+                          ariaLabel="Address Country"
+                          clearable
+                        />
+                      </label>
                       <label className="form-label company-profile-field">
                         Address Line 1
                         <input className="text-input" value={address.addressLine1} onChange={(event) => updateAddress(address.clientId, { addressLine1: event.target.value })} autoComplete="address-line1" />
@@ -612,21 +683,16 @@ export function CompanyFormPage() {
                       </label>
                       <label className="form-label company-profile-field">
                         State
-                        <input className="text-input" list={`company-state-options-${address.clientId}`} value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" />
-                        <datalist id={`company-state-options-${address.clientId}`}>
-                          {availableStateOptions.map((option) => (
-                            <option key={option.value} value={option.value} />
-                          ))}
-                        </datalist>
-                      </label>
-                      <label className="form-label company-profile-field company-profile-address-card-wide">
-                        Country
-                        <input className="text-input" list={`company-address-country-options-${address.clientId}`} value={address.country} onChange={(event) => updateAddress(address.clientId, { country: event.target.value })} autoComplete="country-name" />
-                        <datalist id={`company-address-country-options-${address.clientId}`}>
-                          {availableAddressCountryOptions.map((option) => (
-                            <option key={option.value} value={option.value} />
-                          ))}
-                        </datalist>
+                        {isMalaysiaAddress ? (
+                          <select value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" required>
+                            <option value="">Select state</option>
+                            {malaysiaStateOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input className="text-input" value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" />
+                        )}
                       </label>
                     </div>
                   </article>
@@ -653,8 +719,6 @@ export function CompanyFormPage() {
                   </span>
                   {logoMeta ? (
                     <>
-                      <p className="muted">{`Image size: ${logoMeta.width} x ${logoMeta.height}px`}</p>
-                      <p className="muted">{logoMeta.recommendation}</p>
                       {logoMeta.warning ? <HelperText>{logoMeta.warning}</HelperText> : null}
                     </>
                   ) : (
@@ -663,12 +727,12 @@ export function CompanyFormPage() {
                 </div>
               </div>
               <div className="company-profile-logo-controls">
-                <label className="form-label">
-                  Logo file
+                <div className="form-label">
                   <input
                     className="text-input"
                     type="file"
                     accept=".png,.jpg,.jpeg,.webp"
+                    aria-label="Logo file"
                     onChange={(event) => {
                       const file = event.target.files?.[0] ?? null;
                       if (!file) {
@@ -690,15 +754,13 @@ export function CompanyFormPage() {
                       })();
                     }}
                   />
-                  <span className="muted">
-                    {logoFile
-                      ? `Selected: ${logoFile.name}`
-                      : logoRemoved
-                        ? "Current logo will be removed when you save."
-                        : `Current: ${activeCompany?.hasLogo ? "Logo uploaded" : "No logo uploaded"} | PNG, JPG, JPEG, or WEBP up to ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)}.`}
-                  </span>
-                </label>
-                <HelperText>Choose a clear logo that is easy to read. Wide logos usually fit invoices better than tall ones.</HelperText>
+                </div>
+                <div className="company-profile-logo-summary">
+                  {logoRemoved ? <p className="muted">Current logo will be removed when you save.</p> : null}
+                  {!logoRemoved && !logoFile ? <p className="muted">{`Current: ${activeCompany?.hasLogo ? "Logo uploaded" : "No logo uploaded"}`}</p> : null}
+                  {logoMeta ? <p className="muted">{`Image size: ${logoMeta.width} x ${logoMeta.height}px`}</p> : null}
+                  <p className="muted">{`Size limit: ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)}. PNG, JPG, JPEG, or WEBP.`}</p>
+                </div>
                 <div className="company-profile-logo-actions">
                   {(logoFile || activeCompany?.hasLogo) && !logoRemoved ? (
                     <button
@@ -737,7 +799,7 @@ export function CompanyFormPage() {
             <section className="company-profile-danger-zone" aria-labelledby="company-factory-reset-title">
               <div className="company-profile-address-header">
                 <h3 id="company-factory-reset-title" className="section-title">Factory Reset</h3>
-                <p className="muted">Permanently deletes all company profiles, logos, contact data, address data, settings, metadata, and related cached company data for this account. This action cannot be undone.</p>
+                <p className="muted">Permanently clears this company's logo, contact data, addresses, settings, products, subscriptions, invoices, payments, and related cached company data. This action cannot be undone.</p>
               </div>
               <div className="company-profile-danger-actions">
                 <button type="button" className="button button-danger" onClick={() => setFactoryResetState({ step: "warning", confirmationText: "", error: "", isSubmitting: false })}>
@@ -783,7 +845,7 @@ export function CompanyFormPage() {
             <h3 id="factory-reset-modal-title">Factory reset company data</h3>
             {factoryResetState.step === "warning" ? (
               <>
-                <p className="muted">This will permanently delete all company records, logos, contact information, address information, company settings, cached company data, and related metadata for this account.</p>
+                <p className="muted">This will permanently clear all records, logos, contact information, address information, company settings, products, subscriptions, invoices, payments, cached company data, and related metadata for this company only.</p>
                 <HelperText tone="error">This action cannot be undone.</HelperText>
                 <label className="form-label factory-reset-modal-field">
                   Type <strong>{FACTORY_RESET_CONFIRMATION}</strong> to continue
@@ -798,7 +860,7 @@ export function CompanyFormPage() {
               </>
             ) : (
               <>
-                <p className="muted">Final confirmation: the company reset will start immediately and remove all related billing profile data for this account.</p>
+                <p className="muted">Final confirmation: the reset will start immediately and remove all related billing profile data for this company only.</p>
                 <HelperText tone="error">This action cannot be undone.</HelperText>
               </>
             )}
@@ -839,7 +901,7 @@ export function CompanyFormPage() {
                     await clearCompanyClientState();
                     navigate("/companies", {
                       replace: true,
-                      state: { flashMessage: "Factory reset complete. Company data has been cleared." },
+                      state: { flashMessage: "Factory reset complete. Selected company data has been cleared." },
                     });
                   } catch (resetError) {
                     setFactoryResetState((current) => current ? { ...current, isSubmitting: false, error: resetError instanceof Error ? resetError.message : "Unable to factory reset company data." } : current);

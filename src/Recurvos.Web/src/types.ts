@@ -946,6 +946,8 @@ export type CompanyLookup = {
     state?: string | null;
     country: string;
     isDefault: boolean;
+    isDefaultBilling: boolean;
+    isDefaultShipping: boolean;
   }[];
   industry?: string | null;
   natureOfBusiness?: string | null;

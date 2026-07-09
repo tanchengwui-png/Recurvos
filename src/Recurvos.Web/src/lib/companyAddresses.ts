@@ -8,6 +8,8 @@ export type CompanyAddress = {
   state?: string | null;
   country: string;
   isDefault: boolean;
+  isDefaultBilling: boolean;
+  isDefaultShipping: boolean;
 };
 
 export function formatCompanyAddress(address: Pick<CompanyAddress, "addressLine1" | "addressLine2" | "addressLine3" | "postcode" | "city" | "state" | "country">) {
@@ -66,6 +68,8 @@ export function parseLegacyCompanyAddress(address: string): CompanyAddress | nul
     state,
     country,
     isDefault: true,
+    isDefaultBilling: true,
+    isDefaultShipping: true,
   };
 }
 

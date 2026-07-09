@@ -127,44 +127,29 @@ public sealed class CompanyService(
             throw new InvalidOperationException($"Type {FactoryResetConfirmationText} to continue.");
         }
 
-        var ownedCompanies = await dbContext.Companies
-            .Where(x => x.SubscriberId == subscriberId && !x.IsPlatformAccount)
+        var targetCompany = await dbContext.Companies
+            .Where(x => x.Id == id && x.SubscriberId == subscriberId && !x.IsPlatformAccount)
             .Select(x => new
             {
                 x.Id,
                 x.LogoPath,
                 PaymentQrPath = x.InvoiceSettings != null ? x.InvoiceSettings.PaymentQrPath : null,
             })
-            .ToListAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (!ownedCompanies.Any(x => x.Id == id))
+        if (targetCompany is null)
         {
             throw new KeyNotFoundException("Company not found.");
         }
 
-        if (ownedCompanies.Count == 0)
-        {
-            return;
-        }
-
-        var ownedCompanyIds = ownedCompanies.Select(x => x.Id).ToArray();
-        var preservedCompanyId = currentUserService.CompanyId;
-        if (!preservedCompanyId.HasValue || !ownedCompanyIds.Contains(preservedCompanyId.Value))
-        {
-            preservedCompanyId = ownedCompanyIds[0];
-        }
-
-        var companyIdsToDelete = ownedCompanyIds.Where(companyId => companyId != preservedCompanyId.Value).ToArray();
+        var targetCompanyIds = new[] { id };
         var filePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var company in ownedCompanies)
-        {
-            AddFilePath(filePaths, company.LogoPath);
-            AddFilePath(filePaths, company.PaymentQrPath);
-        }
+        AddFilePath(filePaths, targetCompany.LogoPath);
+        AddFilePath(filePaths, targetCompany.PaymentQrPath);
 
         foreach (var path in await dbContext.Invoices
-                     .Where(x => ownedCompanyIds.Contains(x.CompanyId) && x.PdfPath != null)
+                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.PdfPath != null)
                      .Select(x => x.PdfPath!)
                      .ToListAsync(cancellationToken))
         {
@@ -172,7 +157,7 @@ public sealed class CompanyService(
         }
 
         foreach (var path in await dbContext.Payments
-                     .Where(x => ownedCompanyIds.Contains(x.CompanyId) && x.ProofFilePath != null)
+                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.ProofFilePath != null)
                      .Select(x => x.ProofFilePath!)
                      .ToListAsync(cancellationToken))
         {
@@ -180,7 +165,7 @@ public sealed class CompanyService(
         }
 
         foreach (var path in await dbContext.PaymentConfirmationSubmissions
-                     .Where(x => ownedCompanyIds.Contains(x.CompanyId) && x.ProofFilePath != null)
+                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.ProofFilePath != null)
                      .Select(x => x.ProofFilePath!)
                      .ToListAsync(cancellationToken))
         {
@@ -188,7 +173,7 @@ public sealed class CompanyService(
         }
 
         foreach (var path in await dbContext.CreditNotes
-                     .Where(x => ownedCompanyIds.Contains(x.CompanyId) && x.PdfPath != null)
+                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.PdfPath != null)
                      .Select(x => x.PdfPath!)
                      .ToListAsync(cancellationToken))
         {
@@ -197,44 +182,38 @@ public sealed class CompanyService(
 
         await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        await dbContext.ReconciliationResults.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.LedgerPostings.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.SettlementLines.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.PayoutBatches.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Disputes.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CustomerBalanceTransactions.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CreditNoteLines.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CreditNotes.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Refunds.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.PaymentAttempts.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.PaymentConfirmationSubmissions.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Payments.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.WhatsAppNotifications.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.ReminderSchedules.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.DunningRules.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CompanyAddresses.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.InvoiceLineItems.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.WebhookEvents.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.AuditLogs.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.FeedbackItems.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.WhatsAppOutboundQueues.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.EmailDispatchLogs.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Invoices.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.SubscriptionItems.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Subscriptions.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.ProductPlans.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Products.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CompanyInvoiceSettings.Where(x => ownedCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ReconciliationResults.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.LedgerPostings.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SettlementLines.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PayoutBatches.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Disputes.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CustomerBalanceTransactions.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CreditNoteLines.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CreditNotes.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Refunds.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PaymentAttempts.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PaymentConfirmationSubmissions.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Payments.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WhatsAppNotifications.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ReminderSchedules.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.DunningRules.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CompanyAddresses.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.InvoiceLineItems.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WebhookEvents.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.AuditLogs.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.FeedbackItems.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WhatsAppOutboundQueues.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.EmailDispatchLogs.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Invoices.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SubscriptionItems.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Subscriptions.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ProductPlans.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Products.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CompanyInvoiceSettings.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
 
-        if (companyIdsToDelete.Length > 0)
-        {
-            await dbContext.Companies.Where(x => companyIdsToDelete.Contains(x.Id)).ExecuteDeleteAsync(cancellationToken);
-        }
-
-        var preservedCompany = await dbContext.Companies.FirstOrDefaultAsync(x => x.Id == preservedCompanyId.Value, cancellationToken)
+        var preservedCompany = await dbContext.Companies.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new KeyNotFoundException("Company not found.");
 
-        preservedCompany.SubscriberId = null;
         preservedCompany.Name = string.Empty;
         preservedCompany.LegalName = null;
         preservedCompany.RegistrationNumberType = null;
@@ -258,7 +237,7 @@ public sealed class CompanyService(
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        ClearCompanyStorageArtifacts(ownedCompanyIds, filePaths);
+        ClearCompanyStorageArtifacts(targetCompanyIds, filePaths);
     }
 
     public async Task<CompanyLookupDto?> UploadLogoAsync(Guid id, Stream content, string fileName, CancellationToken cancellationToken = default)
@@ -429,7 +408,8 @@ public sealed class CompanyService(
             company.Phone,
             company.Address,
             company.Addresses
-                .OrderByDescending(x => x.IsDefault)
+                .OrderByDescending(x => x.IsDefaultBilling)
+                .ThenByDescending(x => x.IsDefaultShipping)
                 .ThenBy(x => x.CreatedAtUtc)
                 .Select(MapAddress)
                 .ToList(),
@@ -448,7 +428,9 @@ public sealed class CompanyService(
             address.City,
             address.State,
             address.Country,
-            address.IsDefault);
+            address.IsDefault,
+            address.IsDefaultBilling,
+            address.IsDefaultShipping);
 
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -465,23 +447,39 @@ public sealed class CompanyService(
                     AddressLine1 = company.Address.Trim(),
                     Country = string.Empty,
                     IsDefault = true,
+                    IsDefaultBilling = true,
+                    IsDefaultShipping = true,
                 });
             }
             else
             {
-                throw new InvalidOperationException("Add at least one company address.");
+                company.Addresses.Clear();
+                company.Address = string.Empty;
+                return;
             }
         }
 
-        var defaultIndex = normalizedRequests.FindIndex(x => x.IsDefault);
-        if (defaultIndex < 0)
+        var billingDefaultIndex = normalizedRequests.FindIndex(x => x.IsDefaultBilling);
+        if (billingDefaultIndex < 0)
         {
-            defaultIndex = 0;
+            billingDefaultIndex = 0;
         }
 
         for (var index = 0; index < normalizedRequests.Count; index += 1)
         {
-            normalizedRequests[index].IsDefault = index == defaultIndex;
+            normalizedRequests[index].IsDefaultBilling = index == billingDefaultIndex;
+        }
+
+        var shippingDefaultIndex = normalizedRequests.FindIndex(x => x.IsDefaultShipping);
+        if (shippingDefaultIndex < 0)
+        {
+            shippingDefaultIndex = 0;
+        }
+
+        for (var index = 0; index < normalizedRequests.Count; index += 1)
+        {
+            normalizedRequests[index].IsDefaultShipping = index == shippingDefaultIndex;
+            normalizedRequests[index].IsDefault = normalizedRequests[index].IsDefaultBilling;
         }
 
         var existingById = company.Addresses.ToDictionary(x => x.Id);
@@ -512,6 +510,8 @@ public sealed class CompanyService(
             address.State = NormalizeOptional(request.State);
             address.Country = request.Country.Trim();
             address.IsDefault = request.IsDefault;
+            address.IsDefaultBilling = request.IsDefaultBilling;
+            address.IsDefaultShipping = request.IsDefaultShipping;
         }
 
         var addressesToRemove = company.Addresses
@@ -525,20 +525,33 @@ public sealed class CompanyService(
 
         if (company.Addresses.Count == 0)
         {
-            throw new InvalidOperationException("Add at least one company address.");
+            company.Address = string.Empty;
+            return;
         }
 
-        var defaultAddress = company.Addresses.FirstOrDefault(x => x.IsDefault) ?? company.Addresses.First();
+        var defaultAddress = company.Addresses.FirstOrDefault(x => x.IsDefaultBilling) ?? company.Addresses.First();
         foreach (var address in company.Addresses)
         {
-            address.IsDefault = address == defaultAddress;
+            address.IsDefaultBilling = address == defaultAddress;
+            address.IsDefault = address.IsDefaultBilling;
+        }
+
+        var shippingDefaultAddress = company.Addresses.FirstOrDefault(x => x.IsDefaultShipping) ?? company.Addresses.First();
+        foreach (var address in company.Addresses)
+        {
+            address.IsDefaultShipping = address == shippingDefaultAddress;
         }
 
         company.Address = FormatAddress(defaultAddress);
     }
 
-    private static List<CompanyAddressUpsertRequest> NormalizeAddresses(IReadOnlyCollection<CompanyAddressUpsertRequest> requests) =>
-        requests
+    private static List<CompanyAddressUpsertRequest> NormalizeAddresses(IReadOnlyCollection<CompanyAddressUpsertRequest> requests)
+    {
+        var requestList = requests.ToList();
+        var hasExplicitBillingDefault = requestList.Any(request => request.IsDefaultBilling);
+        var hasExplicitShippingDefault = requestList.Any(request => request.IsDefaultShipping);
+
+        return requestList
             .Where(request =>
                 !string.IsNullOrWhiteSpace(request.AddressLine1)
                 || !string.IsNullOrWhiteSpace(request.AddressLine2)
@@ -558,8 +571,11 @@ public sealed class CompanyService(
                 State = request.State,
                 Country = request.Country,
                 IsDefault = request.IsDefault,
+                IsDefaultBilling = request.IsDefaultBilling || (!hasExplicitBillingDefault && request.IsDefault),
+                IsDefaultShipping = request.IsDefaultShipping || (!hasExplicitShippingDefault && request.IsDefault),
             })
             .ToList();
+    }
 
     private static string FormatAddress(Domain.Entities.CompanyAddress address)
     {

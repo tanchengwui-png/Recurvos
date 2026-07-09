@@ -13,5 +13,7 @@ public sealed class CompanyAddress : BaseEntity
     public string? State { get; set; }
     public string Country { get; set; } = string.Empty;
     public bool IsDefault { get; set; }
+    public bool IsDefaultBilling { get; set; }
+    public bool IsDefaultShipping { get; set; }
     public Company? Company { get; set; }
 }
