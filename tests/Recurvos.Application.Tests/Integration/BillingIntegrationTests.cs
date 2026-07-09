@@ -7,6 +7,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Recurvos.Application.Common;
+using Recurvos.Application.Companies;
 using Recurvos.Application.CreditNotes;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
@@ -193,6 +194,105 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         cancelResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var problem = await cancelResponse.Content.ReadAsStringAsync();
         problem.Should().Contain("First-time package activation cannot be cancelled.");
+    }
+
+    [Fact]
+    public async Task CompanyUpdate_WithLegacyAddressString_PersistsStructuredCompanyAddress()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        const string legacyAddress = "Level 10, Jalan Sultan Ismail\nSuite 3A\nTower B\nKuala Lumpur, Wilayah Persekutuan, 50250\nMalaysia";
+
+        var response = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = legacyAddress,
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedCompany = await response.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        updatedCompany.Should().NotBeNull();
+        updatedCompany!.Address.Should().Be(legacyAddress);
+        updatedCompany.Addresses.Should().ContainSingle();
+
+        var savedAddress = updatedCompany.Addresses.Single();
+        savedAddress.AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+        savedAddress.AddressLine2.Should().Be("Suite 3A");
+        savedAddress.AddressLine3.Should().Be("Tower B");
+        savedAddress.City.Should().Be("Kuala Lumpur");
+        savedAddress.State.Should().Be("Wilayah Persekutuan");
+        savedAddress.Postcode.Should().Be("50250");
+        savedAddress.Country.Should().Be("Malaysia");
+        savedAddress.IsDefaultBilling.Should().BeTrue();
+        savedAddress.IsDefaultShipping.Should().BeTrue();
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persistedCompany = await dbContext.Companies.Include(x => x.Addresses).SingleAsync(x => x.Id == companyId);
+        persistedCompany.Address.Should().Be(legacyAddress);
+        persistedCompany.Addresses.Should().ContainSingle();
+        persistedCompany.Addresses.Single().AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+    }
+
+    [Fact]
+    public async Task CompanyUpdate_WithoutAddressPayload_PreservesExistingCompanyAddress()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        const string legacyAddress = "Level 10, Jalan Sultan Ismail\nSuite 3A\nTower B\nKuala Lumpur, Wilayah Persekutuan, 50250\nMalaysia";
+
+        var initialUpdate = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Billing Company",
+            legalName = "Billing Company Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = legacyAddress,
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        initialUpdate.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var followUpUpdate = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Billing Company Renamed",
+            legalName = "Billing Company Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        followUpUpdate.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedCompany = await followUpUpdate.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        updatedCompany.Should().NotBeNull();
+        updatedCompany!.Address.Should().Be(legacyAddress);
+        updatedCompany.Addresses.Should().ContainSingle();
+
+        var savedAddress = updatedCompany.Addresses.Single();
+        savedAddress.AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+        savedAddress.City.Should().Be("Kuala Lumpur");
+        savedAddress.State.Should().Be("Wilayah Persekutuan");
+        savedAddress.Postcode.Should().Be("50250");
+        savedAddress.Country.Should().Be("Malaysia");
     }
 
     [Fact]

@@ -8,6 +8,7 @@ using Recurvos.Application.ProductPlans;
 using Recurvos.Domain.Enums;
 using Recurvos.Infrastructure.Configuration;
 using Recurvos.Infrastructure.Persistence;
+using System.Text.RegularExpressions;
 
 namespace Recurvos.Infrastructure.Services;
 
@@ -58,7 +59,7 @@ public sealed class CompanyService(
             HomeCountry = NormalizeOptional(request.HomeCountry),
             Email = request.Email.Trim(),
             Phone = request.Phone.Trim(),
-            Address = request.Address.Trim(),
+            Address = string.Empty,
             Industry = string.IsNullOrWhiteSpace(request.Industry) ? null : request.Industry.Trim(),
             NatureOfBusiness = string.IsNullOrWhiteSpace(request.NatureOfBusiness) ? null : request.NatureOfBusiness.Trim(),
             IsActive = request.IsActive,
@@ -70,7 +71,7 @@ public sealed class CompanyService(
             TrialEndsAtUtc = subscriberPackage?.TrialEndsAtUtc
         };
 
-        ApplyAddresses(company, request.Addresses, allowLegacyFallback: true);
+        ApplyAddresses(company, request.Addresses, allowLegacyFallback: true, legacyFallbackAddress: request.Address);
 
         dbContext.Companies.Add(company);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -102,12 +103,17 @@ public sealed class CompanyService(
         company.Currency = NormalizeCurrency(request.HomeCurrency);
         company.Email = request.Email.Trim();
         company.Phone = request.Phone.Trim();
-        company.Address = request.Address.Trim();
+        var existingAddress = company.Address;
+        company.Address = string.Empty;
         company.Industry = string.IsNullOrWhiteSpace(request.Industry) ? null : request.Industry.Trim();
         company.NatureOfBusiness = string.IsNullOrWhiteSpace(request.NatureOfBusiness) ? null : request.NatureOfBusiness.Trim();
         company.IsActive = request.IsActive;
         company.UpdatedAtUtc = DateTime.UtcNow;
-        ApplyAddresses(company, request.Addresses, allowLegacyFallback: true);
+        ApplyAddresses(
+            company,
+            request.Addresses,
+            allowLegacyFallback: true,
+            legacyFallbackAddress: string.IsNullOrWhiteSpace(request.Address) ? existingAddress : request.Address);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return MapLookup(company);
@@ -435,21 +441,18 @@ public sealed class CompanyService(
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static void ApplyAddresses(Domain.Entities.Company company, IReadOnlyCollection<CompanyAddressUpsertRequest> requests, bool allowLegacyFallback)
+    private static void ApplyAddresses(
+        Domain.Entities.Company company,
+        IReadOnlyCollection<CompanyAddressUpsertRequest> requests,
+        bool allowLegacyFallback,
+        string? legacyFallbackAddress = null)
     {
         var normalizedRequests = NormalizeAddresses(requests);
         if (normalizedRequests.Count == 0)
         {
-            if (allowLegacyFallback && !string.IsNullOrWhiteSpace(company.Address))
+            if (allowLegacyFallback && !string.IsNullOrWhiteSpace(legacyFallbackAddress))
             {
-                normalizedRequests.Add(new CompanyAddressUpsertRequest
-                {
-                    AddressLine1 = company.Address.Trim(),
-                    Country = string.Empty,
-                    IsDefault = true,
-                    IsDefaultBilling = true,
-                    IsDefaultShipping = true,
-                });
+                normalizedRequests.Add(ParseLegacyAddress(legacyFallbackAddress));
             }
             else
             {
@@ -575,6 +578,71 @@ public sealed class CompanyService(
                 IsDefaultShipping = request.IsDefaultShipping || (!hasExplicitShippingDefault && request.IsDefault),
             })
             .ToList();
+    }
+
+    private static CompanyAddressUpsertRequest ParseLegacyAddress(string address)
+    {
+        var parts = address
+            .Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToList();
+
+        var addressLine1 = parts.ElementAtOrDefault(0) ?? address.Trim();
+        var addressLine2 = parts.ElementAtOrDefault(1);
+        var addressLine3 = parts.ElementAtOrDefault(2);
+        var cityStatePostcode = parts.ElementAtOrDefault(3);
+        var country = parts.ElementAtOrDefault(4) ?? string.Empty;
+        string? city = null;
+        string? state = null;
+        string? postcode = null;
+
+        if (!string.IsNullOrWhiteSpace(cityStatePostcode))
+        {
+            var lineParts = cityStatePostcode
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .ToList();
+
+            if (lineParts.Count >= 3)
+            {
+                city = lineParts[0];
+                state = lineParts[1];
+                postcode = string.Join(", ", lineParts.Skip(2));
+            }
+            else
+            {
+                var postcodeMatch = Regex.Match(cityStatePostcode, @"^(\d{4,10})\s+(.*)$");
+                if (postcodeMatch.Success)
+                {
+                    postcode = postcodeMatch.Groups[1].Value;
+                    var remainderParts = postcodeMatch.Groups[2].Value
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Where(part => !string.IsNullOrWhiteSpace(part))
+                        .ToList();
+                    city = remainderParts.ElementAtOrDefault(0);
+                    state = remainderParts.Count > 1 ? string.Join(", ", remainderParts.Skip(1)) : null;
+                }
+                else
+                {
+                    city = lineParts.ElementAtOrDefault(0);
+                    state = lineParts.Count > 1 ? string.Join(", ", lineParts.Skip(1)) : null;
+                }
+            }
+        }
+
+        return new CompanyAddressUpsertRequest
+        {
+            AddressLine1 = addressLine1,
+            AddressLine2 = addressLine2,
+            AddressLine3 = addressLine3,
+            Postcode = postcode,
+            City = city,
+            State = state,
+            Country = country,
+            IsDefault = true,
+            IsDefaultBilling = true,
+            IsDefaultShipping = true,
+        };
     }
 
     private static string FormatAddress(Domain.Entities.CompanyAddress address)
