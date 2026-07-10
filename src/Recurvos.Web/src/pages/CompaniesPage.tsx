@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
-import { HelperText } from "../components/ui/HelperText";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
@@ -20,7 +19,6 @@ export function CompaniesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedLogoUrl, setExpandedLogoUrl] = useState("");
   const [packageLimit, setPackageLimit] = useState<number | null>(null);
-  const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">(() => {
     const value = searchParams.get("status");
@@ -123,7 +121,6 @@ export function CompaniesPage() {
       return;
     }
 
-    setMessage(flashMessage);
     navigate(location.pathname + location.search, { replace: true, state: null });
   }, [location.pathname, location.search, location.state, navigate]);
 
@@ -217,7 +214,6 @@ export function CompaniesPage() {
           <h2>Companies</h2>
         </div>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
       <div className="catalog-toolbar card subtle-card company-filter-bar">
         <label className="form-label company-filter-search">
           Search
@@ -472,7 +468,7 @@ export function CompaniesPage() {
                             <div className="company-detail-item"><span>City</span><strong>{address.city || "-"}</strong></div>
                             <div className="company-detail-item"><span>State</span><strong>{address.state || "-"}</strong></div>
                             <div className="company-detail-item"><span>Country</span><strong>{address.country || "-"}</strong></div>
-                            <div className="company-detail-item company-detail-item-wide"><span>Formatted Address</span><strong style={{ whiteSpace: "pre-line" }}>{formatCompanyAddress(address) || "-"}</strong></div>
+                            <div className="company-detail-item company-detail-item-wide"><strong style={{ whiteSpace: "pre-line" }}>{formatCompanyAddress(address) || "-"}</strong></div>
                           </div>
                         </article>
                       )) : <p className="muted">No addresses saved.</p>}

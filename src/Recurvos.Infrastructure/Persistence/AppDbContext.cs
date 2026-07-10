@@ -15,6 +15,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductPlan> ProductPlans => Set<ProductPlan>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
@@ -155,6 +156,104 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<Customer>()
             .HasIndex(x => x.SubscriberId);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.ContactType)
+            .HasMaxLength(30)
+            .HasDefaultValue("Customer")
+            .IsRequired();
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.Status)
+            .HasMaxLength(30)
+            .HasDefaultValue("Active")
+            .IsRequired();
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.EntityType)
+            .HasMaxLength(50)
+            .HasDefaultValue("Company")
+            .IsRequired();
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.LegalName)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.OtherName)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.RegistrationNumberType)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.RegistrationNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.OldRegistrationNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.Tin)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.SstRegistrationNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.ReceivableAccount)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.CreditLimit)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.PayableAccount)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.PriceLevel)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.PaymentTerm)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.IncomeAccount)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.ExpenseAccount)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.Location)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<Customer>()
+            .Property(x => x.MyInvoisControl)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<ContactGroup>()
+            .HasIndex(x => x.SubscriberId);
+
+        modelBuilder.Entity<ContactGroup>()
+            .HasIndex(x => new { x.SubscriberId, x.Name })
+            .IsUnique();
+
+        modelBuilder.Entity<ContactGroup>()
+            .Property(x => x.Name)
+            .HasMaxLength(150)
+            .IsRequired();
 
         modelBuilder.Entity<Company>()
             .HasIndex(x => x.SubscriberId);

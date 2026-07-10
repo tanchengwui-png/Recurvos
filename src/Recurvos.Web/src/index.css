@@ -1051,7 +1051,7 @@ th {
 }
 
 .catalog-toolbar.customer-filter-bar {
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 180px));
 }
 
 .form-intro {
@@ -2374,6 +2374,24 @@ tbody tr:hover {
   letter-spacing: -0.02em;
 }
 
+.company-profile-address-card-heading-nowrap h4 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.company-profile-address-summary {
+  display: grid;
+  gap: 0.18rem;
+  margin-top: 0.35rem;
+}
+
+.company-profile-address-summary p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
 .company-profile-address-card-actions {
   display: flex;
   align-items: center;
@@ -2428,6 +2446,124 @@ tbody tr:hover {
 .company-profile-danger-actions {
   display: flex;
   justify-content: flex-start;
+}
+
+.company-form-actions {
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.company-form-actions-left,
+.company-form-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.company-form-actions-left {
+  flex: 0 0 auto;
+}
+
+.company-form-actions-right {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.contact-checkbox-group {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.55rem;
+}
+
+.contact-checkbox-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+}
+
+.contact-editor-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.55rem;
+}
+
+.contact-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.contact-phone-input-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.contact-phone-country-code {
+  text-align: center;
+}
+
+.contact-page-actions,
+.contact-group-selector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.contact-page-actions .button,
+.contact-group-selector-actions .button {
+  width: auto;
+}
+
+.contact-group-selector {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.contact-selection-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.contact-selection-toolbar {
+  grid-template-columns: minmax(220px, 1.8fr) minmax(180px, 0.9fr) auto auto;
+  align-items: center;
+}
+
+.contact-selection-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.contact-advanced-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(210, 218, 231, 0.88);
+}
+
+.contact-advanced-section summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.contact-advanced-section[open] summary {
+  margin-bottom: 1rem;
 }
 
 .factory-reset-modal {
@@ -6612,6 +6748,12 @@ select:focus,
   border: 1px solid var(--border-strong);
 }
 
+.status-pill-danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.18);
+}
+
 .status-pill-compact {
   min-height: 20px;
   padding: 0.1rem 0.45rem;
@@ -9097,6 +9239,33 @@ select:focus,
   .company-profile-address-card-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .company-form-actions {
+    align-items: stretch;
+    gap: 1rem;
+  }
+
+  .company-form-actions-left,
+  .company-form-actions-right {
+    width: 100%;
+  }
+
+  .company-form-actions-right {
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .contact-editor-row {
+    grid-template-columns: 1fr;
+  }
+
+  .contact-phone-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .contact-selection-toolbar {
+    grid-template-columns: 1fr;
   }
 
   .platform-payment-control-row {

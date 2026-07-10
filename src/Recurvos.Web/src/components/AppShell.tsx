@@ -99,9 +99,10 @@ function getPageLabel(pathname: string, isPlatformOwner: boolean) {
   }
 
   if (pathname.startsWith("/companies")) return "Companies";
+  if (pathname.startsWith("/contact-groups")) return "Contact Groups";
   if (pathname.startsWith("/products")) return "Products";
   if (pathname.startsWith("/plans")) return "Plans";
-  if (pathname.startsWith("/customers")) return "Customers";
+  if (pathname.startsWith("/customers")) return "Contacts";
   if (pathname.startsWith("/subscriptions")) return "Subscriptions";
   if (pathname.startsWith("/invoices")) return "Invoices";
   if (pathname.startsWith("/payments")) return "Payments";
@@ -384,21 +385,27 @@ export function AppShell() {
       return;
     }
 
-    void Promise.all([
-      api.get<FeatureAccess>("/settings/feature-access").catch(() => null),
-      api.get<SubscriberPackageBillingSummary>("/package-billing").catch(() => null),
-      api.get<CompanyLookup[]>("/companies").catch(() => null),
-      api.get<BillingReadiness>("/settings/billing-readiness").catch(() => null),
-      api.get<FeedbackNotificationSummary>("/feedback/notifications").catch(() => null),
-      api.get<PaymentConfirmation[]>("/payment-confirmations").catch(() => null),
-    ]).then(([access, billing, companies, readiness, feedbackSummary, paymentConfirmations]) => {
+    void (async () => {
+      const companies = await api.get<CompanyLookup[]>("/companies").catch(() => null);
+      const readinessPath = companies?.[0]?.id
+        ? `/settings/billing-readiness?companyId=${companies[0].id}`
+        : null;
+
+      const [access, billing, readiness, feedbackSummary, paymentConfirmations] = await Promise.all([
+        api.get<FeatureAccess>("/settings/feature-access").catch(() => null),
+        api.get<SubscriberPackageBillingSummary>("/package-billing").catch(() => null),
+        readinessPath ? api.get<BillingReadiness>(readinessPath).catch(() => null) : Promise.resolve(null),
+        api.get<FeedbackNotificationSummary>("/feedback/notifications").catch(() => null),
+        api.get<PaymentConfirmation[]>("/payment-confirmations").catch(() => null),
+      ]);
+
       setFeatureAccess(access);
       setPackageBilling(billing);
       setCompanyCount(companies?.length ?? null);
       setPendingSetupCount(readiness ? readiness.items.filter((item) => !item.done).length : null);
       setFeedbackUnreadCount(feedbackSummary?.unreadReplies ?? 0);
       setPendingPaymentConfirmationCount(paymentConfirmations?.filter((item) => item.status === "Pending").length ?? 0);
-    });
+    })();
   }, [auth?.accessToken, auth?.isPlatformOwner, location.pathname]);
 
   useEffect(() => {
@@ -445,7 +452,7 @@ export function AppShell() {
         { label: "Companies", path: "/companies", icon: "company", disabled: false, hint: "" },
         { label: "Products", path: "/products", icon: "box", disabled: false, hint: "" },
         { label: "Plans", path: "/plans", icon: "plan", disabled: false, hint: "" },
-        { label: "Customers", path: "/customers", icon: "users", disabled: !featureKeys.has("customer_management"), hint: getFeatureRequirementLabel(featureAccess, "customer_management") },
+        { label: "Contacts", path: "/customers", icon: "users", disabled: !featureKeys.has("customer_management"), hint: getFeatureRequirementLabel(featureAccess, "customer_management") },
         { label: "Subscriptions", path: "/subscriptions", icon: "repeat", disabled: !featureKeys.has("recurring_invoices"), hint: getFeatureRequirementLabel(featureAccess, "recurring_invoices") },
         { label: "Invoices", path: "/invoices", icon: "invoice", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
         { label: "Payments", path: "/payments", icon: "payment", disabled: !featureKeys.has("payment_tracking"), hint: getFeatureRequirementLabel(featureAccess, "payment_tracking") },

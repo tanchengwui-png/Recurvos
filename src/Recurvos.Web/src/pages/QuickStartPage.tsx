@@ -29,9 +29,9 @@ const setupSteps = [
   },
   {
     key: "customer",
-    title: "Add a customer",
-    description: "Create the customer record before you bill them.",
-    actionLabel: "Open Customers",
+    title: "Add a contact",
+    description: "Create a contact record for a customer, supplier, or employee before you use it.",
+    actionLabel: "Open Contacts",
     actionHref: "/customers",
   },
   {
@@ -214,13 +214,13 @@ export function QuickStartPage() {
       },
       {
         key: "customer-ready",
-        title: "A billable customer exists",
+        title: "A contact exists",
         detail: setupCounts.customers > 0
-          ? "You have at least one customer ready for invoicing."
-          : "Add the customer you want to charge first so you can move straight into billing.",
+          ? "You have at least one contact ready to use."
+          : "Add the first contact you want to manage so you can move straight into billing or record-keeping.",
         done: setupCounts.customers > 0,
         href: "/customers",
-        actionLabel: setupCounts.customers > 0 ? "Review customers" : "Add first customer",
+        actionLabel: setupCounts.customers > 0 ? "Review contacts" : "Add first contact",
       },
       {
         key: "collect-first-payment",

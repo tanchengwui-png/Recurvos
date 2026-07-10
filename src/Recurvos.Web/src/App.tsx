@@ -7,6 +7,7 @@ import { isAppSiteHost } from "./lib/siteUrls";
 
 const CompaniesPage = lazy(() => import("./pages/CompaniesPage").then((module) => ({ default: module.CompaniesPage })));
 const CompanyFormPage = lazy(() => import("./pages/CompanyFormPage").then((module) => ({ default: module.CompanyFormPage })));
+const ContactGroupsPage = lazy(() => import("./pages/ContactGroupsPage").then((module) => ({ default: module.ContactGroupsPage })));
 const CustomerFormPage = lazy(() => import("./pages/CustomerFormPage").then((module) => ({ default: module.CustomerFormPage })));
 const CustomersPage = lazy(() => import("./pages/CustomersPage").then((module) => ({ default: module.CustomersPage })));
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
@@ -174,6 +175,7 @@ function AppRoutes() {
             <Route path="/companies" element={<TenantRoute><CompaniesPage /></TenantRoute>} />
             <Route path="/companies/new" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
             <Route path="/companies/:id/edit" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
+            <Route path="/contact-groups" element={<TenantRoute><ContactGroupsPage /></TenantRoute>} />
             <Route path="/customers" element={<TenantRoute><CustomersPage /></TenantRoute>} />
             <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
             <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />

@@ -119,6 +119,26 @@ export type SubscriptionStatusSummary = {
   canceledOrEnded: number;
 };
 
+export type ContactPerson = {
+  name: string;
+  role: string;
+  email: string;
+  phoneNumber: string;
+};
+
+export type ContactAddress = {
+  addressName: string;
+  streetAddress: string;
+  addressLine2: string;
+  addressLine3: string;
+  city: string;
+  postcode: string;
+  country: string;
+  state: string;
+  isDefaultBilling: boolean;
+  isDefaultShipping: boolean;
+};
+
 export type Customer = {
   id: string;
   name: string;
@@ -126,6 +146,41 @@ export type Customer = {
   phoneNumber: string;
   externalReference: string;
   billingAddress: string;
+  entityType: "Company" | "Individual" | "General Public" | "Foreign Company" | "Foreign Individual" | "Exempted Person";
+  legalName: string;
+  otherName: string;
+  registrationNumberType: string;
+  registrationNumber: string;
+  oldRegistrationNumber: string;
+  tin: string;
+  sstRegistrationNumber: string;
+  contactType: string;
+  status: "Active" | "Inactive" | "Archived";
+  contactPersons: ContactPerson[];
+  phoneNumbers: string[];
+  emailAddresses: string[];
+  addresses: ContactAddress[];
+  receivableAccount: string;
+  creditLimit?: number | null;
+  payableAccount: string;
+  groups: string[];
+  priceLevel: string;
+  currency: string;
+  paymentTerm: string;
+  incomeAccount: string;
+  expenseAccount: string;
+  location: string;
+  tags: string[];
+  myInvoisControl: string;
+};
+
+export type ContactGroup = {
+  id: string;
+  name: string;
+  contactsCount: number;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+  contactIds: string[];
 };
 
 export type PagedResult<T> = {

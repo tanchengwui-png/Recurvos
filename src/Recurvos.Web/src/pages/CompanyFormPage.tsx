@@ -8,7 +8,7 @@ import { PhoneNumberField } from "../components/ui/PhoneNumberField";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api, buildApiUrl } from "../lib/api";
 import { getAuth, setAuth } from "../lib/auth";
-import { formatCompanyAddress, parseLegacyCompanyAddress, type CompanyAddress } from "../lib/companyAddresses";
+import { formatCompanyAddress, getCompanyAddressTitle, parseLegacyCompanyAddress, type CompanyAddress } from "../lib/companyAddresses";
 import { countryOptions, currencyOptions, malaysiaStateOptions, registrationNumberTypeOptions } from "../lib/localeOptions";
 import { msicEntryByCode } from "../lib/msicOfficial";
 import { combinePhoneNumber, DEFAULT_PHONE_COUNTRY_CODE, splitStoredPhoneNumber } from "../lib/phoneNumbers";
@@ -149,6 +149,29 @@ function getInitialAddresses(company?: CompanyLookup | null) {
   return [createEditableAddress({ isDefaultBilling: true, isDefaultShipping: true })];
 }
 
+function hasAddressBodyContent(address: EditableCompanyAddress) {
+  return Boolean(
+    address.addressLine1.trim()
+    || address.addressLine2.trim()
+    || address.addressLine3.trim()
+    || address.postcode.trim()
+    || address.city.trim()
+    || address.state.trim(),
+  );
+}
+
+function shouldPersistAddress(address: EditableCompanyAddress) {
+  return hasAddressBodyContent(address) || Boolean(address.addressLine1.trim() && address.country.trim());
+}
+
+function getAddressSummaryLines(address: EditableCompanyAddress) {
+  const firstLine = [address.addressLine1.trim(), address.addressLine2.trim()].filter(Boolean).join(", ");
+  const secondLine = [address.city.trim(), address.state.trim(), address.postcode.trim()].filter(Boolean).join(", ");
+  const thirdLine = address.country.trim();
+
+  return [firstLine, secondLine, thirdLine].filter(Boolean);
+}
+
 export function CompanyFormPage() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -168,6 +191,7 @@ export function CompanyFormPage() {
   const [isMsicModalOpen, setIsMsicModalOpen] = useState(false);
   const [logoRemoved, setLogoRemoved] = useState(false);
   const [factoryResetState, setFactoryResetState] = useState<{ step: "warning" | "final"; confirmationText: string; error: string; isSubmitting: boolean } | null>(null);
+  const [expandedAddressId, setExpandedAddressId] = useState<string | null>(null);
 
   const activeCompany = items.find((item) => item.id === editingCompanyId);
   const selectedMsicEntry = form.msicCode ? msicEntryByCode.get(form.msicCode) ?? null : null;
@@ -326,12 +350,12 @@ export function CompanyFormPage() {
   }
 
   function addAddress() {
+    const nextAddress = createEditableAddress();
     setAddresses((current) => [
       ...current,
-      createEditableAddress({
-        country: current.find((address) => address.isDefaultBilling)?.country ?? current[0]?.country ?? "",
-      }),
+      nextAddress,
     ]);
+    setExpandedAddressId(nextAddress.clientId);
   }
 
   function deleteAddress(clientId: string) {
@@ -345,6 +369,7 @@ export function CompanyFormPage() {
       setError("");
       return ensureAddressDefaults(remaining);
     });
+    setExpandedAddressId((current) => current === clientId ? null : current);
   }
 
   function setDefaultAddress(clientId: string, type: "billing" | "shipping") {
@@ -361,19 +386,19 @@ export function CompanyFormPage() {
 
     const normalizedLegalName = form.legalName.trim();
     const normalizedAddresses = ensureAddressDefaults(addresses.map((address) => normalizeAddressForCountry(address)));
-    const populatedAddresses = normalizedAddresses.filter((address) =>
-      address.addressLine1.trim()
-      || address.addressLine2.trim()
-      || address.addressLine3.trim()
-      || address.postcode.trim()
-      || address.city.trim()
-      || address.state.trim()
-      || address.country.trim());
+    const populatedAddresses = normalizedAddresses.filter(shouldPersistAddress);
+    const invalidAddress = populatedAddresses.find((address) => !address.addressLine1.trim() || !address.country.trim());
     const defaultAddress = populatedAddresses.find((address) => address.isDefaultBilling) ?? populatedAddresses[0];
     const normalizedPhone = combinePhoneNumber(phoneCountryCode, phoneNumber);
 
     if (!normalizedPhone) {
       setError("Enter a country code and phone number.");
+      return;
+    }
+
+    if (invalidAddress) {
+      const invalidIndex = populatedAddresses.findIndex((address) => address.clientId === invalidAddress.clientId);
+      setError(`Address ${invalidIndex + 1} must include Address Line 1 and Country.`);
       return;
     }
 
@@ -618,12 +643,24 @@ export function CompanyFormPage() {
               <p className="muted">Add one or more company addresses. Choose separate billing and shipping defaults for downstream workflows.</p>
             </div>
             <div className="company-profile-address-list">
-              {addresses.map((address) => {
+              {addresses.map((address, index) => {
                 const isMalaysiaAddress = isMalaysiaCountry(address.country);
+                const summaryLines = getAddressSummaryLines(address);
+                const isExpanded = expandedAddressId === address.clientId;
 
                 return (
                   <article key={address.clientId} className="company-profile-address-card">
                     <div className="company-profile-address-card-header">
+                      <div className="company-profile-address-card-heading">
+                        <h4>{getCompanyAddressTitle(address, index)}</h4>
+                        <div className="company-profile-address-summary">
+                          {summaryLines.length > 0 ? (
+                            summaryLines.map((line) => <p key={line}>{line}</p>)
+                          ) : (
+                            <p className="muted">No address details entered yet.</p>
+                          )}
+                        </div>
+                      </div>
                       <div className="company-profile-address-card-actions">
                         {!address.isDefaultBilling ? (
                           <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(address.clientId, "billing")}>
@@ -643,58 +680,56 @@ export function CompanyFormPage() {
                             Default Shipping
                           </button>
                         )}
+                        <button type="button" className="button button-secondary button-small" onClick={() => setExpandedAddressId((current) => current === address.clientId ? null : address.clientId)}>
+                          {isExpanded ? "Hide Details" : "Edit Address"}
+                        </button>
                         <button type="button" className="button button-secondary button-small" onClick={() => deleteAddress(address.clientId)} disabled={addresses.length === 1}>
                           Delete
                         </button>
                       </div>
                     </div>
-                    <div className="company-profile-address-card-grid">
-                      <label className="form-label company-profile-field company-profile-address-card-wide">
-                        Country
-                        <SearchableSelect
-                          value={address.country}
-                          onChange={(value) => updateAddressCountry(address.clientId, value)}
-                          options={countryOptions}
-                          placeholder="Select a Country"
-                          searchPlaceholder="Search countries"
-                          ariaLabel="Address Country"
-                          clearable
-                        />
-                      </label>
-                      <label className="form-label company-profile-field">
-                        Address Line 1
-                        <input className="text-input" value={address.addressLine1} onChange={(event) => updateAddress(address.clientId, { addressLine1: event.target.value })} autoComplete="address-line1" />
-                      </label>
-                      <label className="form-label company-profile-field">
-                        Address Line 2
-                        <input className="text-input" value={address.addressLine2} onChange={(event) => updateAddress(address.clientId, { addressLine2: event.target.value })} autoComplete="address-line2" />
-                      </label>
-                      <label className="form-label company-profile-field">
-                        Address Line 3
-                        <input className="text-input" value={address.addressLine3} onChange={(event) => updateAddress(address.clientId, { addressLine3: event.target.value })} autoComplete="address-line3" />
-                      </label>
-                      <label className="form-label company-profile-field">
-                        Postcode
-                        <input className="text-input" value={address.postcode} onChange={(event) => updateAddress(address.clientId, { postcode: event.target.value })} autoComplete="postal-code" />
-                      </label>
-                      <label className="form-label company-profile-field">
-                        City
-                        <input className="text-input" value={address.city} onChange={(event) => updateAddress(address.clientId, { city: event.target.value })} autoComplete="address-level2" />
-                      </label>
-                      <label className="form-label company-profile-field">
-                        State
-                        {isMalaysiaAddress ? (
-                          <select value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" required>
-                            <option value="">Select state</option>
-                            {malaysiaStateOptions.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input className="text-input" value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" />
-                        )}
-                      </label>
-                    </div>
+                    {isExpanded ? (
+                      <div className="company-profile-address-card-grid">
+                        <div className="company-profile-field company-profile-address-card-wide">
+                          <SearchableSelect
+                            value={address.country}
+                            onChange={(value) => updateAddressCountry(address.clientId, value)}
+                            options={countryOptions}
+                            placeholder="Country"
+                            searchPlaceholder="Search countries"
+                            ariaLabel="Address Country"
+                            clearable
+                          />
+                        </div>
+                        <div className="company-profile-field">
+                          <input className="text-input" value={address.addressLine1} onChange={(event) => updateAddress(address.clientId, { addressLine1: event.target.value })} autoComplete="address-line1" placeholder="Address Line 1" aria-label="Address Line 1" />
+                        </div>
+                        <div className="company-profile-field">
+                          <input className="text-input" value={address.addressLine2} onChange={(event) => updateAddress(address.clientId, { addressLine2: event.target.value })} autoComplete="address-line2" placeholder="Address Line 2" aria-label="Address Line 2" />
+                        </div>
+                        <div className="company-profile-field">
+                          <input className="text-input" value={address.addressLine3} onChange={(event) => updateAddress(address.clientId, { addressLine3: event.target.value })} autoComplete="address-line3" placeholder="Address Line 3" aria-label="Address Line 3" />
+                        </div>
+                        <div className="company-profile-field">
+                          <input className="text-input" value={address.postcode} onChange={(event) => updateAddress(address.clientId, { postcode: event.target.value })} autoComplete="postal-code" placeholder="Postcode" aria-label="Postcode" />
+                        </div>
+                        <div className="company-profile-field">
+                          <input className="text-input" value={address.city} onChange={(event) => updateAddress(address.clientId, { city: event.target.value })} autoComplete="address-level2" placeholder="City" aria-label="City" />
+                        </div>
+                        <div className="company-profile-field">
+                          {isMalaysiaAddress ? (
+                            <select value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" required aria-label="State">
+                              <option value="">State</option>
+                              {malaysiaStateOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input className="text-input" value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" placeholder="State" aria-label="State" />
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}
@@ -801,17 +836,21 @@ export function CompanyFormPage() {
                 <h3 id="company-factory-reset-title" className="section-title">Factory Reset</h3>
                 <p className="muted">Permanently clears this company's logo, contact data, addresses, settings, products, subscriptions, invoices, payments, and related cached company data. This action cannot be undone.</p>
               </div>
-              <div className="company-profile-danger-actions">
-                <button type="button" className="button button-danger" onClick={() => setFactoryResetState({ step: "warning", confirmationText: "", error: "", isSubmitting: false })}>
-                  Factory Reset
-                </button>
-              </div>
             </section>
           ) : null}
           {error ? <HelperText tone="error">{error}</HelperText> : null}
-          <div className="subscription-create-actions">
-            <button type="submit" className="button button-primary">{editingCompanyId ? "Update company" : "Create company"}</button>
-            <button type="button" className="button button-secondary" onClick={() => navigate("/companies")}>Cancel</button>
+          <div className="subscription-create-actions company-form-actions">
+            <div className="company-form-actions-left">
+              {canFactoryReset ? (
+                <button type="button" className="button button-danger" onClick={() => setFactoryResetState({ step: "warning", confirmationText: "", error: "", isSubmitting: false })}>
+                  Factory Reset
+                </button>
+              ) : null}
+            </div>
+            <div className="company-form-actions-right">
+              <button type="button" className="button button-secondary" onClick={() => navigate("/companies")}>Cancel</button>
+              <button type="submit" className="button button-primary">{editingCompanyId ? "Update company" : "Create company"}</button>
+            </div>
           </div>
         </form>
       </section>

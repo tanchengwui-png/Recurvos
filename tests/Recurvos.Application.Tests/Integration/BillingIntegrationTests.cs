@@ -245,6 +245,432 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     }
 
     [Fact]
+    public async Task CompanyUpdate_WithStructuredAddresses_PersistsCompanyAddressRow()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        const string expectedFormattedAddress = "Level 10, Jalan Sultan Ismail\nSuite 3A\nTower B\nKuala Lumpur, Wilayah Persekutuan, 50250\nMalaysia";
+
+        var response = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = expectedFormattedAddress,
+            addresses = new[]
+            {
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "Level 10, Jalan Sultan Ismail",
+                    addressLine2 = "Suite 3A",
+                    addressLine3 = "Tower B",
+                    postcode = "50250",
+                    city = "Kuala Lumpur",
+                    state = "Wilayah Persekutuan",
+                    country = "Malaysia",
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedCompany = await response.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        updatedCompany.Should().NotBeNull();
+        updatedCompany!.Address.Should().Be(expectedFormattedAddress);
+        updatedCompany.Addresses.Should().ContainSingle();
+
+        var savedAddress = updatedCompany.Addresses.Single();
+        savedAddress.AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+        savedAddress.AddressLine2.Should().Be("Suite 3A");
+        savedAddress.AddressLine3.Should().Be("Tower B");
+        savedAddress.City.Should().Be("Kuala Lumpur");
+        savedAddress.State.Should().Be("Wilayah Persekutuan");
+        savedAddress.Postcode.Should().Be("50250");
+        savedAddress.Country.Should().Be("Malaysia");
+        savedAddress.IsDefaultBilling.Should().BeTrue();
+        savedAddress.IsDefaultShipping.Should().BeTrue();
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persistedCompany = await dbContext.Companies.Include(x => x.Addresses).SingleAsync(x => x.Id == companyId);
+        persistedCompany.Address.Should().Be(expectedFormattedAddress);
+        persistedCompany.Addresses.Should().ContainSingle();
+        persistedCompany.Addresses.Single().AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+    }
+
+    [Fact]
+    public async Task CompanyUpdate_WithStructuredAddresses_ReplacesExistingAddress()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+
+        var seedResponse = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = "Old address",
+            addresses = new[]
+            {
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "Old Address Line 1",
+                    addressLine2 = "Suite 1",
+                    addressLine3 = "",
+                    postcode = "50000",
+                    city = "Kuala Lumpur",
+                    state = "Wilayah Persekutuan",
+                    country = "Malaysia",
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+        seedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        const string replacementFormattedAddress = "Level 10, Jalan Sultan Ismail\nSuite 3A\nTower B\nKuala Lumpur, Wilayah Persekutuan, 50250\nMalaysia";
+        var replacementResponse = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = replacementFormattedAddress,
+            addresses = new[]
+            {
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "Level 10, Jalan Sultan Ismail",
+                    addressLine2 = "Suite 3A",
+                    addressLine3 = "Tower B",
+                    postcode = "50250",
+                    city = "Kuala Lumpur",
+                    state = "Wilayah Persekutuan",
+                    country = "Malaysia",
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        replacementResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedCompany = await replacementResponse.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        updatedCompany.Should().NotBeNull();
+        updatedCompany!.Address.Should().Be(replacementFormattedAddress);
+        updatedCompany.Addresses.Should().ContainSingle();
+        updatedCompany.Addresses.Single().AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persistedCompany = await dbContext.Companies.Include(x => x.Addresses).SingleAsync(x => x.Id == companyId);
+        persistedCompany.Address.Should().Be(replacementFormattedAddress);
+        persistedCompany.Addresses.Should().ContainSingle();
+        persistedCompany.Addresses.Single().AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+    }
+
+    [Fact]
+    public async Task CompanyCreate_WithStructuredAddresses_PersistsCompanyAddressRow()
+    {
+        await _factory.EnsureSeededAsync();
+        using var registrationClient = _factory.CreateClient();
+        var registerResponse = await registrationClient.PostAsJsonAsync("/api/auth/register", new
+        {
+            packageCode = "growth",
+            companyName = "Structured Address Seed Co",
+            registrationNumber = "202699997777",
+            companyEmail = "structured-address-seed@example.my",
+            fullName = "Structured Address Owner",
+            email = "owner@structured-address-create.my",
+            password = "Passw0rd!",
+            acceptLegalTerms = true
+        });
+        registerResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var auth = await VerifyLatestRegistrationAsync("owner@structured-address-create.my");
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), auth.AccessToken);
+
+        const string registrationNumber = "202699998888";
+        const string expectedFormattedAddress = "Level 10, Jalan Sultan Ismail\nSuite 3A\nTower B\nKuala Lumpur, Wilayah Persekutuan, 50250\nMalaysia";
+
+        var response = await client.PostAsJsonAsync("/api/companies", new
+        {
+            name = "Structured Address Create Co",
+            legalName = "Structured Address Create Co Sdn Bhd",
+            registrationNumber,
+            email = "structured-address-create@example.my",
+            phone = "+60115557777",
+            address = expectedFormattedAddress,
+            addresses = new[]
+            {
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "Level 10, Jalan Sultan Ismail",
+                    addressLine2 = "Suite 3A",
+                    addressLine3 = "Tower B",
+                    postcode = "50250",
+                    city = "Kuala Lumpur",
+                    state = "Wilayah Persekutuan",
+                    country = "Malaysia",
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var createdCompany = await response.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        createdCompany.Should().NotBeNull();
+        createdCompany!.Address.Should().Be(expectedFormattedAddress);
+        createdCompany.Addresses.Should().ContainSingle();
+
+        var savedAddress = createdCompany.Addresses.Single();
+        savedAddress.AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+        savedAddress.City.Should().Be("Kuala Lumpur");
+        savedAddress.State.Should().Be("Wilayah Persekutuan");
+        savedAddress.Postcode.Should().Be("50250");
+        savedAddress.Country.Should().Be("Malaysia");
+        savedAddress.IsDefaultBilling.Should().BeTrue();
+        savedAddress.IsDefaultShipping.Should().BeTrue();
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persistedCompany = await dbContext.Companies
+            .Include(x => x.Addresses)
+            .SingleAsync(x => x.RegistrationNumber == registrationNumber);
+        persistedCompany.Address.Should().Be(expectedFormattedAddress);
+        persistedCompany.Addresses.Should().ContainSingle();
+        persistedCompany.Addresses.Single().AddressLine1.Should().Be("Level 10, Jalan Sultan Ismail");
+    }
+
+    [Fact]
+    public async Task CompanyUpdate_WithIncompleteSecondAddress_ReturnsBadRequest()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        const string formattedAddress = "Level 10, Jalan Sultan Ismail\nSuite 3A\nTower B\nKuala Lumpur, Wilayah Persekutuan, 50250\nMalaysia";
+
+        var initialResponse = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = formattedAddress,
+            addresses = new[]
+            {
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "Level 10, Jalan Sultan Ismail",
+                    addressLine2 = "Suite 3A",
+                    addressLine3 = "Tower B",
+                    postcode = "50250",
+                    city = "Kuala Lumpur",
+                    state = "Wilayah Persekutuan",
+                    country = "Malaysia",
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+        initialResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var existingCompany = await initialResponse.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        existingCompany.Should().NotBeNull();
+        var existingAddress = existingCompany!.Addresses.Single();
+
+        var invalidResponse = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = formattedAddress,
+            addresses = new object[]
+            {
+                new
+                {
+                    id = existingAddress.Id,
+                    addressLine1 = existingAddress.AddressLine1,
+                    addressLine2 = existingAddress.AddressLine2,
+                    addressLine3 = existingAddress.AddressLine3,
+                    postcode = existingAddress.Postcode,
+                    city = existingAddress.City,
+                    state = existingAddress.State,
+                    country = existingAddress.Country,
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                },
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "",
+                    addressLine2 = "",
+                    addressLine3 = "",
+                    postcode = "",
+                    city = "",
+                    state = "",
+                    country = "Malaysia",
+                    isDefault = false,
+                    isDefaultBilling = false,
+                    isDefaultShipping = false
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        invalidResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await invalidResponse.Content.ReadAsStringAsync();
+        problem.Should().Contain("Address 2 must include Address Line 1 and Country.");
+    }
+
+    [Fact]
+    public async Task CompanyUpdate_WithSecondStructuredAddress_PersistsBothAddresses()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        const string firstFormattedAddress = "Level 10, Jalan Sultan Ismail\nSuite 3A\nTower B\nKuala Lumpur, Wilayah Persekutuan, 50250\nMalaysia";
+
+        var initialResponse = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = firstFormattedAddress,
+            addresses = new[]
+            {
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "Level 10, Jalan Sultan Ismail",
+                    addressLine2 = "Suite 3A",
+                    addressLine3 = "Tower B",
+                    postcode = "50250",
+                    city = "Kuala Lumpur",
+                    state = "Wilayah Persekutuan",
+                    country = "Malaysia",
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+        initialResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var existingCompany = await initialResponse.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        existingCompany.Should().NotBeNull();
+        var existingAddress = existingCompany!.Addresses.Single();
+
+        var updatedResponse = await client.PutAsJsonAsync($"/api/companies/{companyId}", new
+        {
+            name = "Updated Billing Co",
+            legalName = "Updated Billing Co Sdn Bhd",
+            registrationNumber = "202612345678",
+            email = "billing@example.my",
+            phone = "+60123456789",
+            address = firstFormattedAddress,
+            addresses = new object[]
+            {
+                new
+                {
+                    id = existingAddress.Id,
+                    addressLine1 = existingAddress.AddressLine1,
+                    addressLine2 = existingAddress.AddressLine2,
+                    addressLine3 = existingAddress.AddressLine3,
+                    postcode = existingAddress.Postcode,
+                    city = existingAddress.City,
+                    state = existingAddress.State,
+                    country = existingAddress.Country,
+                    isDefault = true,
+                    isDefaultBilling = true,
+                    isDefaultShipping = true
+                },
+                new
+                {
+                    id = (Guid?)null,
+                    addressLine1 = "Warehouse 4, Jalan Utama",
+                    addressLine2 = "",
+                    addressLine3 = "",
+                    postcode = "43000",
+                    city = "Kajang",
+                    state = "Selangor",
+                    country = "Malaysia",
+                    isDefault = false,
+                    isDefaultBilling = false,
+                    isDefaultShipping = false
+                }
+            },
+            industry = "",
+            natureOfBusiness = "",
+            isActive = true
+        });
+
+        updatedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var updatedCompany = await updatedResponse.Content.ReadFromJsonAsync<CompanyLookupDto>(TestWebApplicationFactory.JsonOptions);
+        updatedCompany.Should().NotBeNull();
+        updatedCompany!.Addresses.Should().HaveCount(2);
+        updatedCompany.Addresses.Should().Contain(address => address.AddressLine1 == "Level 10, Jalan Sultan Ismail");
+        updatedCompany.Addresses.Should().Contain(address => address.AddressLine1 == "Warehouse 4, Jalan Utama");
+
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persistedCompany = await dbContext.Companies.Include(x => x.Addresses).SingleAsync(x => x.Id == companyId);
+        persistedCompany.Addresses.Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task CompanyUpdate_WithoutAddressPayload_PreservesExistingCompanyAddress()
     {
         await _factory.EnsureSeededAsync();

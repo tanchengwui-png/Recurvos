@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Recurvos.Application.Companies;
 using Recurvos.Application.ProductPlans;
+using System.Text.Json;
 
 namespace Recurvos.Api.Controllers;
 
@@ -10,6 +11,8 @@ namespace Recurvos.Api.Controllers;
 [Route("api/companies")]
 public sealed class CompaniesController(ICompanyService companyService) : ControllerBase
 {
+    private static readonly JsonSerializerOptions RequestJsonOptions = new(JsonSerializerDefaults.Web);
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyCollection<CompanyLookupDto>>> Get(CancellationToken cancellationToken) =>
         Ok(await companyService.GetOwnedAsync(cancellationToken));
@@ -23,13 +26,14 @@ public sealed class CompaniesController(ICompanyService companyService) : Contro
 
     [HttpPost]
     [Authorize(Policy = "ManageBilling")]
-    public async Task<ActionResult<CompanyLookupDto>> Create(CompanyUpsertRequest request, CancellationToken cancellationToken) =>
-        Ok(await companyService.CreateAsync(request, cancellationToken));
+    public async Task<ActionResult<CompanyLookupDto>> Create(CancellationToken cancellationToken) =>
+        Ok(await companyService.CreateAsync(await ReadCompanyUpsertRequestAsync(cancellationToken), cancellationToken));
 
     [HttpPut("{id:guid}")]
     [Authorize(Policy = "ManageBilling")]
-    public async Task<ActionResult<CompanyLookupDto>> Update(Guid id, CompanyUpsertRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<CompanyLookupDto>> Update(Guid id, CancellationToken cancellationToken)
     {
+        var request = await ReadCompanyUpsertRequestAsync(cancellationToken);
         var company = await companyService.UpdateAsync(id, request, cancellationToken);
         return company is null ? NotFound() : Ok(company);
     }
@@ -80,4 +84,15 @@ public sealed class CompaniesController(ICompanyService companyService) : Contro
     [HttpGet("{companyId:guid}/product-plans")]
     public async Task<ActionResult<IReadOnlyCollection<ProductPlanDto>>> GetRecurringPlans(Guid companyId, CancellationToken cancellationToken) =>
         Ok(await companyService.GetRecurringPlansAsync(companyId, cancellationToken));
+
+    private async Task<CompanyUpsertRequest> ReadCompanyUpsertRequestAsync(CancellationToken cancellationToken)
+    {
+        var request = await JsonSerializer.DeserializeAsync<CompanyUpsertRequest>(Request.Body, RequestJsonOptions, cancellationToken);
+        if (request is null)
+        {
+            throw new BadHttpRequestException("Request body is required.");
+        }
+
+        return request;
+    }
 }

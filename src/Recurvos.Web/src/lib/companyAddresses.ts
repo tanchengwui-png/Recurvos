@@ -73,7 +73,6 @@ export function parseLegacyCompanyAddress(address: string): CompanyAddress | nul
   };
 }
 
-export function getCompanyAddressTitle(address: Pick<CompanyAddress, "addressLine1" | "city" | "state" | "country">, index: number) {
-  const primary = [address.addressLine1?.trim(), address.city?.trim(), address.state?.trim(), address.country?.trim()].find(Boolean);
-  return primary || `Address ${index + 1}`;
+export function getCompanyAddressTitle(_address: Pick<CompanyAddress, "addressLine1" | "city" | "state" | "country">, index: number) {
+  return `Address ${index + 1}`;
 }

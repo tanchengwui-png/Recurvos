@@ -441,7 +441,7 @@ public sealed class CompanyService(
     private static string? NormalizeOptional(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static void ApplyAddresses(
+    private void ApplyAddresses(
         Domain.Entities.Company company,
         IReadOnlyCollection<CompanyAddressUpsertRequest> requests,
         bool allowLegacyFallback,
@@ -503,6 +503,8 @@ public sealed class CompanyService(
                     CompanyId = company.Id,
                 };
                 company.Addresses.Add(address);
+                dbContext.Entry(address).State = EntityState.Added;
+                keptIds.Add(address.Id);
             }
 
             address.AddressLine1 = request.AddressLine1.Trim();
@@ -554,15 +556,8 @@ public sealed class CompanyService(
         var hasExplicitBillingDefault = requestList.Any(request => request.IsDefaultBilling);
         var hasExplicitShippingDefault = requestList.Any(request => request.IsDefaultShipping);
 
-        return requestList
-            .Where(request =>
-                !string.IsNullOrWhiteSpace(request.AddressLine1)
-                || !string.IsNullOrWhiteSpace(request.AddressLine2)
-                || !string.IsNullOrWhiteSpace(request.AddressLine3)
-                || !string.IsNullOrWhiteSpace(request.Postcode)
-                || !string.IsNullOrWhiteSpace(request.City)
-                || !string.IsNullOrWhiteSpace(request.State)
-                || !string.IsNullOrWhiteSpace(request.Country))
+        var normalized = requestList
+            .Where(ShouldPersistAddress)
             .Select(request => new CompanyAddressUpsertRequest
             {
                 Id = request.Id,
@@ -578,6 +573,45 @@ public sealed class CompanyService(
                 IsDefaultShipping = request.IsDefaultShipping || (!hasExplicitShippingDefault && request.IsDefault),
             })
             .ToList();
+
+        ValidateNormalizedAddresses(normalized);
+        return normalized;
+    }
+
+    private static bool ShouldPersistAddress(CompanyAddressUpsertRequest request) =>
+        HasAddressBodyContent(request)
+        || (!string.IsNullOrWhiteSpace(request.AddressLine1) && !string.IsNullOrWhiteSpace(request.Country));
+
+    private static bool HasAddressBodyContent(CompanyAddressUpsertRequest request) =>
+        !string.IsNullOrWhiteSpace(request.AddressLine1)
+        || !string.IsNullOrWhiteSpace(request.AddressLine2)
+        || !string.IsNullOrWhiteSpace(request.AddressLine3)
+        || !string.IsNullOrWhiteSpace(request.Postcode)
+        || !string.IsNullOrWhiteSpace(request.City)
+        || !string.IsNullOrWhiteSpace(request.State);
+
+    private static void ValidateNormalizedAddresses(IReadOnlyCollection<CompanyAddressUpsertRequest> addresses)
+    {
+        var duplicateIds = addresses
+            .Where(address => address.Id.HasValue)
+            .GroupBy(address => address.Id!.Value)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToList();
+        if (duplicateIds.Count > 0)
+        {
+            throw new InvalidOperationException("Each company address can only be submitted once per save request.");
+        }
+
+        var invalidAddressIndex = addresses
+            .Select((address, index) => new { address, index })
+            .FirstOrDefault(item =>
+                string.IsNullOrWhiteSpace(item.address.AddressLine1)
+                || string.IsNullOrWhiteSpace(item.address.Country));
+        if (invalidAddressIndex is not null)
+        {
+            throw new InvalidOperationException($"Address {invalidAddressIndex.index + 1} must include Address Line 1 and Country.");
+        }
     }
 
     private static CompanyAddressUpsertRequest ParseLegacyAddress(string address)

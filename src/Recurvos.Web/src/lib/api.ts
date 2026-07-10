@@ -2,9 +2,53 @@ import { getAuth, setAuth } from "./auth";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
 
+let refreshPromise: Promise<boolean> | null = null;
+
 export function buildApiUrl(path: string) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE_URL}${normalizedPath}`;
+}
+
+function redirectToLogin() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
+}
+
+function clearExpiredAuth() {
+  setAuth(null);
+  redirectToLogin();
+}
+
+async function refreshAuth(refreshToken: string) {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const refreshed = await fetch(buildApiUrl("/auth/refresh"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (!refreshed.ok) {
+        clearExpiredAuth();
+        return false;
+      }
+
+      const refreshedAuth = await refreshed.json();
+      setAuth(refreshedAuth);
+      return true;
+    })();
+
+    refreshPromise.finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
 }
 
 function toFriendlyFieldName(field: string) {
@@ -118,15 +162,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(buildApiUrl(path), { ...init, headers });
   if (response.status === 401 && auth?.refreshToken) {
-    const refreshed = await fetch(buildApiUrl("/auth/refresh"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: auth.refreshToken }),
-    });
-
-    if (refreshed.ok) {
-      const refreshedAuth = await refreshed.json();
-      setAuth(refreshedAuth);
+    if (await refreshAuth(auth.refreshToken)) {
       return request<T>(path, init);
     }
   }
@@ -166,15 +202,7 @@ async function requestBlob(path: string, init?: RequestInit): Promise<{ blob: Bl
 
   const response = await fetch(buildApiUrl(path), { ...init, headers });
   if (response.status === 401 && auth?.refreshToken) {
-    const refreshed = await fetch(buildApiUrl("/auth/refresh"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: auth.refreshToken }),
-    });
-
-    if (refreshed.ok) {
-      const refreshedAuth = await refreshed.json();
-      setAuth(refreshedAuth);
+    if (await refreshAuth(auth.refreshToken)) {
       return requestBlob(path, init);
     }
   }

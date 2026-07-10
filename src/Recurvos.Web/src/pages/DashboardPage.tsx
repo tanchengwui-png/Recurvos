@@ -88,7 +88,9 @@ export function DashboardPage() {
         access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/subscriptions") : Promise.resolve([]),
         access.featureKeys.includes("manual_invoices") || access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/invoices") : Promise.resolve([]),
         access.featureKeys.includes("payment_tracking") ? api.get<unknown[]>("/payments") : Promise.resolve([]),
-        api.get<BillingReadiness>(`/settings/billing-readiness${companyList[0]?.id ? `?companyId=${companyList[0].id}` : ""}`),
+        companyList[0]?.id
+          ? api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyList[0].id}`)
+          : Promise.resolve(null),
       ]);
 
       setSetupStats({
@@ -116,7 +118,7 @@ export function DashboardPage() {
     { key: "logo", title: "Upload logo", description: "Brand invoices with your company logo.", done: companies.some((company) => company.hasLogo), href: "/companies", action: "Manage Logo" },
     { key: "products", title: "Create product", description: "Define what your customer is buying.", done: setupStats.products > 0, href: "/products", action: "Open Products" },
     { key: "plans", title: "Create plan", description: "Set how much and how often customers are charged.", done: setupStats.plans > 0, href: "/plans", action: "Open Plans" },
-    { key: "customers", title: "Add customer", description: "Create the people or businesses you bill.", done: setupStats.customers > 0, href: "/customers", action: "Open Customers", enabled: featureAccess?.featureKeys.includes("customer_management") ?? false },
+    { key: "customers", title: "Add contact", description: "Create the customers, suppliers, and employees you manage.", done: setupStats.customers > 0, href: "/customers", action: "Open Contacts", enabled: featureAccess?.featureKeys.includes("customer_management") ?? false },
     { key: "subscriptions", title: "Create subscription", description: "Link a customer to a recurring plan.", done: setupStats.subscriptions > 0, href: "/subscriptions", action: "Open Subscriptions", enabled: featureAccess?.featureKeys.includes("recurring_invoices") ?? false },
     { key: "invoices", title: "Review invoice", description: "Create a manual invoice or wait for a renewal invoice.", done: setupStats.invoices > 0, href: "/invoices", action: "Open Invoices", enabled: (featureAccess?.featureKeys.includes("manual_invoices") ?? false) || (featureAccess?.featureKeys.includes("recurring_invoices") ?? false) },
     { key: "payments", title: "Collect payment", description: "Record payment or generate a payment link.", done: setupStats.payments > 0, href: "/payments", action: "Open Payments", enabled: featureAccess?.featureKeys.includes("payment_tracking") ?? false },
@@ -188,10 +190,10 @@ export function DashboardPage() {
     if (setupStats.customers === 0) {
       return {
         key: "create-customer",
-        title: "Add the first paying customer",
-        description: "Use a real customer, not a placeholder, so you can go live quickly.",
+        title: "Add the first contact",
+        description: "Use a real contact record so you can go live quickly.",
         href: "/customers",
-        action: "Open customers",
+        action: "Open contacts",
       };
     }
 

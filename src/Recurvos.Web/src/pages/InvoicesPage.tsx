@@ -13,7 +13,7 @@ import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
-import type { BillingReadiness, CompanyInvoiceSettings, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, Payment, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
+import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, Payment, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
 
 const DEFAULT_WHATSAPP_TEMPLATE = [
   "Hi {CustomerName},",
@@ -183,10 +183,15 @@ export function InvoicesPage() {
   const selectedInvoice = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
 
   async function load() {
+    const companies = await api.get<CompanyLookup[]>("/companies").catch(() => []);
+    const readinessPath = companies[0]?.id
+      ? `/settings/billing-readiness?companyId=${companies[0].id}`
+      : null;
+
     const [invoiceList, paymentList, readiness, settings, policy, access] = await Promise.all([
       api.get<Invoice[]>("/invoices"),
       api.get<Payment[]>("/payments").catch(() => []),
-      api.get<BillingReadiness>("/settings/billing-readiness"),
+      readinessPath ? api.get<BillingReadiness>(readinessPath) : Promise.resolve(null),
       api.get<CompanyInvoiceSettings>("/settings/invoice-settings"),
       api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
       api.get<FeatureAccess>("/settings/feature-access").catch(() => null),

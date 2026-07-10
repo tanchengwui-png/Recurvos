@@ -75,6 +75,7 @@ public static class DependencyInjection
         services.AddScoped<ICompanyService, CompanyService>();
         services.AddScoped<IFeatureEntitlementService, FeatureEntitlementService>();
         services.AddScoped<ICustomerService, CustomerService>();
+        services.AddScoped<IContactGroupService, ContactGroupService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductPlanService, ProductPlanService>();
         services.AddScoped<ISubscriptionService, SubscriptionService>();
