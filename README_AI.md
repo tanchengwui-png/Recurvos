@@ -64,6 +64,27 @@ Business logic primarily lives in `src/Recurvos.Infrastructure/Services`, not in
   - some pricing/subscription updates only support simple cases
   - some finance objects exist but are not fully surfaced in UI
 
+## Current Development Direction
+
+- Stop implementing new Sales and Purchase workflow features for now
+- Complete any in-progress Sales/Purchase work only to the point that the current modules stay stable and build successfully
+- Do not add new workflow features, document conversions, posting logic, inventory integration, or accounting integration in Sales/Purchase
+- Keep all existing functionality working while stabilizing current changes
+- After stabilization, switch focus to foundation/master modules:
+  - Chart of Accounts
+  - Tax Codes
+  - Payment Terms
+  - Warehouses
+- For those foundation/master modules, prioritize:
+  - listing pages
+  - create/edit pages
+  - view pages
+  - search and filters
+  - status support
+  - validation
+  - database entities
+  - API endpoints
+
 ## Read Next
 
 Read these files in order:

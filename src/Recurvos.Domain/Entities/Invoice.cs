@@ -8,6 +8,8 @@ public sealed class Invoice : CompanyOwnedEntity
     public Guid CustomerId { get; set; }
     public Guid? SubscriberCompanyId { get; set; }
     public Guid? SubscriptionId { get; set; }
+    public Guid? SalesOrderId { get; set; }
+    public Guid? DeliveryOrderId { get; set; }
     public string InvoiceNumber { get; set; } = string.Empty;
     public InvoiceStatus Status { get; set; } = InvoiceStatus.Draft;
     public DateTime IssueDateUtc { get; set; }

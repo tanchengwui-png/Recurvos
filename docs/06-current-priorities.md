@@ -4,32 +4,29 @@ This file is an inference from recent services, migrations, pages, and tests. Tr
 
 ## Active Focus
 
-- Subscriber package billing lifecycle
-  - provisioning
-  - renewals
-  - upgrades
-  - reactivation
-  - grace-period reconciliation
-- Payment operations
-  - payment links
-  - payment confirmations
-  - receipts
-  - retry flow
-- Subscription billing workflow
-  - due invoice generation
-  - pricing update constraints
-  - pause/resume/cancel behavior
-- Settings hardening
-  - payment gateway settings
-  - tax settings
-  - numbering
-  - WhatsApp and SMTP configuration
+- Stabilize current Sales and Purchase module work so the existing modules remain buildable and functional
+- Do not add new Sales/Purchase workflow features during this stabilization phase
+- Shift active development focus to foundation/master modules:
+  - Chart of Accounts
+  - Tax Codes
+  - Payment Terms
+  - Warehouses
+- Deliver the standard module surface for each foundation/master module:
+  - listing page
+  - create/edit page
+  - view page
+  - search and filters
+  - status support
+  - validation
+  - database entities
+  - API endpoints
 
-Evidence:
+## Explicit Hold
 
-- recent service timestamps
-- recent migrations around package state, payment gateway settings, numbering, and tax
-- recent integration tests focused on package billing and payment confirmation
+- Do not add new Sales/Purchase document conversion flows
+- Do not add posting logic
+- Do not add inventory integration
+- Do not add accounting integration
 
 ## Secondary Focus
 
@@ -52,7 +49,6 @@ Evidence:
 
 ## Needs Confirmation
 
-- Whether platform package billing is now the main product priority or just a recent milestone
-- Whether finance/reconciliation entities are already relied on in production workflows
-- Whether WhatsApp delivery is expected to be a first-class supported production channel or still stabilizing
-- Whether the current package/feature model is final or still being iterated quickly
+- Which parts of the in-progress Sales/Purchase work are considered stable enough to keep versus defer
+- Whether foundation/master modules should share a common frontend scaffolding pattern
+- Whether any of the held Sales/Purchase inventory/accounting entities must remain exposed for compatibility only

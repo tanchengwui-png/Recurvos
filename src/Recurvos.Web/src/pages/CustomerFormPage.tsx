@@ -6,7 +6,8 @@ import { HelperText } from "../components/ui/HelperText";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api } from "../lib/api";
 import { countryOptions, currencyOptions, malaysiaStateOptions, registrationNumberTypeOptions } from "../lib/localeOptions";
-import type { ContactAddress, ContactGroup, ContactPerson, Customer } from "../types";
+import type { SearchableSelectOption } from "../lib/localeOptions";
+import type { ContactAddress, ContactGroup, ContactPerson, Customer, MasterDataSnapshot } from "../types";
 
 const contactTypeOptions = ["Customer", "Supplier", "Employee"] as const;
 const entityTypeOptions = ["Company", "Individual", "General Public", "Foreign Company", "Foreign Individual", "Exempted Person"] as const;
@@ -198,17 +199,24 @@ export function CustomerFormPage() {
   const [form, setForm] = useState<ContactFormState>(emptyForm);
   const [expandedAddressIndex, setExpandedAddressIndex] = useState(0);
   const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
+  const [masterData, setMasterData] = useState<MasterDataSnapshot | null>(null);
 
   useEffect(() => {
-    async function loadGroups() {
+    async function loadReferenceData() {
       try {
-        setContactGroups(await api.get<ContactGroup[]>("/contact-groups"));
+        const [groups, snapshot] = await Promise.all([
+          api.get<ContactGroup[]>("/contact-groups"),
+          api.get<MasterDataSnapshot>("/master-data"),
+        ]);
+        setContactGroups(groups);
+        setMasterData(snapshot);
       } catch {
         setContactGroups([]);
+        setMasterData(null);
       }
     }
 
-    void loadGroups();
+    void loadReferenceData();
   }, []);
 
   useEffect(() => {
@@ -281,6 +289,14 @@ export function CustomerFormPage() {
     ? [{ value: form.currency, label: form.currency }, ...currencyOptions]
     : currencyOptions;
   const availableGroupOptions = mergeGroupOptions(contactGroups, form.groups);
+  const accountOptions = buildAccountOptions(masterData?.accounts);
+  const receivableAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Asset"));
+  const payableAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Liability"));
+  const incomeAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Revenue"));
+  const expenseAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Expense"));
+  const masterCurrencyOptions = buildCurrencyOptions(masterData?.currencies, form.currency, availableCurrencyOptions);
+  const paymentTermOptions = buildPaymentTermOptions(masterData?.paymentTerms, form.paymentTerm);
+  const priceLevelOptions = buildPriceLevelOptions(masterData?.priceLevels, form.priceLevel);
 
   function updateContactType(type: string, checked: boolean) {
     setForm((current) => {
@@ -777,7 +793,14 @@ export function CustomerFormPage() {
                 {showReceivableAccount ? (
                   <label className="form-label company-profile-field">
                     Receivable Account
-                    <input className="text-input" value={form.receivableAccount} onChange={(event) => setForm((current) => ({ ...current, receivableAccount: event.target.value }))} />
+                    <SearchableSelect
+                      value={form.receivableAccount}
+                      onChange={(value) => setForm((current) => ({ ...current, receivableAccount: value }))}
+                      options={receivableAccountOptions}
+                      placeholder="Select receivable account"
+                      searchPlaceholder="Search asset accounts"
+                      ariaLabel="Receivable Account"
+                    />
                   </label>
                 ) : null}
                 {showCreditLimit ? (
@@ -789,16 +812,39 @@ export function CustomerFormPage() {
                 {showPayableAccount ? (
                   <label className="form-label company-profile-field">
                     Payable Account
-                    <input className="text-input" value={form.payableAccount} onChange={(event) => setForm((current) => ({ ...current, payableAccount: event.target.value }))} />
+                    <SearchableSelect
+                      value={form.payableAccount}
+                      onChange={(value) => setForm((current) => ({ ...current, payableAccount: value }))}
+                      options={payableAccountOptions}
+                      placeholder="Select payable account"
+                      searchPlaceholder="Search liability accounts"
+                      ariaLabel="Payable Account"
+                    />
                   </label>
                 ) : null}
                 <label className="form-label company-profile-field">
                   Income Account
-                  <input className="text-input" value={form.incomeAccount} onChange={(event) => setForm((current) => ({ ...current, incomeAccount: event.target.value }))} />
+                  <SearchableSelect
+                    value={form.incomeAccount}
+                    onChange={(value) => setForm((current) => ({ ...current, incomeAccount: value }))}
+                    options={incomeAccountOptions}
+                    placeholder="Select income account"
+                    searchPlaceholder="Search revenue accounts"
+                    ariaLabel="Income Account"
+                    clearable
+                  />
                 </label>
                 <label className="form-label company-profile-field">
                   Expense Account
-                  <input className="text-input" value={form.expenseAccount} onChange={(event) => setForm((current) => ({ ...current, expenseAccount: event.target.value }))} />
+                  <SearchableSelect
+                    value={form.expenseAccount}
+                    onChange={(value) => setForm((current) => ({ ...current, expenseAccount: value }))}
+                    options={expenseAccountOptions}
+                    placeholder="Select expense account"
+                    searchPlaceholder="Search expense accounts"
+                    ariaLabel="Expense Account"
+                    clearable
+                  />
                 </label>
             </div>
           </section>
@@ -834,19 +880,38 @@ export function CustomerFormPage() {
               </div>
               <label className="form-label company-profile-field">
                 Price Level
-                <input className="text-input" value={form.priceLevel} onChange={(event) => setForm((current) => ({ ...current, priceLevel: event.target.value }))} />
+                <SearchableSelect
+                  value={form.priceLevel}
+                  onChange={(value) => setForm((current) => ({ ...current, priceLevel: value }))}
+                  options={priceLevelOptions}
+                  placeholder="Select price level"
+                  searchPlaceholder="Search price levels"
+                  ariaLabel="Price Level"
+                  clearable
+                />
               </label>
               <label className="form-label company-profile-field">
                 Currency
-                <select value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))}>
-                  {availableCurrencyOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={form.currency}
+                  onChange={(value) => setForm((current) => ({ ...current, currency: value || "MYR" }))}
+                  options={masterCurrencyOptions}
+                  placeholder="Select currency"
+                  searchPlaceholder="Search currencies"
+                  ariaLabel="Currency"
+                />
               </label>
               <label className="form-label company-profile-field">
                 Payment Term
-                <input className="text-input" value={form.paymentTerm} onChange={(event) => setForm((current) => ({ ...current, paymentTerm: event.target.value }))} />
+                <SearchableSelect
+                  value={form.paymentTerm}
+                  onChange={(value) => setForm((current) => ({ ...current, paymentTerm: value }))}
+                  options={paymentTermOptions}
+                  placeholder="Select payment term"
+                  searchPlaceholder="Search payment terms"
+                  ariaLabel="Payment Term"
+                  clearable
+                />
               </label>
               <label className="form-label company-profile-field">
                 Location
@@ -910,4 +975,78 @@ export function CustomerFormPage() {
       />
     </div>
   );
+}
+
+function buildAccountOptions(accounts?: MasterDataSnapshot["accounts"]): SearchableSelectOption[] {
+  return (accounts ?? [])
+    .filter((account) => account.isActive)
+    .map((account) => ({
+      value: account.code,
+      label: `${account.code} - ${account.name}`,
+      keywords: [account.name, account.type, account.currencyCode],
+    }));
+}
+
+function buildCurrencyOptions(
+  currencies: MasterDataSnapshot["currencies"] | undefined,
+  selectedValue: string,
+  fallbackOptions: { value: string; label: string }[],
+): SearchableSelectOption[] {
+  const activeOptions = (currencies ?? [])
+    .filter((currency) => currency.isActive)
+    .map((currency) => ({
+      value: currency.code,
+      label: `${currency.code} - ${currency.name}`,
+      keywords: [currency.name, currency.symbol],
+    }));
+
+  return mergeMissingSelection(activeOptions, selectedValue, fallbackOptions);
+}
+
+function buildPaymentTermOptions(paymentTerms?: MasterDataSnapshot["paymentTerms"], selectedValue = ""): SearchableSelectOption[] {
+  const activeOptions = (paymentTerms ?? [])
+    .filter((paymentTerm) => paymentTerm.isActive)
+    .map((paymentTerm) => ({
+      value: paymentTerm.code,
+      label: `${paymentTerm.code} - ${paymentTerm.name}`,
+      keywords: [paymentTerm.name, String(paymentTerm.days)],
+    }));
+
+  return mergeMissingSelection(activeOptions, selectedValue);
+}
+
+function buildPriceLevelOptions(priceLevels?: MasterDataSnapshot["priceLevels"], selectedValue = ""): SearchableSelectOption[] {
+  const activeOptions = (priceLevels ?? [])
+    .filter((priceLevel) => priceLevel.isActive)
+    .map((priceLevel) => ({
+      value: priceLevel.code,
+      label: `${priceLevel.code} - ${priceLevel.name}`,
+      keywords: [priceLevel.name, String(priceLevel.adjustmentPercent)],
+    }));
+
+  return mergeMissingSelection(activeOptions, selectedValue);
+}
+
+function mergeMissingSelection(
+  options: SearchableSelectOption[],
+  selectedValue: string,
+  fallbackOptions: { value: string; label: string }[] = [],
+): SearchableSelectOption[] {
+  const merged = new Map<string, SearchableSelectOption>();
+
+  options.forEach((option) => {
+    merged.set(option.value, option);
+  });
+
+  fallbackOptions.forEach((option) => {
+    if (!merged.has(option.value)) {
+      merged.set(option.value, option);
+    }
+  });
+
+  if (selectedValue && !merged.has(selectedValue)) {
+    merged.set(selectedValue, { value: selectedValue, label: selectedValue });
+  }
+
+  return Array.from(merged.values());
 }

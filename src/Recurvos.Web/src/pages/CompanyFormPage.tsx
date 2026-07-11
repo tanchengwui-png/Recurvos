@@ -940,7 +940,10 @@ export function CompanyFormPage() {
                     await clearCompanyClientState();
                     navigate("/companies", {
                       replace: true,
-                      state: { flashMessage: "Factory reset complete. Selected company data has been cleared." },
+                      state: {
+                        flashMessage: "Factory reset complete. Selected company data has been cleared.",
+                        removedCompanyId: editingCompanyId,
+                      },
                     });
                   } catch (resetError) {
                     setFactoryResetState((current) => current ? { ...current, isSubmitting: false, error: resetError instanceof Error ? resetError.message : "Unable to factory reset company data." } : current);

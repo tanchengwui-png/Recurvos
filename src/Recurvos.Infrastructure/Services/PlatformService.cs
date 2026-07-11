@@ -491,6 +491,8 @@ public sealed class PlatformService(
                 audit.EntityName,
                 audit.EntityId,
                 audit.Metadata,
+                audit.OldValue,
+                audit.NewValue,
                 audit.CreatedAtUtc))
             .Take(boundedTake)
             .ToListAsync(cancellationToken);

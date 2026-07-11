@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
@@ -32,6 +33,42 @@ function getContactStatusClassName(status: Customer["status"]) {
   return "status-pill-inactive";
 }
 
+function buildCustomerPayload(customer: Customer) {
+  return {
+    name: customer.name,
+    email: customer.email,
+    phoneNumber: customer.phoneNumber,
+    externalReference: customer.externalReference,
+    billingAddress: customer.billingAddress,
+    entityType: customer.entityType,
+    legalName: customer.legalName,
+    otherName: customer.otherName,
+    registrationNumberType: customer.registrationNumberType,
+    registrationNumber: customer.registrationNumber,
+    oldRegistrationNumber: customer.oldRegistrationNumber,
+    tin: customer.tin,
+    sstRegistrationNumber: customer.sstRegistrationNumber,
+    contactType: customer.contactType,
+    status: customer.status,
+    contactPersons: customer.contactPersons,
+    phoneNumbers: customer.phoneNumbers,
+    emailAddresses: customer.emailAddresses,
+    addresses: customer.addresses,
+    receivableAccount: customer.receivableAccount,
+    creditLimit: customer.creditLimit ?? null,
+    payableAccount: customer.payableAccount,
+    groups: customer.groups,
+    priceLevel: customer.priceLevel,
+    currency: customer.currency,
+    paymentTerm: customer.paymentTerm,
+    incomeAccount: customer.incomeAccount,
+    expenseAccount: customer.expenseAccount,
+    location: customer.location,
+    tags: customer.tags,
+    myInvoisControl: customer.myInvoisControl,
+  };
+}
+
 export function CustomersPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,6 +79,7 @@ export function CustomersPage() {
   const [packageLimit, setPackageLimit] = useState<number | null>(null);
   const [error] = useState("");
   const [message, setMessage] = useState("");
+  const [confirmState, setConfirmState] = useState<{ title: string; description: string; confirmLabel: string; action: () => Promise<void> } | null>(null);
   const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
   const [contactTypeFilter, setContactTypeFilter] = useState<Customer["contactType"] | "all">(() => {
     const value = searchParams.get("type");
@@ -174,11 +212,59 @@ export function CustomersPage() {
   const contactsWithEmail = items.filter((item) => item.email).length;
   const activeContacts = items.filter((item) => item.status === "Active").length;
   const packageLimitLabel = packageLimit === null ? "-" : packageLimit <= 0 ? "Unlimited" : String(packageLimit);
+  function getPrimaryContactPerson(item: Customer) {
+    const primary = item.contactPersons.find((person) => person.name.trim());
+    if (!primary) {
+      return "-";
+    }
+
+    const additionalCount = item.contactPersons.filter((person) => person.name.trim()).length - 1;
+    return additionalCount > 0 ? `${primary.name} +${additionalCount}` : primary.name;
+  }
 
   function getCustomerActions(item: Customer) {
+    const contactTypes = parseContactTypes(item.contactType);
+    const canViewStatement = contactTypes.some((type) => type === "Customer" || type === "Supplier");
+    const nextStatus = item.status === "Active" ? "Inactive" : "Active";
+    const statusActionLabel = item.status === "Active" ? "Deactivate" : "Activate";
+
     return [
-      { label: expandedId === item.id ? "Hide details" : "View details", onClick: () => setExpandedId((current) => current === item.id ? null : item.id) },
-      { label: "Edit contact", onClick: () => navigate(`/customers/${item.id}/edit`) },
+      { label: "View", onClick: () => setExpandedId((current) => current === item.id ? null : item.id) },
+      { label: "Edit", onClick: () => navigate(`/customers/${item.id}/edit`) },
+      ...(canViewStatement ? [{ label: "Statement of Account", onClick: () => navigate(`/customers/${item.id}/statement`) }] : []),
+      {
+        label: statusActionLabel,
+        onClick: () => setConfirmState({
+          title: `${statusActionLabel} contact`,
+          description: `${statusActionLabel} ${item.legalName || item.name}?`,
+          confirmLabel: statusActionLabel,
+          action: async () => {
+            const updated = await api.put<Customer>(`/customers/${item.id}`, {
+              ...buildCustomerPayload(item),
+              status: nextStatus,
+            });
+            setItems((current) => current.map((entry) => entry.id === item.id ? updated : entry));
+            setMessage(`${updated.legalName || updated.name} is now ${updated.status.toLowerCase()}.`);
+            setConfirmState(null);
+          },
+        }),
+      },
+      {
+        label: "Delete",
+        tone: "danger" as const,
+        onClick: () => setConfirmState({
+          title: "Delete contact",
+          description: `Delete ${item.legalName || item.name}? This action cannot be undone.`,
+          confirmLabel: "Delete",
+          action: async () => {
+            await api.delete(`/customers/${item.id}`);
+            setItems((current) => current.filter((entry) => entry.id !== item.id));
+            setExpandedId((current) => current === item.id ? null : current);
+            setMessage(`${item.legalName || item.name} was deleted.`);
+            setConfirmState(null);
+          },
+        }),
+      },
     ];
   }
 
@@ -246,8 +332,7 @@ export function CustomersPage() {
             <article key={item.id} className="subscription-mobile-card">
               <div className="subscription-mobile-card-header">
                 <div className="subscription-mobile-identity">
-                  <strong>{item.name}</strong>
-                  <div className="eyebrow">{item.externalReference || "No external reference"}</div>
+                  <strong>{item.legalName || item.name}</strong>
                 </div>
                 <div className="subscription-mobile-actions">
                   <RowActionMenu items={getCustomerActions(item)} label="More" />
@@ -279,12 +364,8 @@ export function CustomersPage() {
                   <span className="subscription-mobile-meta-value">{item.phoneNumber || "Phone not set"}</span>
                 </div>
                 <div className="subscription-mobile-meta-row">
-                  <span className="subscription-mobile-meta-label">Reference</span>
-                  <span className="subscription-mobile-meta-value">{item.externalReference || "-"}</span>
-                </div>
-                <div className="subscription-mobile-meta-row">
-                  <span className="subscription-mobile-meta-label">Billing</span>
-                  <span className="subscription-mobile-meta-value">{item.billingAddress || "Billing address not set"}</span>
+                  <span className="subscription-mobile-meta-label">Contact Person</span>
+                  <span className="subscription-mobile-meta-value">{getPrimaryContactPerson(item)}</span>
                 </div>
               </div>
             </article>
@@ -304,18 +385,19 @@ export function CustomersPage() {
             <table className="catalog-table subscription-table customer-table">
             <thead>
               <tr>
-                <th className="sticky-cell sticky-cell-left">Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Contact</th>
-                <th>Reference</th>
-                <th>Billing</th>
+                <th className="sticky-cell sticky-cell-left contact-name-column">Name</th>
+                <th className="contact-type-column">Contact Type</th>
+                <th className="contact-person-column">Contact Person</th>
+                <th className="contact-phone-column">Phone</th>
+                <th className="contact-email-column">Email</th>
+                <th className="contact-status-column">Status</th>
+                <th className="contact-actions-column" aria-label="Actions" />
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={6}
+                  colSpan={7}
                   title="No contacts yet"
                   description="Add customers, suppliers, and employees here so you can manage billing contacts and internal records from one place."
                   actions={(
@@ -327,7 +409,7 @@ export function CustomersPage() {
                 />
               ) : filteredItems.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={6}
+                  colSpan={7}
                   title="No matching contacts"
                   description="Try a different keyword or relax the filters to see more contact records."
                 />
@@ -335,21 +417,15 @@ export function CustomersPage() {
                 <tr key={item.id}>
                   <td className="sticky-cell sticky-cell-left table-primary-cell">
                     <div className="table-primary-cell-stack">
-                      <div className="stack">
-                        <span>{item.name}</span>
-                        <div className="eyebrow">{item.externalReference || "No external reference"}</div>
-                      </div>
-                      <RowActionMenu items={getCustomerActions(item)} />
+                      <span>{item.legalName || item.name}</span>
                     </div>
                   </td>
-                  <td><span className="badge">{parseContactTypes(item.contactType).join(", ") || item.contactType}</span></td>
-                  <td><span className={`status-pill ${getContactStatusClassName(item.status)}`}>{item.status}</span></td>
-                  <td>
-                    <div>{item.email || "-"}</div>
-                    <div className="eyebrow">{item.phoneNumber || "Phone not set"}</div>
-                  </td>
-                  <td>{item.externalReference || "-"}</td>
-                  <td>{item.billingAddress || "-"}</td>
+                  <td className="contact-type-column"><span className="badge">{parseContactTypes(item.contactType).join(", ") || item.contactType}</span></td>
+                  <td className="contact-person-column">{getPrimaryContactPerson(item)}</td>
+                  <td className="contact-phone-column">{item.phoneNumber || "Phone not set"}</td>
+                  <td className="contact-email-column">{item.email || "-"}</td>
+                  <td className="contact-status-column"><span className={`status-pill ${getContactStatusClassName(item.status)}`}>{item.status}</span></td>
+                  <td className="actions-cell contact-actions-column"><RowActionMenu items={getCustomerActions(item)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -408,6 +484,16 @@ export function CustomersPage() {
           </div>
         </div>
       ) : null}
+      <ConfirmModal
+        open={confirmState !== null}
+        title={confirmState?.title ?? ""}
+        description={confirmState?.description ?? ""}
+        confirmLabel={confirmState?.confirmLabel ?? "Confirm"}
+        onConfirm={async () => {
+          await confirmState?.action();
+        }}
+        onCancel={() => setConfirmState(null)}
+      />
     </div>
   );
 }

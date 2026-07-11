@@ -2281,6 +2281,476 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         (await dbContext.Users.AnyAsync(x => x.Email == "owner@stalesignup.my")).Should().BeFalse();
     }
 
+    [Fact]
+    public async Task DeliveryOrderCreate_RejectsInactiveSourceCurrency()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid salesOrderId;
+        Guid salesOrderLineId;
+        Guid warehouseId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var contact = await dbContext.Customers.FirstAsync();
+            warehouseId = await dbContext.Warehouses.Where(x => x.CompanyId == companyId).Select(x => x.Id).FirstAsync();
+            var currency = await dbContext.CurrencyDefinitions.FirstAsync(x => x.CompanyId == companyId && x.Code == "MYR");
+            currency.IsActive = false;
+
+            var salesOrder = new SalesOrder
+            {
+                CompanyId = companyId,
+                SalesOrderNumber = "SO-CURRENCY-001",
+                ContactId = contact.Id,
+                ContactName = contact.Name,
+                ContactEmail = contact.Email,
+                ContactPhoneNumber = contact.PhoneNumber,
+                Currency = "MYR",
+                DocumentDateUtc = DateTime.UtcNow,
+                Status = SalesOrderStatus.Confirmed,
+                Subtotal = 100m,
+                TotalAmount = 100m,
+                Lines =
+                [
+                    new SalesOrderLine
+                    {
+                        SortOrder = 1,
+                        Description = "Test line",
+                        Quantity = 1m,
+                        UnitPrice = 100m,
+                        TaxRate = 0m,
+                        TaxAmount = 0m,
+                        LineTotal = 100m
+                    }
+                ]
+            };
+
+            dbContext.SalesOrders.Add(salesOrder);
+            await dbContext.SaveChangesAsync();
+            salesOrderId = salesOrder.Id;
+            salesOrderLineId = salesOrder.Lines.Single().Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/sales/delivery-orders", new
+        {
+            companyId,
+            salesOrderId,
+            warehouseId,
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "DO-REF",
+            notes = "",
+            lines = new[]
+            {
+                new { salesOrderLineId, quantity = 1m }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task SalesQuotationCreate_RejectsInactiveRequestedCurrency()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var contact = await dbContext.Customers.FirstAsync();
+            contactId = contact.Id;
+
+            var currency = await dbContext.CurrencyDefinitions.FirstAsync(x => x.CompanyId == companyId && x.Code == "MYR");
+            currency.IsActive = false;
+            await dbContext.SaveChangesAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/api/sales/quotations", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            expiryDateUtc = DateTime.UtcNow.AddDays(7),
+            currency = "MYR",
+            referenceNo = "SQ-REF",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Quotation line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId = (Guid?)null }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task PurchaseBillCreateFromPurchaseOrder_RejectsInactiveSourceCurrency()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid purchaseOrderId;
+        Guid purchaseOrderLineId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+
+            var currency = await dbContext.CurrencyDefinitions.FirstAsync(x => x.CompanyId == companyId && x.Code == "MYR");
+            currency.IsActive = false;
+
+            var purchaseOrder = new PurchaseOrder
+            {
+                CompanyId = companyId,
+                PurchaseOrderNumber = "PO-CURRENCY-001",
+                ContactId = supplier.Id,
+                ContactName = supplier.Name,
+                ContactEmail = supplier.Email,
+                ContactPhoneNumber = supplier.PhoneNumber,
+                Currency = "MYR",
+                DocumentDateUtc = DateTime.UtcNow,
+                Status = PurchaseOrderStatus.Approved,
+                Subtotal = 100m,
+                TotalAmount = 100m,
+                Lines =
+                [
+                    new PurchaseOrderLine
+                    {
+                        SortOrder = 1,
+                        Description = "Test line",
+                        Quantity = 1m,
+                        UnitPrice = 100m,
+                        TaxRate = 0m,
+                        TaxAmount = 0m,
+                        LineTotal = 100m,
+                        ReceivedQuantity = 1m
+                    }
+                ]
+            };
+
+            dbContext.PurchaseOrders.Add(purchaseOrder);
+            await dbContext.SaveChangesAsync();
+            purchaseOrderId = purchaseOrder.Id;
+            purchaseOrderLineId = purchaseOrder.Lines.Single().Id;
+        }
+
+        var response = await client.PostAsJsonAsync($"/api/purchases/orders/{purchaseOrderId}/convert-to-bill", new
+        {
+            dueDateUtc = DateTime.UtcNow.AddDays(7),
+            paymentTermId = (Guid?)null,
+            referenceNo = "PB-REF",
+            notes = "",
+            lines = new[]
+            {
+                new { purchaseOrderLineId, quantity = 1m }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task PurchasePaymentCreate_RejectsInactiveRequestedCurrency()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid purchaseBillId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+
+            var currency = await dbContext.CurrencyDefinitions.FirstAsync(x => x.CompanyId == companyId && x.Code == "MYR");
+            currency.IsActive = false;
+
+            var bill = new PurchaseBill
+            {
+                CompanyId = companyId,
+                PurchaseBillNumber = "PB-CURRENCY-PAY-001",
+                ContactId = supplier.Id,
+                ContactName = supplier.Name,
+                ContactEmail = supplier.Email,
+                ContactPhoneNumber = supplier.PhoneNumber,
+                CreatedFromDocumentId = Guid.NewGuid(),
+                CreatedFromDocumentNumber = "SRC-PAY-001",
+                CreatedFromDocumentType = "PurchaseOrder",
+                Currency = "MYR",
+                IssueDateUtc = DateTime.UtcNow,
+                DueDateUtc = DateTime.UtcNow.AddDays(7),
+                Status = PurchaseBillStatus.Issued,
+                Subtotal = 100m,
+                TotalAmount = 100m,
+                AmountPaid = 0m,
+                AmountDue = 100m
+            };
+
+            dbContext.PurchaseBills.Add(bill);
+            await dbContext.SaveChangesAsync();
+            purchaseBillId = bill.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/purchases/payments", new
+        {
+            paymentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "PP-REF",
+            notes = "",
+            allocations = new[]
+            {
+                new { purchaseBillId, amount = 10m }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task PurchaseRefundCreate_RejectsInactivePaymentCurrency()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid purchasePaymentId;
+        Guid purchasePaymentAllocationId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+
+            var currency = await dbContext.CurrencyDefinitions.FirstAsync(x => x.CompanyId == companyId && x.Code == "MYR");
+            currency.IsActive = false;
+
+            var bill = new PurchaseBill
+            {
+                CompanyId = companyId,
+                PurchaseBillNumber = "PB-CURRENCY-002",
+                ContactId = supplier.Id,
+                ContactName = supplier.Name,
+                ContactEmail = supplier.Email,
+                ContactPhoneNumber = supplier.PhoneNumber,
+                CreatedFromDocumentId = Guid.NewGuid(),
+                CreatedFromDocumentNumber = "SRC-001",
+                CreatedFromDocumentType = "PurchaseOrder",
+                Currency = "MYR",
+                IssueDateUtc = DateTime.UtcNow,
+                DueDateUtc = DateTime.UtcNow.AddDays(7),
+                Status = PurchaseBillStatus.PartiallyPaid,
+                Subtotal = 100m,
+                TotalAmount = 100m,
+                AmountPaid = 100m,
+                AmountDue = 0m
+            };
+
+            var payment = new PurchasePayment
+            {
+                CompanyId = companyId,
+                PurchasePaymentNumber = "PP-CURRENCY-001",
+                ContactId = supplier.Id,
+                ContactName = supplier.Name,
+                ContactEmail = supplier.Email,
+                ContactPhoneNumber = supplier.PhoneNumber,
+                PaymentDateUtc = DateTime.UtcNow,
+                Currency = "MYR",
+                Status = PurchasePaymentStatus.Posted,
+                TotalAmount = 100m,
+                Allocations =
+                [
+                    new PurchasePaymentAllocation
+                    {
+                        PurchaseBillId = bill.Id,
+                        PurchaseBillNumber = bill.PurchaseBillNumber,
+                        Amount = 100m
+                    }
+                ]
+            };
+
+            dbContext.PurchaseBills.Add(bill);
+            dbContext.PurchasePayments.Add(payment);
+            await dbContext.SaveChangesAsync();
+            purchasePaymentId = payment.Id;
+            purchasePaymentAllocationId = payment.Allocations.Single().Id;
+        }
+
+        var response = await client.PostAsJsonAsync($"/api/purchases/refunds/payments/{purchasePaymentId}", new
+        {
+            refundDateUtc = DateTime.UtcNow,
+            referenceNo = "PRF-REF",
+            notes = "",
+            allocations = new[]
+            {
+                new { purchasePaymentAllocationId, amount = 10m }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task PurchaseCreditNoteCreate_RejectsInactiveBillCurrency()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid purchaseBillId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+
+            var currency = await dbContext.CurrencyDefinitions.FirstAsync(x => x.CompanyId == companyId && x.Code == "MYR");
+            currency.IsActive = false;
+
+            var bill = new PurchaseBill
+            {
+                CompanyId = companyId,
+                PurchaseBillNumber = "PB-CURRENCY-CN-001",
+                ContactId = supplier.Id,
+                ContactName = supplier.Name,
+                ContactEmail = supplier.Email,
+                ContactPhoneNumber = supplier.PhoneNumber,
+                CreatedFromDocumentId = Guid.NewGuid(),
+                CreatedFromDocumentNumber = "SRC-CN-001",
+                CreatedFromDocumentType = "PurchaseOrder",
+                Currency = "MYR",
+                IssueDateUtc = DateTime.UtcNow,
+                DueDateUtc = DateTime.UtcNow.AddDays(7),
+                Status = PurchaseBillStatus.Issued,
+                Subtotal = 100m,
+                TotalAmount = 100m,
+                AmountPaid = 0m,
+                AmountDue = 100m
+            };
+
+            dbContext.PurchaseBills.Add(bill);
+            await dbContext.SaveChangesAsync();
+            purchaseBillId = bill.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/purchases/credit-notes", new
+        {
+            purchaseBillId,
+            reason = "Test credit",
+            issuedAtUtc = DateTime.UtcNow,
+            lines = new[]
+            {
+                new { description = "Credit line", quantity = 1m, unitAmount = 10m, taxAmount = 0m }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task InvoiceCreateFromSalesOrder_RejectsInactiveSourceCurrency()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid salesOrderId;
+        Guid salesOrderLineId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var contact = await dbContext.Customers.FirstAsync();
+            var currency = await dbContext.CurrencyDefinitions.FirstAsync(x => x.CompanyId == companyId && x.Code == "MYR");
+            currency.IsActive = false;
+
+            var salesOrder = new SalesOrder
+            {
+                CompanyId = companyId,
+                SalesOrderNumber = "SO-CURRENCY-INV-001",
+                ContactId = contact.Id,
+                ContactName = contact.Name,
+                ContactEmail = contact.Email,
+                ContactPhoneNumber = contact.PhoneNumber,
+                Currency = "MYR",
+                DocumentDateUtc = DateTime.UtcNow,
+                Status = SalesOrderStatus.Confirmed,
+                Subtotal = 100m,
+                TotalAmount = 100m,
+                Lines =
+                [
+                    new SalesOrderLine
+                    {
+                        SortOrder = 1,
+                        Description = "Invoice line",
+                        Quantity = 1m,
+                        UnitPrice = 100m,
+                        TaxRate = 0m,
+                        TaxAmount = 0m,
+                        LineTotal = 100m
+                    }
+                ]
+            };
+
+            dbContext.SalesOrders.Add(salesOrder);
+            await dbContext.SaveChangesAsync();
+            salesOrderId = salesOrder.Id;
+            salesOrderLineId = salesOrder.Lines.Single().Id;
+        }
+
+        var response = await client.PostAsJsonAsync($"/api/sales/orders/{salesOrderId}/convert-to-invoice", new
+        {
+            dueDateUtc = DateTime.UtcNow.AddDays(7),
+            paymentTermId = (Guid?)null,
+            lineItems = new[]
+            {
+                new { salesOrderLineId, quantity = 1m }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
     private async Task<AuthVerifyResponse> VerifyLatestRegistrationAsync(string email)
     {
         await using var scope = _factory.Services.CreateAsyncScope();
@@ -2291,6 +2761,12 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         var verifyResponse = await client.PostAsJsonAsync("/api/auth/verify-email", new { token });
         verifyResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         return (await verifyResponse.Content.ReadFromJsonAsync<AuthVerifyResponse>(TestWebApplicationFactory.JsonOptions))!;
+    }
+
+    private static async Task EnsureMasterDataDefaultsAsync(HttpClient client)
+    {
+        var response = await client.GetAsync("/api/master-data");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     private static string ParseJwtClaim(string token, string claimType)

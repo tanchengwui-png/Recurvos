@@ -10,8 +10,8 @@ public sealed class CreateCreditNoteLineRequest
     [Required, MaxLength(250)]
     public string Description { get; set; } = string.Empty;
 
-    [Range(1, 100000)]
-    public int Quantity { get; set; } = 1;
+    [Range(typeof(decimal), "0.01", "9999999999999999")]
+    public decimal Quantity { get; set; } = 1;
 
     [Range(typeof(decimal), "0.00", "9999999999999999")]
     public decimal UnitAmount { get; set; }
@@ -39,7 +39,7 @@ public sealed record CreditNoteLineDto(
     Guid Id,
     Guid? InvoiceLineId,
     string Description,
-    int Quantity,
+    decimal Quantity,
     decimal UnitAmount,
     decimal TaxAmount,
     decimal LineTotal);

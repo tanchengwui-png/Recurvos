@@ -20,7 +20,7 @@ public sealed class AuditService(AppDbContext dbContext, ICurrentUserService cur
             Action = action,
             EntityName = entityName,
             EntityId = entityId,
-            Metadata = metadata
+            Metadata = metadata,
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -35,7 +35,46 @@ public sealed class AuditService(AppDbContext dbContext, ICurrentUserService cur
             Action = action,
             EntityName = entityName,
             EntityId = entityId,
-            Metadata = metadata
+            Metadata = metadata,
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task WriteChangeAsync(string action, string entityName, string entityId, string? oldValue, string? newValue, string? metadata = null, CancellationToken cancellationToken = default)
+    {
+        if (currentUserService.CompanyId is not { } companyId)
+        {
+            return;
+        }
+
+        dbContext.AuditLogs.Add(new AuditLog
+        {
+            CompanyId = companyId,
+            UserId = currentUserService.UserId,
+            Action = action,
+            EntityName = entityName,
+            EntityId = entityId,
+            OldValue = oldValue,
+            NewValue = newValue,
+            Metadata = metadata,
+        });
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task WriteChangeAsync(string action, string entityName, string entityId, Guid companyId, string? oldValue, string? newValue, string? metadata = null, CancellationToken cancellationToken = default)
+    {
+        dbContext.AuditLogs.Add(new AuditLog
+        {
+            CompanyId = companyId,
+            UserId = currentUserService.UserId,
+            Action = action,
+            EntityName = entityName,
+            EntityId = entityId,
+            OldValue = oldValue,
+            NewValue = newValue,
+            Metadata = metadata,
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);

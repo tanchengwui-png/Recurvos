@@ -103,9 +103,28 @@ function getPageLabel(pathname: string, isPlatformOwner: boolean) {
   if (pathname.startsWith("/products")) return "Products";
   if (pathname.startsWith("/plans")) return "Plans";
   if (pathname.startsWith("/customers")) return "Contacts";
+  if (pathname.startsWith("/sales/quotations")) return "Sales Quotations";
+  if (pathname.startsWith("/sales/orders")) return "Sales Orders";
+  if (pathname.startsWith("/sales/delivery-orders")) return "Delivery Orders";
+  if (pathname.startsWith("/sales/invoices")) return "Sales Invoice";
+  if (pathname.startsWith("/purchases/orders")) return "Purchase Orders";
+  if (pathname.startsWith("/purchases/grns")) return "Goods Received Notes";
+  if (pathname.startsWith("/purchases/bills")) return "Purchase Bills";
+  if (pathname.startsWith("/purchases/payments")) return "Purchase Payments";
+  if (pathname.startsWith("/purchases/credit-notes")) return "Purchase Credit Notes";
+  if (pathname.startsWith("/purchases/refunds")) return "Purchase Refunds";
   if (pathname.startsWith("/subscriptions")) return "Subscriptions";
   if (pathname.startsWith("/invoices")) return "Invoices";
   if (pathname.startsWith("/payments")) return "Payments";
+  if (pathname.startsWith("/foundation/chart-of-accounts")) return "Chart of Accounts";
+  if (pathname.startsWith("/foundation/tax-codes")) return "Tax Codes";
+  if (pathname.startsWith("/foundation/payment-terms")) return "Payment Terms";
+  if (pathname.startsWith("/foundation/warehouses")) return "Warehouses";
+  if (pathname.startsWith("/foundation/currencies")) return "Currencies";
+  if (pathname.startsWith("/foundation/product-categories")) return "Product Categories";
+  if (pathname.startsWith("/foundation/price-levels")) return "Price Levels";
+  if (pathname.startsWith("/foundation")) return "Foundation";
+  if (pathname.startsWith("/settings/master-data")) return "Master Data";
   if (pathname.startsWith("/whatsapp-messages")) return "Notification History";
   if (pathname.startsWith("/finance")) return "Finance";
   if (pathname.startsWith("/feedback")) return "Feedback";
@@ -453,6 +472,15 @@ export function AppShell() {
         { label: "Products", path: "/products", icon: "box", disabled: false, hint: "" },
         { label: "Plans", path: "/plans", icon: "plan", disabled: false, hint: "" },
         { label: "Contacts", path: "/customers", icon: "users", disabled: !featureKeys.has("customer_management"), hint: getFeatureRequirementLabel(featureAccess, "customer_management") },
+        { label: "Sales Quotations", path: "/sales/quotations", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Sales Orders", path: "/sales/orders", icon: "list", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Delivery Orders", path: "/sales/delivery-orders", icon: "box", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Purchase Orders", path: "/purchases/orders", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Goods Received Notes", path: "/purchases/grns", icon: "box", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Purchase Bills", path: "/purchases/bills", icon: "invoice", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Purchase Payments", path: "/purchases/payments", icon: "payment", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Purchase Credit Notes", path: "/purchases/credit-notes", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Purchase Refunds", path: "/purchases/refunds", icon: "finance", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
         { label: "Subscriptions", path: "/subscriptions", icon: "repeat", disabled: !featureKeys.has("recurring_invoices"), hint: getFeatureRequirementLabel(featureAccess, "recurring_invoices") },
         { label: "Invoices", path: "/invoices", icon: "invoice", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
         { label: "Payments", path: "/payments", icon: "payment", disabled: !featureKeys.has("payment_tracking"), hint: getFeatureRequirementLabel(featureAccess, "payment_tracking") },
@@ -467,6 +495,17 @@ export function AppShell() {
         { label: "Settings", path: "/settings", icon: "settings" },
         { label: "Notification History", path: "/whatsapp-messages", icon: "mail" },
       ] satisfies NavEntry[]);
+  const foundationLinks: NavEntry[] = auth?.isPlatformOwner
+    ? []
+    : [
+        { label: "Foundation", path: "/foundation", icon: "list" },
+        { label: "Chart of Accounts", path: "/foundation/chart-of-accounts", icon: "finance" },
+        { label: "Tax Codes", path: "/foundation/tax-codes", icon: "document" },
+        { label: "Payment Terms", path: "/foundation/payment-terms", icon: "payment" },
+        { label: "Warehouses", path: "/foundation/warehouses", icon: "box" },
+        { label: "Currencies", path: "/foundation/currencies", icon: "invoice" },
+        { label: "Price Levels", path: "/foundation/price-levels", icon: "plan" },
+      ];
   const showFloatingQuickStart = Boolean(auth && !auth.isPlatformOwner && location.pathname !== "/help/quick-start");
   const resolvedPackageStatus = (packageBilling?.packageStatus ?? featureAccess?.packageStatus ?? "").toLowerCase();
   const showBillingReminder = Boolean(
@@ -496,6 +535,7 @@ export function AppShell() {
     : [
         { title: "Main", items: (primaryLinks as NavEntry[]).filter((item) => ["Dashboard", "Companies", "Products", "Plans"].includes(item.label)) },
         { title: "Apps", items: (primaryLinks as NavEntry[]).filter((item) => !["Dashboard", "Companies", "Products", "Plans"].includes(item.label)) },
+        { title: "Foundation", items: foundationLinks },
         { title: "Account", items: accountLinks },
       ];
 

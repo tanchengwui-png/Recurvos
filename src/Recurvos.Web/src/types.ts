@@ -183,6 +183,532 @@ export type ContactGroup = {
   contactIds: string[];
 };
 
+export type Warehouse = {
+  id: string;
+  code: string;
+  name: string;
+  addressJson: string;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+};
+
+export type Account = {
+  id: string;
+  code: string;
+  name: string;
+  type: "Asset" | "Liability" | "Equity" | "Revenue" | "Expense";
+  currencyCode: string;
+  isActive: boolean;
+  allowManualEntries: boolean;
+  description?: string | null;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+};
+
+export type TaxCode = {
+  id: string;
+  code: string;
+  name: string;
+  rate: number;
+  scope: "Sales" | "Purchase" | "Both";
+  isSst: boolean;
+  myInvoisTaxTypeCode?: string | null;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+};
+
+export type PaymentTerm = {
+  id: string;
+  code: string;
+  name: string;
+  days: number;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+};
+
+export type CurrencyDefinition = {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string;
+  decimalPlaces: number;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+};
+
+export type ProductCategory = {
+  id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+};
+
+export type PriceLevel = {
+  id: string;
+  code: string;
+  name: string;
+  adjustmentPercent: number;
+  description?: string | null;
+  isActive: boolean;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+};
+
+export type MasterDataSnapshot = {
+  warehouses: Warehouse[];
+  accounts: Account[];
+  taxCodes: TaxCode[];
+  paymentTerms: PaymentTerm[];
+  currencies: CurrencyDefinition[];
+  productCategories: ProductCategory[];
+  priceLevels: PriceLevel[];
+};
+
+export type SalesDocumentLine = {
+  id: string;
+  productId?: string | null;
+  taxCodeId?: string | null;
+  productNameSnapshot: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+  taxAmount: number;
+  lineTotal: number;
+  sourceQuotationLineId?: string | null;
+  salesOrderLineId?: string | null;
+  deliveredQuantity: number;
+  invoicedQuantity: number;
+};
+
+export type SalesQuotation = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  quotationNumber: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  documentDateUtc: string;
+  expiryDateUtc?: string | null;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  status: "Draft" | "Sent" | "Accepted" | "Rejected" | "Expired" | "Converted";
+  convertedSalesOrderId?: string | null;
+  lines: SalesDocumentLine[];
+};
+
+export type SalesQuotationListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  quotationNumber: string;
+  contactId: string;
+  contactName: string;
+  documentDateUtc: string;
+  expiryDateUtc?: string | null;
+  currency: string;
+  totalAmount: number;
+  status: "Draft" | "Sent" | "Accepted" | "Rejected" | "Expired" | "Converted";
+  convertedSalesOrderId?: string | null;
+};
+
+export type SalesOrder = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  salesOrderNumber: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  documentDateUtc: string;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  status: "Draft" | "Confirmed" | "PartiallyDelivered" | "FullyDelivered" | "Closed" | "Cancelled";
+  salesQuotationId?: string | null;
+  lines: SalesDocumentLine[];
+};
+
+export type SalesOrderListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  salesOrderNumber: string;
+  contactId: string;
+  contactName: string;
+  documentDateUtc: string;
+  currency: string;
+  totalAmount: number;
+  status: "Draft" | "Confirmed" | "PartiallyDelivered" | "FullyDelivered" | "Closed" | "Cancelled";
+  salesQuotationId?: string | null;
+};
+
+export type DeliveryOrder = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  deliveryOrderNumber: string;
+  salesOrderId: string;
+  salesOrderNumber: string;
+  warehouseId?: string | null;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  documentDateUtc: string;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  status: "Draft" | "Delivered" | "PartiallyInvoiced" | "FullyInvoiced" | "Cancelled";
+  lines: SalesDocumentLine[];
+};
+
+export type DeliveryOrderListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  deliveryOrderNumber: string;
+  salesOrderId: string;
+  salesOrderNumber: string;
+  contactId: string;
+  contactName: string;
+  documentDateUtc: string;
+  currency: string;
+  totalAmount: number;
+  status: "Draft" | "Delivered" | "PartiallyInvoiced" | "FullyInvoiced" | "Cancelled";
+};
+
+export type PurchaseDocumentLine = {
+  id: string;
+  productId?: string | null;
+  taxCodeId?: string | null;
+  productNameSnapshot: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+  taxAmount: number;
+  lineTotal: number;
+  purchaseOrderLineId?: string | null;
+  receivedQuantity: number;
+  billedQuantity: number;
+};
+
+export type PurchaseRelatedDocument = {
+  id: string;
+  documentNumber: string;
+  documentType: string;
+  status: string;
+  documentDateUtc: string;
+  amount: number;
+};
+
+export type PurchaseOrderRelatedDocuments = {
+  goodsReceivedNotes: PurchaseRelatedDocument[];
+  bills: PurchaseRelatedDocument[];
+};
+
+export type GoodsReceivedNoteRelatedDocuments = {
+  bills: PurchaseRelatedDocument[];
+};
+
+export type PurchaseBillRelatedDocuments = {
+  payments: PurchaseRelatedDocument[];
+};
+
+export type PurchaseOrder = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchaseOrderNumber: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  documentDateUtc: string;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  status: "Draft" | "Sent" | "Approved" | "PartiallyReceived" | "FullyReceived" | "Closed" | "Cancelled";
+  lines: PurchaseDocumentLine[];
+  relatedDocuments: PurchaseOrderRelatedDocuments;
+};
+
+export type PurchaseOrderListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchaseOrderNumber: string;
+  contactId: string;
+  contactName: string;
+  documentDateUtc: string;
+  currency: string;
+  totalAmount: number;
+  status: "Draft" | "Sent" | "Approved" | "PartiallyReceived" | "FullyReceived" | "Closed" | "Cancelled";
+};
+
+export type GoodsReceivedNote = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  goodsReceivedNoteNumber: string;
+  purchaseOrderId: string;
+  purchaseOrderNumber: string;
+  warehouseId?: string | null;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  createdFromDocumentId: string;
+  createdFromDocumentNumber: string;
+  createdFromDocumentType: string;
+  documentDateUtc: string;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  status: "Draft" | "Received" | "PartiallyBilled" | "FullyBilled" | "Cancelled";
+  lines: PurchaseDocumentLine[];
+  relatedDocuments: GoodsReceivedNoteRelatedDocuments;
+};
+
+export type GoodsReceivedNoteListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  goodsReceivedNoteNumber: string;
+  purchaseOrderId: string;
+  purchaseOrderNumber: string;
+  contactId: string;
+  contactName: string;
+  documentDateUtc: string;
+  currency: string;
+  totalAmount: number;
+  status: "Draft" | "Received" | "PartiallyBilled" | "FullyBilled" | "Cancelled";
+};
+
+export type PurchaseBillLine = {
+  id: string;
+  purchaseOrderLineId?: string | null;
+  goodsReceivedNoteLineId?: string | null;
+  productId?: string | null;
+  taxCodeId?: string | null;
+  productNameSnapshot: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number;
+  taxAmount: number;
+  lineTotal: number;
+};
+
+export type PurchaseBill = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchaseBillNumber: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  purchaseOrderId?: string | null;
+  goodsReceivedNoteId?: string | null;
+  createdFromDocumentId: string;
+  createdFromDocumentNumber: string;
+  createdFromDocumentType: string;
+  issueDateUtc: string;
+  dueDateUtc: string;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  amountDue: number;
+  amountPaid: number;
+  status: "Draft" | "Issued" | "PartiallyPaid" | "Paid" | "Overdue" | "Cancelled";
+  lines: PurchaseBillLine[];
+  relatedDocuments: PurchaseBillRelatedDocuments;
+};
+
+export type PurchaseBillListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchaseBillNumber: string;
+  contactId: string;
+  contactName: string;
+  issueDateUtc: string;
+  dueDateUtc: string;
+  currency: string;
+  totalAmount: number;
+  amountDue: number;
+  status: "Draft" | "Issued" | "PartiallyPaid" | "Paid" | "Overdue" | "Cancelled";
+};
+
+export type PurchasePaymentAllocation = {
+  id: string;
+  purchaseBillId: string;
+  purchaseBillNumber: string;
+  amount: number;
+  refundedAmount: number;
+};
+
+export type PurchasePaymentRefundSummary = {
+  id: string;
+  purchaseRefundNumber: string;
+  refundDateUtc: string;
+  totalAmount: number;
+  status: "Draft" | "Approved" | "Refunded" | "Cancelled";
+};
+
+export type PurchasePayment = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchasePaymentNumber: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  paymentDateUtc: string;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  totalAmount: number;
+  refundedAmount: number;
+  status: "Draft" | "Posted" | "Reversed";
+  allocations: PurchasePaymentAllocation[];
+  refunds: PurchasePaymentRefundSummary[];
+};
+
+export type PurchasePaymentListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchasePaymentNumber: string;
+  contactId: string;
+  contactName: string;
+  paymentDateUtc: string;
+  currency: string;
+  totalAmount: number;
+  refundedAmount: number;
+  status: "Draft" | "Posted" | "Reversed";
+};
+
+export type PurchaseCreditNoteLine = {
+  id: string;
+  description: string;
+  quantity: number;
+  unitAmount: number;
+  taxAmount: number;
+  lineTotal: number;
+};
+
+export type PurchaseCreditNote = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchaseBillId: string;
+  purchaseBillNumber: string;
+  purchaseCreditNoteNumber: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  issuedAtUtc: string;
+  currency: string;
+  subtotalReduction: number;
+  taxReduction: number;
+  totalReduction: number;
+  reason: string;
+  status: "Draft" | "Approved" | "Applied" | "Cancelled";
+  lines: PurchaseCreditNoteLine[];
+};
+
+export type PurchaseCreditNoteListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchaseBillId: string;
+  purchaseBillNumber: string;
+  purchaseCreditNoteNumber: string;
+  contactId: string;
+  contactName: string;
+  issuedAtUtc: string;
+  currency: string;
+  totalReduction: number;
+  status: "Draft" | "Approved" | "Applied" | "Cancelled";
+};
+
+export type PurchaseRefundAllocation = {
+  id: string;
+  purchasePaymentAllocationId: string;
+  purchaseBillId: string;
+  purchaseBillNumber: string;
+  amount: number;
+};
+
+export type PurchaseRefund = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchasePaymentId: string;
+  purchasePaymentNumber: string;
+  purchaseRefundNumber: string;
+  contactId: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhoneNumber: string;
+  refundDateUtc: string;
+  currency: string;
+  referenceNo: string;
+  notes: string;
+  totalAmount: number;
+  status: "Draft" | "Approved" | "Refunded" | "Cancelled";
+  allocations: PurchaseRefundAllocation[];
+};
+
+export type PurchaseRefundListItem = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  purchasePaymentId: string;
+  purchasePaymentNumber: string;
+  purchaseRefundNumber: string;
+  contactId: string;
+  contactName: string;
+  refundDateUtc: string;
+  currency: string;
+  totalAmount: number;
+  status: "Draft" | "Approved" | "Refunded" | "Cancelled";
+};
+
 export type PagedResult<T> = {
   items: T[];
   totalCount: number;

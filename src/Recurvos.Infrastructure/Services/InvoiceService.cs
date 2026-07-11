@@ -138,6 +138,11 @@ public sealed class InvoiceService(
         var taxAmount = CalculateTaxAmount(total, taxProfile);
         var grandTotal = total + taxAmount;
         var issueDateUtc = DateTime.UtcNow;
+        var resolvedCurrency = await ResolveAndValidateInvoiceCurrencyAsync(
+            companyId,
+            cancellationToken,
+            customer.Currency,
+            await ResolveCompanyCurrencyAsync(companyId, cancellationToken));
         var invoice = new Invoice
         {
             CompanyId = companyId,
@@ -156,7 +161,7 @@ public sealed class InvoiceService(
             Total = grandTotal,
             AmountDue = grandTotal,
             AmountPaid = 0,
-            Currency = "MYR",
+            Currency = resolvedCurrency,
             CompanyAddressSnapshot = companyAddress,
             LineItems = lineItems
         };
@@ -205,6 +210,106 @@ public sealed class InvoiceService(
         return (await GetByIdAsync(invoice.Id, cancellationToken))!;
     }
 
+    public async Task<InvoiceDto?> CreateFromSalesOrderAsync(Guid salesOrderId, CreateSalesInvoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        var companyId = GetCompanyId();
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.ManualInvoices, cancellationToken);
+        await billingReadinessService.EnsureReadyAsync(companyId, "sales invoice creation", cancellationToken);
+
+        var salesOrder = await dbContext.SalesOrders
+            .Include(x => x.Lines)
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == salesOrderId, cancellationToken);
+        if (salesOrder is null)
+        {
+            return null;
+        }
+
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == salesOrder.ContactId, cancellationToken)
+            ?? throw new InvalidOperationException("Contact not found.");
+
+        if (request.LineItems.Count == 0)
+        {
+            throw new InvalidOperationException("At least one invoice line item is required.");
+        }
+
+        var invoiceLineItems = BuildSalesOrderInvoiceLines(companyId, salesOrder, request.LineItems);
+        if (invoiceLineItems.Count == 0)
+        {
+            throw new InvalidOperationException("At least one invoice line item is required.");
+        }
+
+        var invoice = await CreateSalesInvoiceRecordAsync(
+            companyId,
+            customer,
+            salesOrder.Currency,
+            request.DueDateUtc,
+            request.PaymentTermId,
+            invoiceLineItems,
+            salesOrder.Id,
+            null,
+            cancellationToken);
+
+        ApplySalesOrderInvoiceQuantities(salesOrder, invoice.LineItems, 1m);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("invoice.created-from-sales-order", nameof(Invoice), invoice.Id.ToString(), salesOrder.SalesOrderNumber, cancellationToken);
+        return (await GetByIdAsync(invoice.Id, cancellationToken))!;
+    }
+
+    public async Task<InvoiceDto?> CreateFromDeliveryOrderAsync(Guid deliveryOrderId, CreateSalesInvoiceRequest request, CancellationToken cancellationToken = default)
+    {
+        var companyId = GetCompanyId();
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.ManualInvoices, cancellationToken);
+        await billingReadinessService.EnsureReadyAsync(companyId, "sales invoice creation", cancellationToken);
+
+        var deliveryOrder = await dbContext.DeliveryOrders
+            .Include(x => x.Lines)
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == deliveryOrderId, cancellationToken);
+        if (deliveryOrder is null)
+        {
+            return null;
+        }
+
+        if (deliveryOrder.Status is DeliveryOrderStatus.Draft or DeliveryOrderStatus.Cancelled)
+        {
+            throw new InvalidOperationException("Only delivered delivery orders can be invoiced.");
+        }
+
+        var salesOrder = await dbContext.SalesOrders
+            .Include(x => x.Lines)
+            .FirstAsync(x => x.CompanyId == companyId && x.Id == deliveryOrder.SalesOrderId, cancellationToken);
+
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == deliveryOrder.ContactId, cancellationToken)
+            ?? throw new InvalidOperationException("Contact not found.");
+
+        if (request.LineItems.Count == 0)
+        {
+            throw new InvalidOperationException("At least one invoice line item is required.");
+        }
+
+        var invoiceLineItems = BuildDeliveryOrderInvoiceLines(companyId, deliveryOrder, salesOrder, request.LineItems);
+        if (invoiceLineItems.Count == 0)
+        {
+            throw new InvalidOperationException("At least one invoice line item is required.");
+        }
+
+        var invoice = await CreateSalesInvoiceRecordAsync(
+            companyId,
+            customer,
+            deliveryOrder.Currency,
+            request.DueDateUtc,
+            request.PaymentTermId,
+            invoiceLineItems,
+            salesOrder.Id,
+            deliveryOrder.Id,
+            cancellationToken);
+
+        ApplyDeliveryOrderInvoiceQuantities(deliveryOrder, salesOrder, invoice.LineItems, 1m);
+        RecomputeDeliveryOrderInvoiceStatus(deliveryOrder);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("invoice.created-from-delivery-order", nameof(Invoice), invoice.Id.ToString(), deliveryOrder.DeliveryOrderNumber, cancellationToken);
+        return (await GetByIdAsync(invoice.Id, cancellationToken))!;
+    }
+
     public async Task<(byte[] Content, string FileName, string ContentType)> GeneratePreviewPdfAsync(PreviewInvoiceRequest request, CancellationToken cancellationToken = default)
     {
         if (request.LineItems.Count == 0)
@@ -245,7 +350,7 @@ public sealed class InvoiceService(
             items,
             total,
             taxProfile,
-            "MYR",
+            await ResolveCompanyCurrencyAsync(companyId, cancellationToken),
             cancellationToken);
 
         return (pdf, $"{invoiceNumber}.pdf", "application/pdf");
@@ -275,7 +380,7 @@ public sealed class InvoiceService(
             invoiceNumber,
             request.Description.Trim(),
             request.Amount,
-            string.IsNullOrWhiteSpace(request.Currency) ? "MYR" : request.Currency.Trim(),
+            ResolveInvoiceCurrency(request.Currency, company.Currency),
             request.PaymentMethod.Trim(),
             request.PaidAtUtc.ToUniversalTime());
 
@@ -563,6 +668,7 @@ public sealed class InvoiceService(
             throw new InvalidOperationException("Invoices with issued credit notes cannot be voided.");
         }
 
+        await ReverseSalesInvoiceQuantitiesAsync(invoice, cancellationToken);
         invoice.Status = InvoiceStatus.Voided;
         invoice.AmountDue = 0;
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1859,7 +1965,7 @@ public sealed class InvoiceService(
         string invoiceNumber,
         DateTime issueDateUtc,
         DateTime dueDateUtc,
-        IEnumerable<(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount)> items,
+        IEnumerable<(string Description, decimal Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
         CompanyTaxProfile taxProfile,
         string currency,
@@ -2161,6 +2267,48 @@ public sealed class InvoiceService(
         return ResolveDefaultCompanyAddress(company);
     }
 
+    private async Task<string> ResolveCompanyCurrencyAsync(Guid companyId, CancellationToken cancellationToken)
+    {
+        var companyCurrency = await dbContext.Companies
+            .Where(x => x.Id == companyId)
+            .Select(x => x.Currency)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return string.IsNullOrWhiteSpace(companyCurrency) ? string.Empty : companyCurrency.Trim().ToUpperInvariant();
+    }
+
+    private static string ResolveInvoiceCurrency(params string?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                return candidate.Trim().ToUpperInvariant();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private async Task<string> ResolveAndValidateInvoiceCurrencyAsync(Guid companyId, CancellationToken cancellationToken, params string?[] candidates)
+    {
+        var currency = ResolveInvoiceCurrency(candidates);
+        if (string.IsNullOrWhiteSpace(currency))
+        {
+            throw new InvalidOperationException("Select a valid currency.");
+        }
+
+        var exists = await dbContext.CurrencyDefinitions.AnyAsync(
+            x => x.CompanyId == companyId && x.IsActive && x.Code == currency,
+            cancellationToken);
+        if (!exists)
+        {
+            throw new InvalidOperationException("Select a valid currency.");
+        }
+
+        return currency;
+    }
+
     private static string? ResolveDefaultCompanyAddress(Company company)
     {
         var address = company.Addresses.FirstOrDefault(x => x.IsDefaultBilling)
@@ -2372,6 +2520,279 @@ public sealed class InvoiceService(
             .FirstOrDefaultAsync(cancellationToken);
 
         return Math.Min(AbsoluteUploadMaxBytes, Math.Max(200_000, settings?.UploadMaxBytes ?? 2_000_000));
+    }
+
+    private List<InvoiceLineItem> BuildSalesOrderInvoiceLines(Guid companyId, SalesOrder salesOrder, IReadOnlyCollection<CreateSalesInvoiceLineItemRequest> requests)
+    {
+        var duplicates = requests.Where(x => x.SalesOrderLineId.HasValue).GroupBy(x => x.SalesOrderLineId).Where(x => x.Count() > 1).ToList();
+        if (duplicates.Count > 0)
+        {
+            throw new InvalidOperationException("Each sales order line can only be invoiced once per document.");
+        }
+
+        var lines = new List<InvoiceLineItem>();
+        foreach (var request in requests)
+        {
+            if (!request.SalesOrderLineId.HasValue)
+            {
+                throw new InvalidOperationException("Sales order line is required.");
+            }
+
+            var sourceLine = salesOrder.Lines.FirstOrDefault(x => x.Id == request.SalesOrderLineId.Value)
+                ?? throw new InvalidOperationException("Selected sales order line was not found.");
+            var remainingQuantity = Math.Max(0m, sourceLine.Quantity - sourceLine.InvoicedQuantity);
+            if (request.Quantity > remainingQuantity)
+            {
+                throw new InvalidOperationException($"Invoice quantity for '{sourceLine.Description}' exceeds the remaining quantity.");
+            }
+
+            lines.Add(new InvoiceLineItem
+            {
+                CompanyId = companyId,
+                SalesOrderLineId = sourceLine.Id,
+                Description = sourceLine.Description,
+                Quantity = request.Quantity,
+                UnitAmount = sourceLine.UnitPrice,
+                TotalAmount = Math.Round(request.Quantity * sourceLine.UnitPrice, 2, MidpointRounding.AwayFromZero),
+            });
+        }
+
+        return lines;
+    }
+
+    private List<InvoiceLineItem> BuildDeliveryOrderInvoiceLines(Guid companyId, DeliveryOrder deliveryOrder, SalesOrder salesOrder, IReadOnlyCollection<CreateSalesInvoiceLineItemRequest> requests)
+    {
+        var duplicates = requests.Where(x => x.DeliveryOrderLineId.HasValue).GroupBy(x => x.DeliveryOrderLineId).Where(x => x.Count() > 1).ToList();
+        if (duplicates.Count > 0)
+        {
+            throw new InvalidOperationException("Each delivery order line can only be invoiced once per document.");
+        }
+
+        var lines = new List<InvoiceLineItem>();
+        foreach (var request in requests)
+        {
+            if (!request.DeliveryOrderLineId.HasValue)
+            {
+                throw new InvalidOperationException("Delivery order line is required.");
+            }
+
+            var deliveryLine = deliveryOrder.Lines.FirstOrDefault(x => x.Id == request.DeliveryOrderLineId.Value)
+                ?? throw new InvalidOperationException("Selected delivery order line was not found.");
+            var remainingQuantity = Math.Max(0m, deliveryLine.Quantity - deliveryLine.InvoicedQuantity);
+            if (request.Quantity > remainingQuantity)
+            {
+                throw new InvalidOperationException($"Invoice quantity for '{deliveryLine.Description}' exceeds the remaining quantity.");
+            }
+
+            var sourceLine = salesOrder.Lines.FirstOrDefault(x => x.Id == deliveryLine.SalesOrderLineId)
+                ?? throw new InvalidOperationException("Selected sales order line was not found.");
+
+            lines.Add(new InvoiceLineItem
+            {
+                CompanyId = companyId,
+                SalesOrderLineId = sourceLine.Id,
+                DeliveryOrderLineId = deliveryLine.Id,
+                Description = deliveryLine.Description,
+                Quantity = request.Quantity,
+                UnitAmount = deliveryLine.UnitPrice,
+                TotalAmount = Math.Round(request.Quantity * deliveryLine.UnitPrice, 2, MidpointRounding.AwayFromZero),
+            });
+        }
+
+        return lines;
+    }
+
+    private async Task<Invoice> CreateSalesInvoiceRecordAsync(
+        Guid companyId,
+        Customer customer,
+        string currency,
+        DateTime dueDateUtc,
+        Guid? paymentTermId,
+        List<InvoiceLineItem> lineItems,
+        Guid salesOrderId,
+        Guid? deliveryOrderId,
+        CancellationToken cancellationToken)
+    {
+        var invoiceNumber = await GenerateInvoiceNumberAsync(companyId, cancellationToken);
+        var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(companyId, cancellationToken);
+        var companyAddress = await ResolveCompanyInvoiceAddressAsync(companyId, null, cancellationToken);
+        var total = lineItems.Sum(x => x.TotalAmount);
+        var taxProfile = ResolveTaxProfile(invoiceSettings);
+        var taxAmount = CalculateTaxAmount(total, taxProfile);
+        var grandTotal = total + taxAmount;
+        var issueDateUtc = DateTime.UtcNow;
+        var resolvedDueDateUtc = await ResolveDueDateAsync(companyId, paymentTermId, issueDateUtc, dueDateUtc, cancellationToken);
+        var invoice = new Invoice
+        {
+            CompanyId = companyId,
+            CustomerId = customer.Id,
+            SalesOrderId = salesOrderId,
+            DeliveryOrderId = deliveryOrderId,
+            InvoiceNumber = invoiceNumber,
+            Status = InvoiceStatus.Open,
+            IssueDateUtc = issueDateUtc,
+            DueDateUtc = resolvedDueDateUtc,
+            SourceType = InvoiceSourceType.Manual,
+            Subtotal = total,
+            TaxAmount = taxAmount,
+            IsTaxEnabled = taxProfile.IsEnabled,
+            TaxName = taxProfile.IsEnabled ? taxProfile.Name : null,
+            TaxRate = taxProfile.IsEnabled ? taxProfile.Rate : null,
+            TaxRegistrationNo = taxProfile.IsEnabled ? taxProfile.RegistrationNo : null,
+            Total = grandTotal,
+            AmountDue = grandTotal,
+            AmountPaid = 0,
+            Currency = await ResolveAndValidateInvoiceCurrencyAsync(
+                companyId,
+                cancellationToken,
+                currency,
+                customer.Currency,
+                await ResolveCompanyCurrencyAsync(companyId, cancellationToken)),
+            CompanyAddressSnapshot = companyAddress,
+            LineItems = lineItems,
+        };
+
+        var pdf = await CreateManualInvoicePdfAsync(
+            companyId,
+            companyAddress,
+            customer.Name,
+            customer.Email,
+            customer.BillingAddress,
+            invoiceNumber,
+            invoice.IssueDateUtc,
+            invoice.DueDateUtc,
+            lineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
+            total,
+            taxProfile,
+            invoice.Currency,
+            cancellationToken);
+        invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(companyId, invoiceNumber, pdf, cancellationToken);
+
+        dbContext.Invoices.Add(invoice);
+        var rules = await dbContext.DunningRules
+            .Where(x => x.CompanyId == companyId && x.IsActive)
+            .ToListAsync(cancellationToken);
+        foreach (var rule in rules)
+        {
+            dbContext.ReminderSchedules.Add(new ReminderSchedule
+            {
+                CompanyId = companyId,
+                Invoice = invoice,
+                DunningRuleId = rule.Id,
+                ReminderName = rule.Name,
+                OffsetDays = rule.OffsetDays,
+                ScheduledAtUtc = invoice.DueDateUtc.Date.AddDays(rule.OffsetDays)
+            });
+        }
+
+        return invoice;
+    }
+
+    private async Task<DateTime> ResolveDueDateAsync(Guid companyId, Guid? paymentTermId, DateTime issueDateUtc, DateTime requestedDueDateUtc, CancellationToken cancellationToken)
+    {
+        if (!paymentTermId.HasValue || paymentTermId == Guid.Empty)
+        {
+            return requestedDueDateUtc.ToUniversalTime();
+        }
+
+        var paymentTerm = await dbContext.PaymentTerms.FirstOrDefaultAsync(
+            x => x.CompanyId == companyId && x.Id == paymentTermId.Value && x.IsActive,
+            cancellationToken)
+            ?? throw new InvalidOperationException("Select a valid payment term.");
+
+        return issueDateUtc.Date.AddDays(paymentTerm.Days);
+    }
+
+    private static void ApplySalesOrderInvoiceQuantities(SalesOrder salesOrder, IEnumerable<InvoiceLineItem> invoiceLines, decimal direction)
+    {
+        foreach (var invoiceLine in invoiceLines)
+        {
+            if (!invoiceLine.SalesOrderLineId.HasValue)
+            {
+                continue;
+            }
+
+            var sourceLine = salesOrder.Lines.FirstOrDefault(x => x.Id == invoiceLine.SalesOrderLineId.Value);
+            if (sourceLine is null)
+            {
+                continue;
+            }
+
+            sourceLine.InvoicedQuantity = Math.Max(0m, sourceLine.InvoicedQuantity + (invoiceLine.Quantity * direction));
+        }
+    }
+
+    private static void ApplyDeliveryOrderInvoiceQuantities(DeliveryOrder deliveryOrder, SalesOrder salesOrder, IEnumerable<InvoiceLineItem> invoiceLines, decimal direction)
+    {
+        foreach (var invoiceLine in invoiceLines)
+        {
+            if (invoiceLine.DeliveryOrderLineId.HasValue)
+            {
+                var deliveryLine = deliveryOrder.Lines.FirstOrDefault(x => x.Id == invoiceLine.DeliveryOrderLineId.Value);
+                if (deliveryLine is not null)
+                {
+                    deliveryLine.InvoicedQuantity = Math.Max(0m, deliveryLine.InvoicedQuantity + (invoiceLine.Quantity * direction));
+                }
+            }
+
+            if (invoiceLine.SalesOrderLineId.HasValue)
+            {
+                var sourceLine = salesOrder.Lines.FirstOrDefault(x => x.Id == invoiceLine.SalesOrderLineId.Value);
+                if (sourceLine is not null)
+                {
+                    sourceLine.InvoicedQuantity = Math.Max(0m, sourceLine.InvoicedQuantity + (invoiceLine.Quantity * direction));
+                }
+            }
+        }
+    }
+
+    private static void RecomputeDeliveryOrderInvoiceStatus(DeliveryOrder deliveryOrder)
+    {
+        if (deliveryOrder.Status == DeliveryOrderStatus.Cancelled)
+        {
+            return;
+        }
+
+        var anyInvoiced = deliveryOrder.Lines.Any(x => x.InvoicedQuantity > 0m);
+        var fullyInvoiced = deliveryOrder.Lines.Count > 0 && deliveryOrder.Lines.All(x => x.InvoicedQuantity >= x.Quantity);
+        deliveryOrder.Status = fullyInvoiced
+            ? DeliveryOrderStatus.FullyInvoiced
+            : anyInvoiced
+                ? DeliveryOrderStatus.PartiallyInvoiced
+                : DeliveryOrderStatus.Delivered;
+    }
+
+    private async Task ReverseSalesInvoiceQuantitiesAsync(Invoice invoice, CancellationToken cancellationToken)
+    {
+        if (invoice.DeliveryOrderId.HasValue)
+        {
+            var deliveryOrder = await dbContext.DeliveryOrders.Include(x => x.Lines)
+                .FirstOrDefaultAsync(x => x.Id == invoice.DeliveryOrderId.Value, cancellationToken);
+            var salesOrder = invoice.SalesOrderId.HasValue
+                ? await dbContext.SalesOrders.Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == invoice.SalesOrderId.Value, cancellationToken)
+                : null;
+
+            if (deliveryOrder is not null && salesOrder is not null)
+            {
+                ApplyDeliveryOrderInvoiceQuantities(deliveryOrder, salesOrder, invoice.LineItems, -1m);
+                RecomputeDeliveryOrderInvoiceStatus(deliveryOrder);
+                deliveryOrder.UpdatedAtUtc = DateTime.UtcNow;
+                salesOrder.UpdatedAtUtc = DateTime.UtcNow;
+            }
+
+            return;
+        }
+
+        if (invoice.SalesOrderId.HasValue)
+        {
+            var salesOrder = await dbContext.SalesOrders.Include(x => x.Lines)
+                .FirstOrDefaultAsync(x => x.Id == invoice.SalesOrderId.Value, cancellationToken);
+            if (salesOrder is not null)
+            {
+                ApplySalesOrderInvoiceQuantities(salesOrder, invoice.LineItems, -1m);
+                salesOrder.UpdatedAtUtc = DateTime.UtcNow;
+            }
+        }
     }
 
     private static string ResolveStatus(Invoice invoice, DateTime nowUtc)

@@ -9,4 +9,6 @@ public sealed class AuditLog : CompanyOwnedEntity
     public string EntityName { get; set; } = string.Empty;
     public string EntityId { get; set; } = string.Empty;
     public string? Metadata { get; set; }
+    public string? OldValue { get; set; }
+    public string? NewValue { get; set; }
 }

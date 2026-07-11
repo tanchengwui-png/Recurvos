@@ -15,6 +15,33 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<SalesQuotation> SalesQuotations => Set<SalesQuotation>();
+    public DbSet<SalesQuotationLine> SalesQuotationLines => Set<SalesQuotationLine>();
+    public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
+    public DbSet<SalesOrderLine> SalesOrderLines => Set<SalesOrderLine>();
+    public DbSet<DeliveryOrder> DeliveryOrders => Set<DeliveryOrder>();
+    public DbSet<DeliveryOrderLine> DeliveryOrderLines => Set<DeliveryOrderLine>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
+    public DbSet<GoodsReceivedNote> GoodsReceivedNotes => Set<GoodsReceivedNote>();
+    public DbSet<GoodsReceivedNoteLine> GoodsReceivedNoteLines => Set<GoodsReceivedNoteLine>();
+    public DbSet<PurchaseBill> PurchaseBills => Set<PurchaseBill>();
+    public DbSet<PurchaseBillLine> PurchaseBillLines => Set<PurchaseBillLine>();
+    public DbSet<PurchasePayment> PurchasePayments => Set<PurchasePayment>();
+    public DbSet<PurchasePaymentAllocation> PurchasePaymentAllocations => Set<PurchasePaymentAllocation>();
+    public DbSet<PurchaseCreditNote> PurchaseCreditNotes => Set<PurchaseCreditNote>();
+    public DbSet<PurchaseCreditNoteLine> PurchaseCreditNoteLines => Set<PurchaseCreditNoteLine>();
+    public DbSet<PurchaseRefund> PurchaseRefunds => Set<PurchaseRefund>();
+    public DbSet<PurchaseRefundAllocation> PurchaseRefundAllocations => Set<PurchaseRefundAllocation>();
+    public DbSet<Warehouse> Warehouses => Set<Warehouse>();
+    public DbSet<InventoryBalance> InventoryBalances => Set<InventoryBalance>();
+    public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
+    public DbSet<Account> Accounts => Set<Account>();
+    public DbSet<TaxCode> TaxCodes => Set<TaxCode>();
+    public DbSet<PaymentTerm> PaymentTerms => Set<PaymentTerm>();
+    public DbSet<CurrencyDefinition> CurrencyDefinitions => Set<CurrencyDefinition>();
+    public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
+    public DbSet<PriceLevel> PriceLevels => Set<PriceLevel>();
     public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductPlan> ProductPlans => Set<ProductPlan>();
@@ -254,6 +281,1039 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .Property(x => x.Name)
             .HasMaxLength(150)
             .IsRequired();
+
+        modelBuilder.Entity<Warehouse>()
+            .HasIndex(x => new { x.CompanyId, x.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<Warehouse>()
+            .HasIndex(x => new { x.CompanyId, x.IsActive });
+
+        modelBuilder.Entity<Warehouse>()
+            .Property(x => x.Code)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<Warehouse>()
+            .Property(x => x.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<Warehouse>()
+            .Property(x => x.AddressJson)
+            .HasMaxLength(2000)
+            .IsRequired();
+
+        modelBuilder.Entity<InventoryBalance>()
+            .HasIndex(x => new { x.CompanyId, x.ProductId, x.WarehouseId })
+            .IsUnique();
+
+        modelBuilder.Entity<InventoryBalance>()
+            .Property(x => x.QuantityOnHand)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InventoryBalance>()
+            .ToTable(x => x.HasCheckConstraint("CK_InventoryBalance_QuantityOnHand", "\"QuantityOnHand\" >= 0"));
+
+        modelBuilder.Entity<InventoryMovement>()
+            .HasIndex(x => new { x.CompanyId, x.SourceDocumentType, x.SourceDocumentId, x.CreatedAtUtc });
+
+        modelBuilder.Entity<InventoryMovement>()
+            .HasIndex(x => new { x.CompanyId, x.ProductId, x.TransactionDateUtc });
+
+        modelBuilder.Entity<InventoryMovement>()
+            .Property(x => x.SourceDocumentType)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<InventoryMovement>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<InventoryMovement>()
+            .Property(x => x.Notes)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<Account>()
+            .HasIndex(x => new { x.CompanyId, x.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<Account>()
+            .HasIndex(x => new { x.CompanyId, x.Type, x.IsActive });
+
+        modelBuilder.Entity<Account>()
+            .Property(x => x.Code)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<Account>()
+            .Property(x => x.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<Account>()
+            .Property(x => x.CurrencyCode)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<Account>()
+            .Property(x => x.Description)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<TaxCode>()
+            .HasIndex(x => new { x.CompanyId, x.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<TaxCode>()
+            .HasIndex(x => new { x.CompanyId, x.Scope, x.IsActive });
+
+        modelBuilder.Entity<TaxCode>()
+            .Property(x => x.Code)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<TaxCode>()
+            .Property(x => x.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<TaxCode>()
+            .Property(x => x.Rate)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<TaxCode>()
+            .Property(x => x.MyInvoisTaxTypeCode)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<PaymentTerm>()
+            .HasIndex(x => new { x.CompanyId, x.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<PaymentTerm>()
+            .HasIndex(x => new { x.CompanyId, x.IsActive });
+
+        modelBuilder.Entity<PaymentTerm>()
+            .Property(x => x.Code)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PaymentTerm>()
+            .Property(x => x.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<CurrencyDefinition>()
+            .HasIndex(x => new { x.CompanyId, x.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<CurrencyDefinition>()
+            .HasIndex(x => new { x.CompanyId, x.IsActive });
+
+        modelBuilder.Entity<CurrencyDefinition>()
+            .Property(x => x.Code)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<CurrencyDefinition>()
+            .Property(x => x.Name)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        modelBuilder.Entity<CurrencyDefinition>()
+            .Property(x => x.Symbol)
+            .HasMaxLength(10)
+            .IsRequired();
+
+        modelBuilder.Entity<ProductCategory>()
+            .HasIndex(x => new { x.CompanyId, x.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<ProductCategory>()
+            .HasIndex(x => new { x.CompanyId, x.IsActive });
+
+        modelBuilder.Entity<ProductCategory>()
+            .Property(x => x.Code)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<ProductCategory>()
+            .Property(x => x.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<ProductCategory>()
+            .Property(x => x.Description)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<PriceLevel>()
+            .HasIndex(x => new { x.CompanyId, x.Code })
+            .IsUnique();
+
+        modelBuilder.Entity<PriceLevel>()
+            .HasIndex(x => new { x.CompanyId, x.IsActive });
+
+        modelBuilder.Entity<PriceLevel>()
+            .Property(x => x.Code)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PriceLevel>()
+            .Property(x => x.Name)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<PriceLevel>()
+            .Property(x => x.AdjustmentPercent)
+            .HasPrecision(8, 2);
+
+        modelBuilder.Entity<PriceLevel>()
+            .Property(x => x.Description)
+            .HasMaxLength(500);
+
+        modelBuilder.Entity<PriceLevel>()
+            .ToTable(x => x.HasCheckConstraint("CK_PriceLevel_AdjustmentPercent", "\"AdjustmentPercent\" >= -100 AND \"AdjustmentPercent\" <= 1000"));
+
+        modelBuilder.Entity<SalesQuotation>()
+            .HasIndex(x => new { x.CompanyId, x.QuotationNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<SalesQuotation>()
+            .HasIndex(x => new { x.CompanyId, x.ContactId, x.Status, x.DocumentDateUtc });
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.QuotationNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.Subtotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesQuotation>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .HasIndex(x => new { x.SalesQuotationId, x.SortOrder });
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .Property(x => x.ProductNameSnapshot)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .Property(x => x.Description)
+            .HasMaxLength(1000)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .Property(x => x.UnitPrice)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .HasIndex(x => x.TaxCodeId);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .Property(x => x.TaxRate)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .Property(x => x.LineTotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesQuotationLine>()
+            .HasOne(x => x.SalesQuotation)
+            .WithMany(x => x.Lines)
+            .HasForeignKey(x => x.SalesQuotationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SalesOrder>()
+            .HasIndex(x => new { x.CompanyId, x.SalesOrderNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<SalesOrder>()
+            .HasIndex(x => new { x.CompanyId, x.ContactId, x.Status, x.DocumentDateUtc });
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.SalesOrderNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.Subtotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrder>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .HasIndex(x => new { x.SalesOrderId, x.SortOrder });
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.ProductNameSnapshot)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.Description)
+            .HasMaxLength(1000)
+            .IsRequired();
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.UnitPrice)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .HasIndex(x => x.TaxCodeId);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.TaxRate)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.LineTotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.DeliveredQuantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .Property(x => x.InvoicedQuantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<SalesOrderLine>()
+            .HasOne(x => x.SalesOrder)
+            .WithMany(x => x.Lines)
+            .HasForeignKey(x => x.SalesOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .HasIndex(x => new { x.CompanyId, x.DeliveryOrderNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .HasIndex(x => new { x.CompanyId, x.SalesOrderId, x.Status, x.DocumentDateUtc });
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .HasIndex(x => x.WarehouseId);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.DeliveryOrderNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.SalesOrderNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.Subtotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .HasIndex(x => new { x.DeliveryOrderId, x.SortOrder });
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .HasIndex(x => new { x.SalesOrderLineId, x.CreatedAtUtc });
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.ProductNameSnapshot)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.Description)
+            .HasMaxLength(1000)
+            .IsRequired();
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.UnitPrice)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .HasIndex(x => x.TaxCodeId);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.TaxRate)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.LineTotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .Property(x => x.InvoicedQuantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<DeliveryOrderLine>()
+            .HasOne(x => x.DeliveryOrder)
+            .WithMany(x => x.Lines)
+            .HasForeignKey(x => x.DeliveryOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasIndex(x => new { x.CompanyId, x.PurchaseOrderNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .HasIndex(x => new { x.CompanyId, x.ContactId, x.Status, x.DocumentDateUtc });
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.PurchaseOrderNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.Subtotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrder>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .HasIndex(x => new { x.PurchaseOrderId, x.SortOrder });
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.ProductNameSnapshot)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.Description)
+            .HasMaxLength(1000)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.UnitPrice)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .HasIndex(x => x.TaxCodeId);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.TaxRate)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.LineTotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.ReceivedQuantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .Property(x => x.BilledQuantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .HasOne(x => x.PurchaseOrder)
+            .WithMany(x => x.Lines)
+            .HasForeignKey(x => x.PurchaseOrderId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PurchaseOrderLine>()
+            .ToTable(x => x.HasCheckConstraint("CK_PurchaseOrderLine_WorkflowQuantities", "\"Quantity\" >= 0 AND \"ReceivedQuantity\" >= 0 AND \"BilledQuantity\" >= 0 AND \"ReceivedQuantity\" <= \"Quantity\" AND \"BilledQuantity\" <= \"ReceivedQuantity\""));
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .HasIndex(x => new { x.CompanyId, x.GoodsReceivedNoteNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .HasIndex(x => new { x.CompanyId, x.PurchaseOrderId, x.Status, x.DocumentDateUtc });
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .HasIndex(x => x.WarehouseId);
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.GoodsReceivedNoteNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.PurchaseOrderNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.CreatedFromDocumentNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.CreatedFromDocumentType)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.Subtotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNote>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .HasIndex(x => new { x.GoodsReceivedNoteId, x.SortOrder });
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .HasIndex(x => new { x.PurchaseOrderLineId, x.CreatedAtUtc });
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.ProductNameSnapshot)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.Description)
+            .HasMaxLength(1000)
+            .IsRequired();
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.UnitPrice)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .HasIndex(x => x.TaxCodeId);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.TaxRate)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.LineTotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .Property(x => x.BilledQuantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .HasOne(x => x.GoodsReceivedNote)
+            .WithMany(x => x.Lines)
+            .HasForeignKey(x => x.GoodsReceivedNoteId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<GoodsReceivedNoteLine>()
+            .ToTable(x => x.HasCheckConstraint("CK_GoodsReceivedNoteLine_BilledQuantity", "\"Quantity\" >= 0 AND \"BilledQuantity\" >= 0 AND \"BilledQuantity\" <= \"Quantity\""));
+
+        modelBuilder.Entity<PurchaseBill>()
+            .HasIndex(x => new { x.CompanyId, x.PurchaseBillNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<PurchaseBill>()
+            .HasIndex(x => new { x.CompanyId, x.ContactId, x.Status, x.IssueDateUtc });
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.PurchaseBillNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.CreatedFromDocumentNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.CreatedFromDocumentType)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.Subtotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.AmountDue)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .Property(x => x.AmountPaid)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBill>()
+            .ToTable(x => x.HasCheckConstraint("CK_PurchaseBill_Amounts", "\"TotalAmount\" >= 0 AND \"AmountDue\" >= 0 AND \"AmountPaid\" >= 0"));
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .HasIndex(x => new { x.PurchaseBillId, x.CreatedAtUtc });
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .HasIndex(x => x.PurchaseOrderLineId);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .HasIndex(x => x.GoodsReceivedNoteLineId);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .Property(x => x.ProductNameSnapshot)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .Property(x => x.Description)
+            .HasMaxLength(1000)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .Property(x => x.UnitPrice)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .HasIndex(x => x.TaxCodeId);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .Property(x => x.TaxRate)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .Property(x => x.LineTotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .HasOne(x => x.PurchaseBill)
+            .WithMany(x => x.Lines)
+            .HasForeignKey(x => x.PurchaseBillId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PurchaseBillLine>()
+            .ToTable(x => x.HasCheckConstraint("CK_PurchaseBillLine_SourceReference", "(CASE WHEN \"PurchaseOrderLineId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"GoodsReceivedNoteLineId\" IS NULL THEN 0 ELSE 1 END) >= 1"));
+
+        modelBuilder.Entity<PurchasePayment>()
+            .HasIndex(x => new { x.CompanyId, x.PurchasePaymentNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<PurchasePayment>()
+            .HasIndex(x => new { x.CompanyId, x.ContactId, x.Status, x.PaymentDateUtc });
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.PurchasePaymentNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<PurchasePayment>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchasePaymentAllocation>()
+            .HasIndex(x => new { x.PurchasePaymentId, x.PurchaseBillId });
+
+        modelBuilder.Entity<PurchasePaymentAllocation>()
+            .Property(x => x.PurchaseBillNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchasePaymentAllocation>()
+            .Property(x => x.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchasePaymentAllocation>()
+            .HasOne(x => x.PurchasePayment)
+            .WithMany(x => x.Allocations)
+            .HasForeignKey(x => x.PurchasePaymentId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .HasIndex(x => new { x.CompanyId, x.PurchaseRefundNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .HasIndex(x => new { x.CompanyId, x.PurchasePaymentId, x.Status, x.RefundDateUtc });
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.PurchaseRefundNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.ReferenceNo)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.Notes)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .Property(x => x.TotalAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseRefund>()
+            .HasOne(x => x.PurchasePayment)
+            .WithMany(x => x.Refunds)
+            .HasForeignKey(x => x.PurchasePaymentId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<PurchaseRefundAllocation>()
+            .HasIndex(x => new { x.PurchaseRefundId, x.PurchasePaymentAllocationId })
+            .IsUnique();
+
+        modelBuilder.Entity<PurchaseRefundAllocation>()
+            .Property(x => x.PurchaseBillNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseRefundAllocation>()
+            .Property(x => x.Amount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseRefundAllocation>()
+            .HasOne(x => x.PurchaseRefund)
+            .WithMany(x => x.Allocations)
+            .HasForeignKey(x => x.PurchaseRefundId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .HasIndex(x => new { x.CompanyId, x.PurchaseCreditNoteNumber })
+            .IsUnique();
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .HasIndex(x => new { x.CompanyId, x.PurchaseBillId, x.Status, x.IssuedAtUtc });
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.PurchaseCreditNoteNumber)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.ContactName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.ContactEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.ContactPhoneNumber)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.Currency)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.Reason)
+            .HasMaxLength(1000)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.SubtotalReduction)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.TaxReduction)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseCreditNote>()
+            .Property(x => x.TotalReduction)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .HasIndex(x => new { x.PurchaseCreditNoteId, x.CreatedAtUtc });
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .Property(x => x.Description)
+            .HasMaxLength(250)
+            .IsRequired();
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .Property(x => x.Quantity)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .Property(x => x.UnitAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .Property(x => x.TaxAmount)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .Property(x => x.LineTotal)
+            .HasPrecision(18, 2);
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .HasOne(x => x.PurchaseCreditNote)
+            .WithMany(x => x.Lines)
+            .HasForeignKey(x => x.PurchaseCreditNoteId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<Company>()
             .HasIndex(x => x.SubscriberId);
@@ -931,7 +1991,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Invoice>().Property(x => x.Total).HasPrecision(18, 2);
         modelBuilder.Entity<Invoice>().Property(x => x.AmountDue).HasPrecision(18, 2);
         modelBuilder.Entity<Invoice>().Property(x => x.AmountPaid).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>().HasIndex(x => x.SalesOrderId);
+        modelBuilder.Entity<Invoice>().HasIndex(x => x.DeliveryOrderId);
         modelBuilder.Entity<CompanyInvoiceSettings>().Property(x => x.TaxRate).HasPrecision(5, 2);
+        modelBuilder.Entity<InvoiceLineItem>().Property(x => x.Quantity).HasPrecision(18, 2);
         modelBuilder.Entity<InvoiceLineItem>().Property(x => x.UnitAmount).HasPrecision(18, 2);
         modelBuilder.Entity<InvoiceLineItem>().Property(x => x.TotalAmount).HasPrecision(18, 2);
         modelBuilder.Entity<Payment>().Property(x => x.Amount).HasPrecision(18, 2);
@@ -951,6 +2014,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<CreditNote>().Property(x => x.SubtotalReduction).HasPrecision(18, 2);
         modelBuilder.Entity<CreditNote>().Property(x => x.TaxReduction).HasPrecision(18, 2);
         modelBuilder.Entity<CreditNote>().Property(x => x.TotalReduction).HasPrecision(18, 2);
+        modelBuilder.Entity<CreditNoteLine>().Property(x => x.Quantity).HasPrecision(18, 2);
         modelBuilder.Entity<CreditNoteLine>().Property(x => x.UnitAmount).HasPrecision(18, 2);
         modelBuilder.Entity<CreditNoteLine>().Property(x => x.TaxAmount).HasPrecision(18, 2);
         modelBuilder.Entity<CreditNoteLine>().Property(x => x.LineTotal).HasPrecision(18, 2);
@@ -984,6 +2048,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .WithMany()
             .HasForeignKey(x => x.SubscriptionItemId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<InvoiceLineItem>()
+            .HasIndex(x => x.SalesOrderLineId);
+
+        modelBuilder.Entity<InvoiceLineItem>()
+            .HasIndex(x => x.DeliveryOrderLineId);
 
         modelBuilder.Entity<Refund>()
             .HasOne(x => x.Payment)
@@ -1106,7 +2176,35 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .OnDelete(DeleteBehavior.Restrict);
     }
 
+    public override int SaveChanges()
+    {
+        ApplyBaseEntityAuditMetadata();
+        ValidatePurchaseWorkflowInvariants();
+        return base.SaveChanges();
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyBaseEntityAuditMetadata();
+        ValidatePurchaseWorkflowInvariants();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        ApplyBaseEntityAuditMetadata();
+        ValidatePurchaseWorkflowInvariants();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ApplyBaseEntityAuditMetadata();
+        ValidatePurchaseWorkflowInvariants();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void ApplyBaseEntityAuditMetadata()
     {
         foreach (var entry in ChangeTracker.Entries<BaseEntity>())
         {
@@ -1127,7 +2225,67 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 throw new InvalidOperationException($"{entry.Entity.GetType().Name} requires CompanyId for tenant isolation.");
             }
         }
+    }
 
-        return base.SaveChangesAsync(cancellationToken);
+    private void ValidatePurchaseWorkflowInvariants()
+    {
+        foreach (var entry in ChangeTracker.Entries<PurchaseOrderLine>().Where(x => x.State is EntityState.Added or EntityState.Modified))
+        {
+            var line = entry.Entity;
+            if (line.Quantity < 0m || line.ReceivedQuantity < 0m || line.BilledQuantity < 0m)
+            {
+                throw new InvalidOperationException("Purchase order quantities cannot be negative.");
+            }
+
+            if (line.ReceivedQuantity > line.Quantity)
+            {
+                throw new InvalidOperationException($"Purchase order line '{line.Description}' cannot receive more than ordered.");
+            }
+
+            if (line.BilledQuantity > line.ReceivedQuantity)
+            {
+                throw new InvalidOperationException($"Purchase order line '{line.Description}' cannot bill more than received.");
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<GoodsReceivedNoteLine>().Where(x => x.State is EntityState.Added or EntityState.Modified))
+        {
+            var line = entry.Entity;
+            if (line.Quantity < 0m || line.BilledQuantity < 0m)
+            {
+                throw new InvalidOperationException("GRN quantities cannot be negative.");
+            }
+
+            if (line.BilledQuantity > line.Quantity)
+            {
+                throw new InvalidOperationException($"GRN line '{line.Description}' cannot bill more than received.");
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<PurchaseBillLine>().Where(x => x.State is EntityState.Added or EntityState.Modified))
+        {
+            var line = entry.Entity;
+            if (!line.PurchaseOrderLineId.HasValue && !line.GoodsReceivedNoteLineId.HasValue)
+            {
+                throw new InvalidOperationException("Purchase bill lines must reference a purchase order line or GRN line.");
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<PurchaseBill>().Where(x => x.State is EntityState.Added or EntityState.Modified))
+        {
+            var bill = entry.Entity;
+            if (bill.TotalAmount < 0m || bill.AmountDue < 0m || bill.AmountPaid < 0m)
+            {
+                throw new InvalidOperationException("Purchase bill amounts cannot be negative.");
+            }
+        }
+
+        foreach (var entry in ChangeTracker.Entries<InventoryBalance>().Where(x => x.State is EntityState.Added or EntityState.Modified))
+        {
+            if (entry.Entity.QuantityOnHand < 0m)
+            {
+                throw new InvalidOperationException("Inventory balances cannot be negative.");
+            }
+        }
     }
 }

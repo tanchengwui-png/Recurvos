@@ -10,6 +10,7 @@ const CompanyFormPage = lazy(() => import("./pages/CompanyFormPage").then((modul
 const ContactGroupsPage = lazy(() => import("./pages/ContactGroupsPage").then((module) => ({ default: module.ContactGroupsPage })));
 const CustomerFormPage = lazy(() => import("./pages/CustomerFormPage").then((module) => ({ default: module.CustomerFormPage })));
 const CustomersPage = lazy(() => import("./pages/CustomersPage").then((module) => ({ default: module.CustomersPage })));
+const CustomerStatementPage = lazy(() => import("./pages/CustomerStatementPage").then((module) => ({ default: module.CustomerStatementPage })));
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 const FinancePage = lazy(() => import("./pages/FinancePage").then((module) => ({ default: module.FinancePage })));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage").then((module) => ({ default: module.FeedbackPage })));
@@ -18,6 +19,11 @@ const InfoPage = lazy(() => import("./pages/InfoPage").then((module) => ({ defau
 const InvoicesPage = lazy(() => import("./pages/InvoicesPage").then((module) => ({ default: module.InvoicesPage })));
 const LandingPage = lazy(() => import("./pages/LandingPage").then((module) => ({ default: module.LandingPage })));
 const LoginPage = lazy(() => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
+const FoundationOverviewPage = lazy(() => import("./pages/FoundationOverviewPage").then((module) => ({ default: module.FoundationOverviewPage })));
+const FoundationModuleListPage = lazy(() => import("./pages/FoundationModuleListPage").then((module) => ({ default: module.FoundationModuleListPage })));
+const FoundationModuleFormPage = lazy(() => import("./pages/FoundationModuleFormPage").then((module) => ({ default: module.FoundationModuleFormPage })));
+const FoundationModuleDetailsPage = lazy(() => import("./pages/FoundationModuleDetailsPage").then((module) => ({ default: module.FoundationModuleDetailsPage })));
+const MasterDataPage = lazy(() => import("./pages/MasterDataPage").then((module) => ({ default: module.MasterDataPage })));
 const NewSubscriptionPage = lazy(() => import("./pages/NewSubscriptionPage").then((module) => ({ default: module.NewSubscriptionPage })));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage").then((module) => ({ default: module.OnboardingPage })));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage").then((module) => ({ default: module.PaymentsPage })));
@@ -37,6 +43,24 @@ const ProductFormPage = lazy(() => import("./pages/ProductFormPage").then((modul
 const ProductPlanFormPage = lazy(() => import("./pages/ProductPlanFormPage").then((module) => ({ default: module.ProductPlanFormPage })));
 const ProductPlansPage = lazy(() => import("./pages/ProductPlansPage").then((module) => ({ default: module.ProductPlansPage })));
 const ProductsPage = lazy(() => import("./pages/ProductsPage").then((module) => ({ default: module.ProductsPage })));
+const PurchaseOrdersPage = lazy(() => import("./pages/PurchaseOrdersPage").then((module) => ({ default: module.PurchaseOrdersPage })));
+const PurchaseOrderFormPage = lazy(() => import("./pages/PurchaseOrderFormPage").then((module) => ({ default: module.PurchaseOrderFormPage })));
+const PurchaseOrderDetailsPage = lazy(() => import("./pages/PurchaseOrderDetailsPage").then((module) => ({ default: module.PurchaseOrderDetailsPage })));
+const GoodsReceivedNotesPage = lazy(() => import("./pages/GoodsReceivedNotesPage").then((module) => ({ default: module.GoodsReceivedNotesPage })));
+const GoodsReceivedNoteFormPage = lazy(() => import("./pages/GoodsReceivedNoteFormPage").then((module) => ({ default: module.GoodsReceivedNoteFormPage })));
+const GoodsReceivedNoteDetailsPage = lazy(() => import("./pages/GoodsReceivedNoteDetailsPage").then((module) => ({ default: module.GoodsReceivedNoteDetailsPage })));
+const PurchaseBillsPage = lazy(() => import("./pages/PurchaseBillsPage").then((module) => ({ default: module.PurchaseBillsPage })));
+const PurchaseBillFormPage = lazy(() => import("./pages/PurchaseBillFormPage").then((module) => ({ default: module.PurchaseBillFormPage })));
+const PurchaseBillDetailsPage = lazy(() => import("./pages/PurchaseBillDetailsPage").then((module) => ({ default: module.PurchaseBillDetailsPage })));
+const PurchasePaymentsPage = lazy(() => import("./pages/PurchasePaymentsPage").then((module) => ({ default: module.PurchasePaymentsPage })));
+const PurchasePaymentFormPage = lazy(() => import("./pages/PurchasePaymentFormPage").then((module) => ({ default: module.PurchasePaymentFormPage })));
+const PurchasePaymentDetailsPage = lazy(() => import("./pages/PurchasePaymentDetailsPage").then((module) => ({ default: module.PurchasePaymentDetailsPage })));
+const PurchaseCreditNotesPage = lazy(() => import("./pages/PurchaseCreditNotesPage").then((module) => ({ default: module.PurchaseCreditNotesPage })));
+const PurchaseCreditNoteFormPage = lazy(() => import("./pages/PurchaseCreditNoteFormPage").then((module) => ({ default: module.PurchaseCreditNoteFormPage })));
+const PurchaseCreditNoteDetailsPage = lazy(() => import("./pages/PurchaseCreditNoteDetailsPage").then((module) => ({ default: module.PurchaseCreditNoteDetailsPage })));
+const PurchaseRefundsPage = lazy(() => import("./pages/PurchaseRefundsPage").then((module) => ({ default: module.PurchaseRefundsPage })));
+const PurchaseRefundFormPage = lazy(() => import("./pages/PurchaseRefundFormPage").then((module) => ({ default: module.PurchaseRefundFormPage })));
+const PurchaseRefundDetailsPage = lazy(() => import("./pages/PurchaseRefundDetailsPage").then((module) => ({ default: module.PurchaseRefundDetailsPage })));
 const PublicPaymentConfirmationPage = lazy(() => import("./pages/PublicPaymentConfirmationPage").then((module) => ({ default: module.PublicPaymentConfirmationPage })));
 const PublicPaymentSuccessPage = lazy(() => import("./pages/PublicPaymentSuccessPage").then((module) => ({ default: module.PublicPaymentSuccessPage })));
 const QuickStartPage = lazy(() => import("./pages/QuickStartPage").then((module) => ({ default: module.QuickStartPage })));
@@ -44,6 +68,16 @@ const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage").then((m
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const SubscriberPackageBillingPage = lazy(() => import("./pages/SubscriberPackageBillingPage").then((module) => ({ default: module.SubscriberPackageBillingPage })));
 const SubscriptionsPage = lazy(() => import("./pages/SubscriptionsPage").then((module) => ({ default: module.SubscriptionsPage })));
+const SalesQuotationsPage = lazy(() => import("./pages/SalesQuotationsPage").then((module) => ({ default: module.SalesQuotationsPage })));
+const SalesQuotationFormPage = lazy(() => import("./pages/SalesQuotationFormPage").then((module) => ({ default: module.SalesQuotationFormPage })));
+const SalesQuotationDetailsPage = lazy(() => import("./pages/SalesQuotationDetailsPage").then((module) => ({ default: module.SalesQuotationDetailsPage })));
+const SalesOrdersPage = lazy(() => import("./pages/SalesOrdersPage").then((module) => ({ default: module.SalesOrdersPage })));
+const SalesOrderFormPage = lazy(() => import("./pages/SalesOrderFormPage").then((module) => ({ default: module.SalesOrderFormPage })));
+const SalesOrderDetailsPage = lazy(() => import("./pages/SalesOrderDetailsPage").then((module) => ({ default: module.SalesOrderDetailsPage })));
+const DeliveryOrdersPage = lazy(() => import("./pages/DeliveryOrdersPage").then((module) => ({ default: module.DeliveryOrdersPage })));
+const DeliveryOrderFormPage = lazy(() => import("./pages/DeliveryOrderFormPage").then((module) => ({ default: module.DeliveryOrderFormPage })));
+const DeliveryOrderDetailsPage = lazy(() => import("./pages/DeliveryOrderDetailsPage").then((module) => ({ default: module.DeliveryOrderDetailsPage })));
+const SalesInvoiceFormPage = lazy(() => import("./pages/SalesInvoiceFormPage").then((module) => ({ default: module.SalesInvoiceFormPage })));
 const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage").then((module) => ({ default: module.VerifyEmailPage })));
 const WhatsAppMessagesPage = lazy(() => import("./pages/WhatsAppMessagesPage").then((module) => ({ default: module.WhatsAppMessagesPage })));
 
@@ -179,6 +213,7 @@ function AppRoutes() {
             <Route path="/customers" element={<TenantRoute><CustomersPage /></TenantRoute>} />
             <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
             <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
+            <Route path="/customers/:id/statement" element={<TenantRoute><CustomerStatementPage /></TenantRoute>} />
             <Route path="/products" element={<TenantRoute><ProductsPage /></TenantRoute>} />
             <Route path="/products/new" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
             <Route path="/products/:id/edit" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
@@ -189,8 +224,71 @@ function AppRoutes() {
             <Route path="/prices" element={<Navigate to="/plans" replace />} />
             <Route path="/subscriptions" element={<TenantRoute><SubscriptionsPage /></TenantRoute>} />
             <Route path="/subscriptions/new" element={<TenantRoute><NewSubscriptionPage /></TenantRoute>} />
+            <Route path="/sales/quotations" element={<TenantRoute><SalesQuotationsPage /></TenantRoute>} />
+            <Route path="/sales/quotations/new" element={<TenantRoute><SalesQuotationFormPage /></TenantRoute>} />
+            <Route path="/sales/quotations/:id/edit" element={<TenantRoute><SalesQuotationFormPage /></TenantRoute>} />
+            <Route path="/sales/quotations/:id" element={<TenantRoute><SalesQuotationDetailsPage /></TenantRoute>} />
+            <Route path="/sales/orders" element={<TenantRoute><SalesOrdersPage /></TenantRoute>} />
+            <Route path="/sales/orders/new" element={<TenantRoute><SalesOrderFormPage /></TenantRoute>} />
+            <Route path="/sales/orders/:id/edit" element={<TenantRoute><SalesOrderFormPage /></TenantRoute>} />
+            <Route path="/sales/orders/:id" element={<TenantRoute><SalesOrderDetailsPage /></TenantRoute>} />
+            <Route path="/sales/delivery-orders" element={<TenantRoute><DeliveryOrdersPage /></TenantRoute>} />
+            <Route path="/sales/delivery-orders/new" element={<TenantRoute><DeliveryOrderFormPage /></TenantRoute>} />
+            <Route path="/sales/delivery-orders/:id/edit" element={<TenantRoute><DeliveryOrderFormPage /></TenantRoute>} />
+            <Route path="/sales/delivery-orders/:id" element={<TenantRoute><DeliveryOrderDetailsPage /></TenantRoute>} />
+            <Route path="/sales/invoices/new" element={<TenantRoute><SalesInvoiceFormPage /></TenantRoute>} />
+            <Route path="/purchases/orders" element={<TenantRoute><PurchaseOrdersPage /></TenantRoute>} />
+            <Route path="/purchases/orders/new" element={<TenantRoute><PurchaseOrderFormPage /></TenantRoute>} />
+            <Route path="/purchases/orders/:id/edit" element={<TenantRoute><PurchaseOrderFormPage /></TenantRoute>} />
+            <Route path="/purchases/orders/:id" element={<TenantRoute><PurchaseOrderDetailsPage /></TenantRoute>} />
+            <Route path="/purchases/grns" element={<TenantRoute><GoodsReceivedNotesPage /></TenantRoute>} />
+            <Route path="/purchases/grns/new" element={<TenantRoute><GoodsReceivedNoteFormPage /></TenantRoute>} />
+            <Route path="/purchases/grns/:id/edit" element={<TenantRoute><GoodsReceivedNoteFormPage /></TenantRoute>} />
+            <Route path="/purchases/grns/:id" element={<TenantRoute><GoodsReceivedNoteDetailsPage /></TenantRoute>} />
+            <Route path="/purchases/bills" element={<TenantRoute><PurchaseBillsPage /></TenantRoute>} />
+            <Route path="/purchases/bills/new" element={<TenantRoute><PurchaseBillFormPage /></TenantRoute>} />
+            <Route path="/purchases/bills/:id" element={<TenantRoute><PurchaseBillDetailsPage /></TenantRoute>} />
+            <Route path="/purchases/payments" element={<TenantRoute><PurchasePaymentsPage /></TenantRoute>} />
+            <Route path="/purchases/payments/new" element={<TenantRoute><PurchasePaymentFormPage /></TenantRoute>} />
+            <Route path="/purchases/payments/:id" element={<TenantRoute><PurchasePaymentDetailsPage /></TenantRoute>} />
+            <Route path="/purchases/credit-notes" element={<TenantRoute><PurchaseCreditNotesPage /></TenantRoute>} />
+            <Route path="/purchases/credit-notes/new" element={<TenantRoute><PurchaseCreditNoteFormPage /></TenantRoute>} />
+            <Route path="/purchases/credit-notes/:id" element={<TenantRoute><PurchaseCreditNoteDetailsPage /></TenantRoute>} />
+            <Route path="/purchases/refunds" element={<TenantRoute><PurchaseRefundsPage /></TenantRoute>} />
+            <Route path="/purchases/refunds/new" element={<TenantRoute><PurchaseRefundFormPage /></TenantRoute>} />
+            <Route path="/purchases/refunds/:id" element={<TenantRoute><PurchaseRefundDetailsPage /></TenantRoute>} />
             <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
             <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
+            <Route path="/foundation" element={<TenantRoute><FoundationOverviewPage /></TenantRoute>} />
+            <Route path="/foundation/chart-of-accounts" element={<TenantRoute><FoundationModuleListPage moduleKey="chart-of-accounts" /></TenantRoute>} />
+            <Route path="/foundation/chart-of-accounts/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="chart-of-accounts" /></TenantRoute>} />
+            <Route path="/foundation/chart-of-accounts/:id" element={<TenantRoute><FoundationModuleDetailsPage moduleKey="chart-of-accounts" /></TenantRoute>} />
+            <Route path="/foundation/chart-of-accounts/:id/edit" element={<TenantRoute><FoundationModuleFormPage moduleKey="chart-of-accounts" /></TenantRoute>} />
+            <Route path="/foundation/tax-codes" element={<TenantRoute><FoundationModuleListPage moduleKey="tax-codes" /></TenantRoute>} />
+            <Route path="/foundation/tax-codes/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="tax-codes" /></TenantRoute>} />
+            <Route path="/foundation/tax-codes/:id" element={<TenantRoute><FoundationModuleDetailsPage moduleKey="tax-codes" /></TenantRoute>} />
+            <Route path="/foundation/tax-codes/:id/edit" element={<TenantRoute><FoundationModuleFormPage moduleKey="tax-codes" /></TenantRoute>} />
+            <Route path="/foundation/payment-terms" element={<TenantRoute><FoundationModuleListPage moduleKey="payment-terms" /></TenantRoute>} />
+            <Route path="/foundation/payment-terms/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="payment-terms" /></TenantRoute>} />
+            <Route path="/foundation/payment-terms/:id" element={<TenantRoute><FoundationModuleDetailsPage moduleKey="payment-terms" /></TenantRoute>} />
+            <Route path="/foundation/payment-terms/:id/edit" element={<TenantRoute><FoundationModuleFormPage moduleKey="payment-terms" /></TenantRoute>} />
+            <Route path="/foundation/warehouses" element={<TenantRoute><FoundationModuleListPage moduleKey="warehouses" /></TenantRoute>} />
+            <Route path="/foundation/warehouses/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="warehouses" /></TenantRoute>} />
+            <Route path="/foundation/warehouses/:id" element={<TenantRoute><FoundationModuleDetailsPage moduleKey="warehouses" /></TenantRoute>} />
+            <Route path="/foundation/warehouses/:id/edit" element={<TenantRoute><FoundationModuleFormPage moduleKey="warehouses" /></TenantRoute>} />
+            <Route path="/foundation/currencies" element={<TenantRoute><FoundationModuleListPage moduleKey="currencies" /></TenantRoute>} />
+            <Route path="/foundation/currencies/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="currencies" /></TenantRoute>} />
+            <Route path="/foundation/currencies/:id" element={<TenantRoute><FoundationModuleDetailsPage moduleKey="currencies" /></TenantRoute>} />
+            <Route path="/foundation/currencies/:id/edit" element={<TenantRoute><FoundationModuleFormPage moduleKey="currencies" /></TenantRoute>} />
+            <Route path="/foundation/product-categories" element={<TenantRoute><FoundationModuleListPage moduleKey="product-categories" /></TenantRoute>} />
+            <Route path="/foundation/product-categories/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="product-categories" /></TenantRoute>} />
+            <Route path="/foundation/product-categories/:id" element={<TenantRoute><FoundationModuleDetailsPage moduleKey="product-categories" /></TenantRoute>} />
+            <Route path="/foundation/product-categories/:id/edit" element={<TenantRoute><FoundationModuleFormPage moduleKey="product-categories" /></TenantRoute>} />
+            <Route path="/foundation/price-levels" element={<TenantRoute><FoundationModuleListPage moduleKey="price-levels" /></TenantRoute>} />
+            <Route path="/foundation/price-levels/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="price-levels" /></TenantRoute>} />
+            <Route path="/foundation/price-levels/:id" element={<TenantRoute><FoundationModuleDetailsPage moduleKey="price-levels" /></TenantRoute>} />
+            <Route path="/foundation/price-levels/:id/edit" element={<TenantRoute><FoundationModuleFormPage moduleKey="price-levels" /></TenantRoute>} />
+            <Route path="/settings/master-data" element={<TenantRoute><MasterDataPage /></TenantRoute>} />
             <Route path="/whatsapp-messages" element={<TenantRoute><WhatsAppMessagesPage /></TenantRoute>} />
             <Route path="/finance" element={<TenantRoute><FinancePage /></TenantRoute>} />
             <Route path="/feedback" element={<TenantRoute><FeedbackPage /></TenantRoute>} />

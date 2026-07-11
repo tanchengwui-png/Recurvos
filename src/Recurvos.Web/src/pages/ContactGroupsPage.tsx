@@ -38,7 +38,6 @@ export function ContactGroupsPage() {
   const [contacts, setContacts] = useState<Customer[]>([]);
   const [editor, setEditor] = useState<EditorState>(emptyEditor);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [contactSearch, setContactSearch] = useState("");
   const [contactTypeFilter, setContactTypeFilter] = useState<Customer["contactType"] | "all">("all");
@@ -89,7 +88,6 @@ export function ContactGroupsPage() {
   function openCreate() {
     setEditor(emptyEditor());
     setError("");
-    setMessage("");
     setIsEditorOpen(true);
   }
 
@@ -100,7 +98,6 @@ export function ContactGroupsPage() {
       selectedContactIds: [...group.contactIds],
     });
     setError("");
-    setMessage("");
     setIsEditorOpen(true);
   }
 
@@ -145,10 +142,8 @@ export function ContactGroupsPage() {
     try {
       if (editor.id) {
         await api.put(`/contact-groups/${editor.id}`, payload);
-        setMessage(`Contact group updated: ${payload.name}.`);
       } else {
         await api.post("/contact-groups", payload);
-        setMessage(`Contact group created: ${payload.name}.`);
       }
 
       await load();
@@ -168,7 +163,6 @@ export function ContactGroupsPage() {
         if (editor.id === group.id) {
           resetEditor();
         }
-        setMessage(`Contact group deleted: ${group.name}.`);
       },
     });
   }
@@ -191,8 +185,6 @@ export function ContactGroupsPage() {
         </div>
         <button type="button" className="button button-primary" onClick={openCreate}>Create contact group</button>
       </header>
-
-      {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
 
       <section className="card">

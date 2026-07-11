@@ -80,6 +80,8 @@ public sealed record AuditLogEntryDto(
     string EntityName,
     string EntityId,
     string? Metadata,
+    string? OldValue,
+    string? NewValue,
     DateTime CreatedAtUtc);
 public sealed record PlatformUserDto(
     Guid Id,

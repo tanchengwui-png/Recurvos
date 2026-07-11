@@ -116,8 +116,16 @@ export function CompaniesPage() {
   useEffect(() => {
     const state = location.state;
     const flashMessage = state && typeof state === "object" && "flashMessage" in state ? state.flashMessage : null;
+    const removedCompanyId = state && typeof state === "object" && "removedCompanyId" in state && typeof state.removedCompanyId === "string"
+      ? state.removedCompanyId
+      : null;
 
-    if (typeof flashMessage !== "string" || !flashMessage) {
+    if (removedCompanyId) {
+      setItems((current) => current.filter((item) => item.id !== removedCompanyId));
+      setExpandedId((current) => current === removedCompanyId ? null : current);
+    }
+
+    if ((!flashMessage || typeof flashMessage !== "string") && !removedCompanyId) {
       return;
     }
 
@@ -320,12 +328,13 @@ export function CompaniesPage() {
                 <th className="sticky-cell sticky-cell-left">Name</th>
                 <th>Status</th>
                 <th>Contact</th>
+                <th className="company-actions-column">Action</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={3}
+                  colSpan={4}
                   title="No companies yet"
                   description="Start by adding the business entity that will appear on invoices, reminders, and payment records."
                   actions={(
@@ -337,7 +346,7 @@ export function CompaniesPage() {
                 />
               ) : filteredItems.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={3}
+                  colSpan={4}
                   title="No matching companies"
                   description="Try a different search term or relax the filters to see more billing profiles."
                 />
@@ -346,7 +355,6 @@ export function CompaniesPage() {
                   <td className="sticky-cell sticky-cell-left table-primary-cell">
                     <div className="table-primary-cell-stack">
                       <span>{item.name}</span>
-                      <RowActionMenu items={getCompanyActions(item)} />
                     </div>
                   </td>
                   <td>
@@ -358,6 +366,7 @@ export function CompaniesPage() {
                     <div>{item.email || "-"}</div>
                     <div className="eyebrow">{item.phone || "Phone not set"}</div>
                   </td>
+                  <td className="actions-cell company-actions-column"><RowActionMenu items={getCompanyActions(item)} /></td>
                 </tr>
               ))}
             </tbody>

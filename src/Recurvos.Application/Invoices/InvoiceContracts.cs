@@ -32,11 +32,31 @@ public sealed class CreateInvoiceLineItemRequest
     [Required, MaxLength(250)]
     public string Description { get; set; } = string.Empty;
 
-    [Range(1, 100000)]
-    public int Quantity { get; set; } = 1;
+    [Range(typeof(decimal), "0.01", "9999999999999999")]
+    public decimal Quantity { get; set; } = 1;
 
     [Range(typeof(decimal), "0.00", "9999999999999999")]
     public decimal UnitAmount { get; set; }
+}
+
+public sealed class CreateSalesInvoiceLineItemRequest
+{
+    public Guid? SalesOrderLineId { get; set; }
+    public Guid? DeliveryOrderLineId { get; set; }
+
+    [Range(typeof(decimal), "0.01", "9999999999999999")]
+    public decimal Quantity { get; set; }
+}
+
+public sealed class CreateSalesInvoiceRequest
+{
+    [Required]
+    public DateTime DueDateUtc { get; set; }
+
+    public Guid? PaymentTermId { get; set; }
+
+    [Required, MinLength(1)]
+    public List<CreateSalesInvoiceLineItemRequest> LineItems { get; set; } = new();
 }
 
 public sealed class CreateInvoiceRequest
@@ -112,7 +132,7 @@ public sealed class PreviewReceiptRequest
     public DateTime PaidAtUtc { get; set; }
 }
 
-public sealed record InvoiceLineItemDto(string Description, int Quantity, decimal UnitAmount, decimal TotalAmount);
+public sealed record InvoiceLineItemDto(string Description, decimal Quantity, decimal UnitAmount, decimal TotalAmount);
 
 public sealed record InvoiceHistoryDto(DateTime CreatedAtUtc, string Action, string Description);
 public sealed record WhatsAppRetryResultDto(bool Success, string Message, string? ExternalMessageId);
@@ -161,6 +181,8 @@ public interface IInvoiceService
     Task<IReadOnlyCollection<InvoiceDto>> GetAsync(CancellationToken cancellationToken = default);
     Task<InvoiceDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<InvoiceDto> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
+    Task<InvoiceDto?> CreateFromSalesOrderAsync(Guid salesOrderId, CreateSalesInvoiceRequest request, CancellationToken cancellationToken = default);
+    Task<InvoiceDto?> CreateFromDeliveryOrderAsync(Guid deliveryOrderId, CreateSalesInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<bool> SendInvoiceAsync(Guid id, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> MarkPaidAsync(Guid id, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> RecordPaymentAsync(Guid id, RecordInvoicePaymentRequest request, CancellationToken cancellationToken = default);

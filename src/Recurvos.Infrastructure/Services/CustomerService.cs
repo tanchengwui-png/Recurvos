@@ -4,6 +4,7 @@ using Recurvos.Application.Customers;
 using Recurvos.Application.Features;
 using Recurvos.Application.Platform;
 using Recurvos.Domain.Entities;
+using Recurvos.Domain.Enums;
 using Recurvos.Infrastructure.Persistence;
 using System.Text.Json;
 
@@ -72,6 +73,13 @@ public sealed class CustomerService(
         var groups = NormalizeStringList(request.Groups);
         var tags = NormalizeStringList(request.Tags);
         ValidateConditionalFields(contactType, request.ReceivableAccount, request.PayableAccount);
+        var receivableAccount = await ValidateAccountAsync(request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
+        var payableAccount = await ValidateAccountAsync(request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
+        var incomeAccount = await ValidateAccountAsync(request.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken);
+        var expenseAccount = await ValidateAccountAsync(request.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken);
+        var priceLevel = await ValidatePriceLevelAsync(request.PriceLevel, cancellationToken);
+        var currency = await ValidateCurrencyAsync(request.Currency, cancellationToken);
+        var paymentTerm = await ValidatePaymentTermAsync(request.PaymentTerm, cancellationToken);
         var customer = new Customer
         {
             SubscriberId = GetSubscriberId(),
@@ -94,15 +102,15 @@ public sealed class CustomerService(
             PhoneNumbersJson = SerializeList(phoneNumbers),
             EmailAddressesJson = SerializeList(emailAddresses),
             AddressesJson = SerializeList(addresses),
-            ReceivableAccount = request.ReceivableAccount.Trim(),
+            ReceivableAccount = receivableAccount,
             CreditLimit = request.CreditLimit,
-            PayableAccount = request.PayableAccount.Trim(),
+            PayableAccount = payableAccount,
             GroupsJson = SerializeList(groups),
-            PriceLevel = request.PriceLevel.Trim(),
-            Currency = request.Currency.Trim(),
-            PaymentTerm = request.PaymentTerm.Trim(),
-            IncomeAccount = request.IncomeAccount.Trim(),
-            ExpenseAccount = request.ExpenseAccount.Trim(),
+            PriceLevel = priceLevel,
+            Currency = currency,
+            PaymentTerm = paymentTerm,
+            IncomeAccount = incomeAccount,
+            ExpenseAccount = expenseAccount,
             Location = request.Location.Trim(),
             TagsJson = SerializeList(tags),
             MyInvoisControl = request.MyInvoisControl.Trim(),
@@ -133,6 +141,13 @@ public sealed class CustomerService(
         var groups = NormalizeStringList(request.Groups);
         var tags = NormalizeStringList(request.Tags);
         ValidateConditionalFields(contactType, request.ReceivableAccount, request.PayableAccount);
+        var receivableAccount = await ValidateAccountAsync(request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
+        var payableAccount = await ValidateAccountAsync(request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
+        var incomeAccount = await ValidateAccountAsync(request.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken);
+        var expenseAccount = await ValidateAccountAsync(request.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken);
+        var priceLevel = await ValidatePriceLevelAsync(request.PriceLevel, cancellationToken);
+        var currency = await ValidateCurrencyAsync(request.Currency, cancellationToken);
+        var paymentTerm = await ValidatePaymentTermAsync(request.PaymentTerm, cancellationToken);
 
         customer.EntityType = entityType;
         customer.LegalName = legalName;
@@ -153,15 +168,15 @@ public sealed class CustomerService(
         customer.PhoneNumbersJson = SerializeList(phoneNumbers);
         customer.EmailAddressesJson = SerializeList(emailAddresses);
         customer.AddressesJson = SerializeList(addresses);
-        customer.ReceivableAccount = request.ReceivableAccount.Trim();
+        customer.ReceivableAccount = receivableAccount;
         customer.CreditLimit = request.CreditLimit;
-        customer.PayableAccount = request.PayableAccount.Trim();
+        customer.PayableAccount = payableAccount;
         customer.GroupsJson = SerializeList(groups);
-        customer.PriceLevel = request.PriceLevel.Trim();
-        customer.Currency = request.Currency.Trim();
-        customer.PaymentTerm = request.PaymentTerm.Trim();
-        customer.IncomeAccount = request.IncomeAccount.Trim();
-        customer.ExpenseAccount = request.ExpenseAccount.Trim();
+        customer.PriceLevel = priceLevel;
+        customer.Currency = currency;
+        customer.PaymentTerm = paymentTerm;
+        customer.IncomeAccount = incomeAccount;
+        customer.ExpenseAccount = expenseAccount;
         customer.Location = request.Location.Trim();
         customer.TagsJson = SerializeList(tags);
         customer.MyInvoisControl = request.MyInvoisControl.Trim();
@@ -378,6 +393,115 @@ public sealed class CustomerService(
         {
             throw new InvalidOperationException("Payable account is required when Supplier is selected.");
         }
+    }
+
+    private async Task<string> ValidateAccountAsync(
+        string? value,
+        AccountType expectedType,
+        string fieldName,
+        CancellationToken cancellationToken)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var account = await dbContext.Accounts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.CompanyId == companyId
+                    && x.IsActive
+                    && x.Code == normalized,
+                cancellationToken);
+
+        if (account is null)
+        {
+            throw new InvalidOperationException($"{fieldName} must reference an active account code.");
+        }
+
+        if (account.Type != expectedType)
+        {
+            throw new InvalidOperationException($"{fieldName} must reference an active {expectedType.ToString().ToLowerInvariant()} account.");
+        }
+
+        return account.Code;
+    }
+
+    private async Task<string> ValidateCurrencyAsync(string? value, CancellationToken cancellationToken)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var currency = await dbContext.CurrencyDefinitions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.CompanyId == companyId
+                    && x.IsActive
+                    && x.Code == normalized,
+                cancellationToken);
+
+        if (currency is null)
+        {
+            throw new InvalidOperationException("Currency must reference an active currency code.");
+        }
+
+        return currency.Code;
+    }
+
+    private async Task<string> ValidatePaymentTermAsync(string? value, CancellationToken cancellationToken)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var paymentTerm = await dbContext.PaymentTerms
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.CompanyId == companyId
+                    && x.IsActive
+                    && x.Code == normalized,
+                cancellationToken);
+
+        if (paymentTerm is null)
+        {
+            throw new InvalidOperationException("Payment term must reference an active payment term code.");
+        }
+
+        return paymentTerm.Code;
+    }
+
+    private async Task<string> ValidatePriceLevelAsync(string? value, CancellationToken cancellationToken)
+    {
+        var normalized = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return string.Empty;
+        }
+
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var priceLevel = await dbContext.PriceLevels
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.CompanyId == companyId
+                    && x.IsActive
+                    && x.Code == normalized,
+                cancellationToken);
+
+        if (priceLevel is null)
+        {
+            throw new InvalidOperationException("Price level must reference an active price level code.");
+        }
+
+        return priceLevel.Code;
     }
 
     private static bool HasAnyContactPersonValue(CustomerContactPersonInput person) =>

@@ -6,8 +6,10 @@ public sealed class InvoiceLineItem : CompanyOwnedEntity
 {
     public Guid InvoiceId { get; set; }
     public Guid? SubscriptionItemId { get; set; }
+    public Guid? SalesOrderLineId { get; set; }
+    public Guid? DeliveryOrderLineId { get; set; }
     public string Description { get; set; } = string.Empty;
-    public int Quantity { get; set; }
+    public decimal Quantity { get; set; }
     public decimal UnitAmount { get; set; }
     public decimal TotalAmount { get; set; }
     public Invoice? Invoice { get; set; }
