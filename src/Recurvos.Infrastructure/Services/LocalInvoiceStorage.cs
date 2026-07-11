@@ -60,7 +60,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         bool showDueDate = true,
         string? secondaryDocumentLabel = null,
         string? secondaryDocumentValue = null,
-        string? periodLabel = null)
+        string? periodLabel = null,
+        decimal? explicitTaxTotal = null)
         => InvoicePdfTemplate.Render(CreateTemplateModel(
             companyName,
             companyRegistrationNumber,
@@ -97,7 +98,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             showDueDate,
             secondaryDocumentLabel,
             secondaryDocumentValue,
-            periodLabel));
+            periodLabel,
+            explicitTaxTotal));
 
     public static string CreateHtml(
         string companyName,
@@ -135,7 +137,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         bool showDueDate = true,
         string? secondaryDocumentLabel = null,
         string? secondaryDocumentValue = null,
-        string? periodLabel = null)
+        string? periodLabel = null,
+        decimal? explicitTaxTotal = null)
         => InvoiceHtmlTemplateRenderer.Render(CreateTemplateModel(
             companyName,
             companyRegistrationNumber,
@@ -172,7 +175,8 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             showDueDate,
             secondaryDocumentLabel,
             secondaryDocumentValue,
-            periodLabel));
+            periodLabel,
+            explicitTaxTotal));
 
     public static InvoiceTemplateModel CreateTemplateModel(
         string companyName,
@@ -210,14 +214,17 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
         bool showDueDate = true,
         string? secondaryDocumentLabel = null,
         string? secondaryDocumentValue = null,
-        string? periodLabel = null)
+        string? periodLabel = null,
+        decimal? explicitTaxTotal = null)
     {
         var normalizedCurrency = InvoiceTemplateSupport.NormalizeCurrency(currency);
         var logoDataUrl = InvoiceTemplateSupport.ToDataUrl(companyLogo, "image/png");
         var paymentQrDataUrl = InvoiceTemplateSupport.ToDataUrl(paymentQr, "image/png");
         var normalizedTaxName = string.IsNullOrWhiteSpace(taxName) ? "SST" : taxName.Trim();
         var appliedTaxRate = isTaxEnabled ? Math.Max(0, taxRate ?? 0) : 0;
-        var taxAmount = isTaxEnabled ? Math.Round(total * appliedTaxRate / 100m, 2, MidpointRounding.AwayFromZero) : 0m;
+        var taxAmount = isTaxEnabled
+            ? explicitTaxTotal ?? Math.Round(total * appliedTaxRate / 100m, 2, MidpointRounding.AwayFromZero)
+            : 0m;
         var grandTotal = total + taxAmount;
         return new InvoiceTemplateModel
         {
@@ -254,7 +261,7 @@ public sealed class LocalInvoiceStorage(IOptions<StorageOptions> options, IHostE
             PaymentQrDataUrl = paymentQrDataUrl,
             Subtotal = total,
             ShowTaxSection = isTaxEnabled,
-            TaxLabel = isTaxEnabled ? $"{normalizedTaxName} {appliedTaxRate:0.##}%" : null,
+            TaxLabel = isTaxEnabled ? (taxRate.HasValue ? $"{normalizedTaxName} {appliedTaxRate:0.##}%" : normalizedTaxName) : null,
             TaxTotal = taxAmount,
             DiscountTotal = 0,
             AmountDue = grandTotal,

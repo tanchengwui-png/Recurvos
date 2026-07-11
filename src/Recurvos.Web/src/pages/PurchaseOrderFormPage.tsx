@@ -75,6 +75,11 @@ export function PurchaseOrderFormPage() {
   }
 
   async function submit() {
+    if (lines.some((line) => !line.taxCodeId)) {
+      setError("Select a tax code for each line.");
+      return;
+    }
+
     setConfirmState({
       title: id ? "Update purchase order" : "Create purchase order",
       description: id ? "Save changes to this purchase order?" : "Create this purchase order?",
@@ -143,7 +148,7 @@ export function PurchaseOrderFormPage() {
                       const selectedTaxCode = taxCodes.find((item) => item.id === event.target.value);
                       updateLine(index, { taxCodeId: event.target.value, taxRate: selectedTaxCode?.rate ?? line.taxRate });
                     }}>
-                      <option value="">{line.taxCodeId ? "Select tax code" : `Manual ${line.taxRate}%`}</option>
+                      <option value="">Select tax code</option>
                       {taxCodes.map((item) => <option key={item.id} value={item.id}>{`${item.code} · ${item.rate}%`}</option>)}
                     </select>
                   </td>

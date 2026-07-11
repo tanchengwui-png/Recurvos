@@ -135,6 +135,7 @@ public sealed class PurchaseOrderService(
         _ = await LoadSupplierAsync(contactId, cancellationToken);
         if (lines.Count == 0) throw new InvalidOperationException("At least one line is required.");
         if (lines.Any(x => string.IsNullOrWhiteSpace(x.Description))) throw new InvalidOperationException("Each line requires a description.");
+        if (lines.Any(x => !x.TaxCodeId.HasValue || x.TaxCodeId == Guid.Empty)) throw new InvalidOperationException("Select a tax code for each line.");
         return companyId.Value;
     }
 

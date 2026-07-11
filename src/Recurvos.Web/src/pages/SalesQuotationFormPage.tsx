@@ -73,6 +73,11 @@ export function SalesQuotationFormPage() {
   }
 
   async function submit() {
+    if (lines.some((line) => !line.taxCodeId)) {
+      setError("Select a tax code for each line.");
+      return;
+    }
+
     setConfirmState({
       title: id ? "Update quotation" : "Create quotation",
       description: id ? "Save changes to this quotation?" : "Create this quotation?",
@@ -143,7 +148,7 @@ export function SalesQuotationFormPage() {
                       const selectedTaxCode = taxCodes.find((item) => item.id === event.target.value);
                       updateLine(index, { taxCodeId: event.target.value, taxRate: selectedTaxCode?.rate ?? line.taxRate });
                     }}>
-                      <option value="">{line.taxCodeId ? "Select tax code" : `Manual ${line.taxRate}%`}</option>
+                      <option value="">Select tax code</option>
                       {taxCodes.map((item) => <option key={item.id} value={item.id}>{`${item.code} · ${item.rate}%`}</option>)}
                     </select>
                   </td>

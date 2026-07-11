@@ -1996,7 +1996,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<CompanyInvoiceSettings>().Property(x => x.TaxRate).HasPrecision(5, 2);
         modelBuilder.Entity<InvoiceLineItem>().Property(x => x.Quantity).HasPrecision(18, 2);
         modelBuilder.Entity<InvoiceLineItem>().Property(x => x.UnitAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<InvoiceLineItem>().Property(x => x.TaxRate).HasPrecision(5, 2);
+        modelBuilder.Entity<InvoiceLineItem>().Property(x => x.TaxAmount).HasPrecision(18, 2);
         modelBuilder.Entity<InvoiceLineItem>().Property(x => x.TotalAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<InvoiceLineItem>().Property(x => x.LineTotal).HasPrecision(18, 2);
         modelBuilder.Entity<Payment>().Property(x => x.Amount).HasPrecision(18, 2);
         modelBuilder.Entity<Payment>().Property(x => x.ProofFilePath).HasMaxLength(500);
         modelBuilder.Entity<Payment>().Property(x => x.ProofFileName).HasMaxLength(255);
@@ -2054,6 +2057,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<InvoiceLineItem>()
             .HasIndex(x => x.DeliveryOrderLineId);
+
+        modelBuilder.Entity<InvoiceLineItem>()
+            .HasIndex(x => x.TaxCodeId);
 
         modelBuilder.Entity<Refund>()
             .HasOne(x => x.Payment)

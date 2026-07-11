@@ -11,6 +11,8 @@ using Recurvos.Application.Companies;
 using Recurvos.Application.CreditNotes;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
+using Recurvos.Application.Purchases;
+using Recurvos.Application.Sales;
 using Recurvos.Application.Settings;
 using Recurvos.Application.Subscriptions;
 using Recurvos.Domain.Entities;
@@ -2398,6 +2400,80 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     }
 
     [Fact]
+    public async Task SalesQuotationCreate_RejectsMissingTaxCode()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/api/sales/quotations", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            expiryDateUtc = DateTime.UtcNow.AddDays(7),
+            currency = "MYR",
+            referenceNo = "SQ-TAX",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Quotation line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId = (Guid?)null }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a tax code for each line.");
+    }
+
+    [Fact]
+    public async Task SalesOrderCreate_RejectsMissingTaxCode()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/api/sales/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "SO-TAX",
+            notes = "",
+            salesQuotationId = (Guid?)null,
+            lines = new[]
+            {
+                new { description = "Sales order line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId = (Guid?)null }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a tax code for each line.");
+    }
+
+    [Fact]
     public async Task PurchaseBillCreateFromPurchaseOrder_RejectsInactiveSourceCurrency()
     {
         await _factory.EnsureSeededAsync();
@@ -2468,6 +2544,125 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task PurchaseOrderCreate_RejectsMissingTaxCode()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+            await dbContext.SaveChangesAsync();
+            contactId = supplier.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/purchases/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "PO-TAX",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Purchase line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId = (Guid?)null }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a tax code for each line.");
+    }
+
+    [Fact]
+    public async Task ManualInvoiceCreate_RejectsMissingTaxCode()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid customerId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            customerId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/api/invoices", new
+        {
+            customerId,
+            dueDateUtc = DateTime.UtcNow.AddDays(7),
+            lineItems = new[]
+            {
+                new { description = "Manual invoice line", quantity = 1m, unitAmount = 100m, taxCodeId = (Guid?)null }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Select a tax code for each line.");
+    }
+
+    [Fact]
+    public async Task ManualInvoiceCreate_DerivesTaxFromSelectedTaxCode()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid customerId;
+        Guid taxCodeId;
+        decimal taxRate;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            customerId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+            var taxCode = await dbContext.TaxCodes
+                .Where(x => x.CompanyId == companyId && x.IsActive && (x.Scope == TaxScope.Sales || x.Scope == TaxScope.Both))
+                .Select(x => new { x.Id, x.Rate })
+                .FirstAsync();
+            taxCodeId = taxCode.Id;
+            taxRate = taxCode.Rate;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/invoices", new
+        {
+            customerId,
+            dueDateUtc = DateTime.UtcNow.AddDays(7),
+            lineItems = new[]
+            {
+                new { description = "Manual invoice line", quantity = 2m, unitAmount = 100m, taxCodeId }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var invoice = await response.Content.ReadFromJsonAsync<InvoiceDto>(TestWebApplicationFactory.JsonOptions);
+        invoice.Should().NotBeNull();
+        invoice!.LineItems.Should().ContainSingle();
+        invoice.LineItems.Single().TaxCodeId.Should().Be(taxCodeId);
+        invoice.LineItems.Single().TaxRate.Should().Be(taxRate);
+        invoice.LineItems.Single().TaxAmount.Should().Be(Math.Round(200m * taxRate / 100m, 2, MidpointRounding.AwayFromZero));
+        invoice.TaxAmount.Should().Be(invoice.LineItems.Single().TaxAmount);
+        invoice.Total.Should().Be(invoice.Subtotal + invoice.TaxAmount);
+        invoice.IsTaxEnabled.Should().BeTrue();
+        invoice.TaxRate.Should().Be(taxRate);
     }
 
     [Fact]
@@ -2749,6 +2944,310 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task QuotationConversion_PreservesLineTaxCodeId()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid taxCodeId;
+        decimal taxRate;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+            var taxCode = await dbContext.TaxCodes
+                .Where(x => x.CompanyId == companyId && x.IsActive && (x.Scope == TaxScope.Sales || x.Scope == TaxScope.Both))
+                .Select(x => new { x.Id, x.Rate })
+                .FirstAsync();
+            taxCodeId = taxCode.Id;
+            taxRate = taxCode.Rate;
+        }
+
+        var createResponse = await client.PostAsJsonAsync("/api/sales/quotations", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            expiryDateUtc = DateTime.UtcNow.AddDays(7),
+            currency = "MYR",
+            referenceNo = "SQ-PROP",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Quotation line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId }
+            }
+        });
+
+        createResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var quotation = await createResponse.Content.ReadFromJsonAsync<SalesQuotationDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        quotation.Should().NotBeNull();
+
+        var statusResponse = await client.PatchAsJsonAsync($"/api/sales/quotations/{quotation!.Id}/status", new { status = "Accepted" });
+        statusResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var convertResponse = await client.PostAsJsonAsync($"/api/sales/quotations/{quotation.Id}/convert-to-sales-order", new
+        {
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "SO-PROP",
+            notes = ""
+        });
+
+        convertResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var salesOrder = await convertResponse.Content.ReadFromJsonAsync<SalesOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        salesOrder.Should().NotBeNull();
+        salesOrder!.Lines.Should().ContainSingle();
+        salesOrder.Lines.Single().TaxCodeId.Should().Be(taxCodeId);
+    }
+
+    [Fact]
+    public async Task SalesOrderToInvoice_PreservesLineTaxCodeId()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid taxCodeId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+            taxCodeId = await dbContext.TaxCodes
+                .Where(x => x.CompanyId == companyId && x.IsActive && (x.Scope == TaxScope.Sales || x.Scope == TaxScope.Both))
+                .Select(x => x.Id)
+                .FirstAsync();
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/sales/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "SO-INV-PROP",
+            notes = "",
+            salesQuotationId = (Guid?)null,
+            lines = new[]
+            {
+                new { description = "Sales invoice line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var salesOrder = await createOrderResponse.Content.ReadFromJsonAsync<SalesOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        salesOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/sales/orders/{salesOrder!.Id}/status", new { status = "Confirmed" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var convertResponse = await client.PostAsJsonAsync($"/api/sales/orders/{salesOrder.Id}/convert-to-invoice", new
+        {
+            dueDateUtc = DateTime.UtcNow.AddDays(7),
+            paymentTermId = (Guid?)null,
+            lineItems = new[]
+            {
+                new { salesOrderLineId = salesOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        convertResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var invoice = await convertResponse.Content.ReadFromJsonAsync<InvoiceDto>(TestWebApplicationFactory.JsonOptions);
+        invoice.Should().NotBeNull();
+        invoice!.LineItems.Should().ContainSingle();
+        invoice.LineItems.Single().TaxCodeId.Should().Be(taxCodeId);
+        invoice.LineItems.Single().TaxRate.Should().Be(taxRate);
+        invoice.TaxAmount.Should().Be(invoice.LineItems.Single().TaxAmount);
+        invoice.TaxRate.Should().Be(taxRate);
+    }
+
+    [Fact]
+    public async Task DeliveryOrderToInvoice_PreservesLineTaxCodeId()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid taxCodeId;
+        decimal taxRate;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+            var taxCode = await dbContext.TaxCodes
+                .Where(x => x.CompanyId == companyId && x.IsActive && (x.Scope == TaxScope.Sales || x.Scope == TaxScope.Both))
+                .Select(x => new { x.Id, x.Rate })
+                .FirstAsync();
+            taxCodeId = taxCode.Id;
+            taxRate = taxCode.Rate;
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/sales/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "SO-DO-INV-PROP",
+            notes = "",
+            salesQuotationId = (Guid?)null,
+            lines = new[]
+            {
+                new { description = "Delivery invoice line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var salesOrder = await createOrderResponse.Content.ReadFromJsonAsync<SalesOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        salesOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/sales/orders/{salesOrder!.Id}/status", new { status = "Confirmed" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var createDeliveryResponse = await client.PostAsJsonAsync("/api/sales/delivery-orders", new
+        {
+            companyId,
+            salesOrderId = salesOrder.Id,
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "DO-INV-PROP",
+            notes = "",
+            lines = new[]
+            {
+                new { salesOrderLineId = salesOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        createDeliveryResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var deliveryOrder = await createDeliveryResponse.Content.ReadFromJsonAsync<DeliveryOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        deliveryOrder.Should().NotBeNull();
+        deliveryOrder!.Lines.Should().ContainSingle();
+        deliveryOrder.Lines.Single().TaxCodeId.Should().Be(taxCodeId);
+
+        (await client.PatchAsJsonAsync($"/api/sales/delivery-orders/{deliveryOrder.Id}/status", new { status = "Delivered" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var convertResponse = await client.PostAsJsonAsync($"/api/sales/delivery-orders/{deliveryOrder.Id}/convert-to-invoice", new
+        {
+            dueDateUtc = DateTime.UtcNow.AddDays(7),
+            paymentTermId = (Guid?)null,
+            lineItems = new[]
+            {
+                new { deliveryOrderLineId = deliveryOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        convertResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var invoice = await convertResponse.Content.ReadFromJsonAsync<InvoiceDto>(TestWebApplicationFactory.JsonOptions);
+        invoice.Should().NotBeNull();
+        invoice!.LineItems.Should().ContainSingle();
+        invoice.LineItems.Single().TaxCodeId.Should().Be(taxCodeId);
+        invoice.LineItems.Single().TaxRate.Should().Be(taxRate);
+        invoice.TaxAmount.Should().Be(invoice.LineItems.Single().TaxAmount);
+        invoice.TaxRate.Should().Be(taxRate);
+    }
+
+    [Fact]
+    public async Task PurchaseOrderToGrnToBill_PreservesLineTaxCodeId()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid taxCodeId;
+        Guid warehouseId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+            await dbContext.SaveChangesAsync();
+            contactId = supplier.Id;
+            taxCodeId = await dbContext.TaxCodes
+                .Where(x => x.CompanyId == companyId && x.IsActive && (x.Scope == TaxScope.Purchase || x.Scope == TaxScope.Both))
+                .Select(x => x.Id)
+                .FirstAsync();
+            warehouseId = await dbContext.Warehouses.Where(x => x.CompanyId == companyId && x.IsActive).Select(x => x.Id).FirstAsync();
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/purchases/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "PO-PROP",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Purchase line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null, taxCodeId }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var purchaseOrder = await createOrderResponse.Content.ReadFromJsonAsync<PurchaseOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        purchaseOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder!.Id}/status", new { status = "Sent" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder.Id}/status", new { status = "Approved" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var createGrnResponse = await client.PostAsJsonAsync("/api/purchases/grns", new
+        {
+            companyId,
+            purchaseOrderId = purchaseOrder.Id,
+            warehouseId,
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "GRN-PROP",
+            notes = "",
+            lines = new[]
+            {
+                new { purchaseOrderLineId = purchaseOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        createGrnResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var grn = await createGrnResponse.Content.ReadFromJsonAsync<GoodsReceivedNoteDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        grn.Should().NotBeNull();
+        grn!.Lines.Should().ContainSingle();
+        grn.Lines.Single().TaxCodeId.Should().Be(taxCodeId);
+
+        (await client.PatchAsJsonAsync($"/api/purchases/grns/{grn.Id}/status", new { status = "Received" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var createBillResponse = await client.PostAsJsonAsync($"/api/purchases/grns/{grn.Id}/convert-to-bill", new
+        {
+            dueDateUtc = DateTime.UtcNow.AddDays(7),
+            paymentTermId = (Guid?)null,
+            referenceNo = "PB-PROP",
+            notes = "",
+            lines = new[]
+            {
+                new { goodsReceivedNoteLineId = grn.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        createBillResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var bill = await createBillResponse.Content.ReadFromJsonAsync<PurchaseBillDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        bill.Should().NotBeNull();
+        bill!.Lines.Should().ContainSingle();
+        bill.Lines.Single().TaxCodeId.Should().Be(taxCodeId);
     }
 
     private async Task<AuthVerifyResponse> VerifyLatestRegistrationAsync(string email)

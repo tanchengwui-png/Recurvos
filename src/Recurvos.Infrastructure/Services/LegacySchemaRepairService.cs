@@ -649,12 +649,17 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             ALTER TABLE "PurchaseOrderLines" ADD COLUMN IF NOT EXISTS "TaxCodeId" uuid NULL;
             ALTER TABLE "GoodsReceivedNoteLines" ADD COLUMN IF NOT EXISTS "TaxCodeId" uuid NULL;
             ALTER TABLE "PurchaseBillLines" ADD COLUMN IF NOT EXISTS "TaxCodeId" uuid NULL;
+            ALTER TABLE "InvoiceLineItems" ADD COLUMN IF NOT EXISTS "TaxCodeId" uuid NULL;
+            ALTER TABLE "InvoiceLineItems" ADD COLUMN IF NOT EXISTS "TaxRate" numeric(5,2) NOT NULL DEFAULT 0;
+            ALTER TABLE "InvoiceLineItems" ADD COLUMN IF NOT EXISTS "TaxAmount" numeric(18,2) NOT NULL DEFAULT 0;
+            ALTER TABLE "InvoiceLineItems" ADD COLUMN IF NOT EXISTS "LineTotal" numeric(18,2) NOT NULL DEFAULT 0;
             CREATE INDEX IF NOT EXISTS "IX_SalesQuotationLines_TaxCodeId" ON "SalesQuotationLines" ("TaxCodeId");
             CREATE INDEX IF NOT EXISTS "IX_SalesOrderLines_TaxCodeId" ON "SalesOrderLines" ("TaxCodeId");
             CREATE INDEX IF NOT EXISTS "IX_DeliveryOrderLines_TaxCodeId" ON "DeliveryOrderLines" ("TaxCodeId");
             CREATE INDEX IF NOT EXISTS "IX_PurchaseOrderLines_TaxCodeId" ON "PurchaseOrderLines" ("TaxCodeId");
             CREATE INDEX IF NOT EXISTS "IX_GoodsReceivedNoteLines_TaxCodeId" ON "GoodsReceivedNoteLines" ("TaxCodeId");
             CREATE INDEX IF NOT EXISTS "IX_PurchaseBillLines_TaxCodeId" ON "PurchaseBillLines" ("TaxCodeId");
+            CREATE INDEX IF NOT EXISTS "IX_InvoiceLineItems_TaxCodeId" ON "InvoiceLineItems" ("TaxCodeId");
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""

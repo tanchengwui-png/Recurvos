@@ -1503,12 +1503,12 @@ export function InvoicesPage() {
                     </div>
                     <div className="invoice-detail-list invoice-detail-list-spacious">
                       {selectedInvoice.lineItems.map((line) => (
-                        <div key={`${line.description}-${line.totalAmount}`} className="invoice-detail-list-row invoice-detail-list-row-top">
+                        <div key={`${line.description}-${line.lineTotal}`} className="invoice-detail-list-row invoice-detail-list-row-top">
                           <div className="invoice-detail-line-copy">
                             <strong>{line.description}</strong>
                             <span className="muted">{`${line.quantity} x ${formatCurrency(line.unitAmount, selectedInvoice.currency)}`}</span>
                           </div>
-                          <strong>{formatCurrency(line.totalAmount, selectedInvoice.currency)}</strong>
+                          <strong>{formatCurrency(line.lineTotal, selectedInvoice.currency)}</strong>
                         </div>
                       ))}
                     </div>

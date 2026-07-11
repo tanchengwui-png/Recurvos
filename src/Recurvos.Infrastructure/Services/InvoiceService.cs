@@ -123,21 +123,12 @@ public sealed class InvoiceService(
         var invoiceNumber = await GenerateInvoiceNumberAsync(companyId, cancellationToken);
         var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(companyId, cancellationToken);
         var companyAddress = await ResolveCompanyInvoiceAddressAsync(companyId, request.CompanyAddressId, cancellationToken);
-        var lineItems = request.LineItems.Select(item => new InvoiceLineItem
-        {
-            CompanyId = companyId,
-            SubscriptionItemId = null,
-            Description = item.Description.Trim(),
-            Quantity = item.Quantity,
-            UnitAmount = item.UnitAmount,
-            TotalAmount = item.Quantity * item.UnitAmount
-        }).ToList();
-
-        var total = lineItems.Sum(x => x.TotalAmount);
-        var taxProfile = ResolveTaxProfile(invoiceSettings);
-        var taxAmount = CalculateTaxAmount(total, taxProfile);
-        var grandTotal = total + taxAmount;
+        var lineItems = await BuildManualInvoiceLinesAsync(companyId, request.LineItems, cancellationToken);
+        var subtotal = lineItems.Sum(x => x.TotalAmount);
+        var taxAmount = lineItems.Sum(x => x.TaxAmount);
+        var grandTotal = lineItems.Sum(x => x.LineTotal);
         var issueDateUtc = DateTime.UtcNow;
+        var taxSnapshot = await ResolveInvoiceTaxSnapshotAsync(companyId, lineItems, cancellationToken);
         var resolvedCurrency = await ResolveAndValidateInvoiceCurrencyAsync(
             companyId,
             cancellationToken,
@@ -152,12 +143,12 @@ public sealed class InvoiceService(
             IssueDateUtc = issueDateUtc,
             DueDateUtc = request.DueDateUtc.ToUniversalTime(),
             SourceType = InvoiceSourceType.Manual,
-            Subtotal = total,
+            Subtotal = subtotal,
             TaxAmount = taxAmount,
-            IsTaxEnabled = taxProfile.IsEnabled,
-            TaxName = taxProfile.IsEnabled ? taxProfile.Name : null,
-            TaxRate = taxProfile.IsEnabled ? taxProfile.Rate : null,
-            TaxRegistrationNo = taxProfile.IsEnabled ? taxProfile.RegistrationNo : null,
+            IsTaxEnabled = taxSnapshot.IsTaxEnabled,
+            TaxName = taxSnapshot.TaxName,
+            TaxRate = taxSnapshot.TaxRate,
+            TaxRegistrationNo = taxSnapshot.TaxRegistrationNo,
             Total = grandTotal,
             AmountDue = grandTotal,
             AmountPaid = 0,
@@ -176,8 +167,9 @@ public sealed class InvoiceService(
             invoice.IssueDateUtc,
             invoice.DueDateUtc,
             lineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
-            total,
-            taxProfile,
+            subtotal,
+            new CompanyTaxProfile(invoice.IsTaxEnabled, invoice.TaxName ?? "Tax", invoice.TaxRate, invoice.TaxRegistrationNo),
+            taxAmount,
             invoice.Currency,
             cancellationToken);
         invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(companyId, invoiceNumber, pdf, cancellationToken);
@@ -350,6 +342,7 @@ public sealed class InvoiceService(
             items,
             total,
             taxProfile,
+            null,
             await ResolveCompanyCurrencyAsync(companyId, cancellationToken),
             cancellationToken);
 
@@ -1800,7 +1793,8 @@ public sealed class InvoiceService(
             invoice.LineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
             invoice.Subtotal,
             invoice.Currency,
-            paymentConfirmationLink);
+            paymentConfirmationLink,
+            explicitTaxTotal: invoice.TaxAmount);
 
         invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(invoice.CompanyId, invoice.InvoiceNumber, pdf, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1968,6 +1962,7 @@ public sealed class InvoiceService(
         IEnumerable<(string Description, decimal Quantity, decimal UnitAmount, decimal TotalAmount)> items,
         decimal total,
         CompanyTaxProfile taxProfile,
+        decimal? explicitTaxAmount,
         string currency,
         CancellationToken cancellationToken)
     {
@@ -2001,7 +1996,8 @@ public sealed class InvoiceService(
             null,
             items,
             total,
-            currency);
+            currency,
+            explicitTaxTotal: explicitTaxAmount);
     }
 
     private async Task<GeneratedSubscriptionInvoice?> CreateSubscriptionInvoiceAsync(
@@ -2344,6 +2340,7 @@ public sealed class InvoiceService(
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private sealed record CompanyTaxProfile(bool IsEnabled, string Name, decimal? Rate, string? RegistrationNo);
+    private sealed record InvoiceTaxSnapshot(bool IsTaxEnabled, string? TaxName, decimal? TaxRate, string? TaxRegistrationNo);
     private sealed record GeneratedSubscriptionInvoice(Invoice? Invoice, byte[] PdfContent);
 
     private async Task<CompanyInvoiceSettings> EnsureCompanyInvoiceSettingsAsync(Guid companyId, CancellationToken cancellationToken)
@@ -2546,14 +2543,21 @@ public sealed class InvoiceService(
                 throw new InvalidOperationException($"Invoice quantity for '{sourceLine.Description}' exceeds the remaining quantity.");
             }
 
+            var lineSubtotal = Math.Round(request.Quantity * sourceLine.UnitPrice, 2, MidpointRounding.AwayFromZero);
+            var lineTax = Math.Round(lineSubtotal * (sourceLine.TaxRate / 100m), 2, MidpointRounding.AwayFromZero);
+
             lines.Add(new InvoiceLineItem
             {
                 CompanyId = companyId,
                 SalesOrderLineId = sourceLine.Id,
+                TaxCodeId = sourceLine.TaxCodeId,
                 Description = sourceLine.Description,
                 Quantity = request.Quantity,
                 UnitAmount = sourceLine.UnitPrice,
-                TotalAmount = Math.Round(request.Quantity * sourceLine.UnitPrice, 2, MidpointRounding.AwayFromZero),
+                TaxRate = sourceLine.TaxRate,
+                TaxAmount = lineTax,
+                TotalAmount = lineSubtotal,
+                LineTotal = lineSubtotal + lineTax,
             });
         }
 
@@ -2587,15 +2591,22 @@ public sealed class InvoiceService(
             var sourceLine = salesOrder.Lines.FirstOrDefault(x => x.Id == deliveryLine.SalesOrderLineId)
                 ?? throw new InvalidOperationException("Selected sales order line was not found.");
 
+            var lineSubtotal = Math.Round(request.Quantity * deliveryLine.UnitPrice, 2, MidpointRounding.AwayFromZero);
+            var lineTax = Math.Round(lineSubtotal * (deliveryLine.TaxRate / 100m), 2, MidpointRounding.AwayFromZero);
+
             lines.Add(new InvoiceLineItem
             {
                 CompanyId = companyId,
                 SalesOrderLineId = sourceLine.Id,
                 DeliveryOrderLineId = deliveryLine.Id,
+                TaxCodeId = deliveryLine.TaxCodeId ?? sourceLine.TaxCodeId,
                 Description = deliveryLine.Description,
                 Quantity = request.Quantity,
                 UnitAmount = deliveryLine.UnitPrice,
-                TotalAmount = Math.Round(request.Quantity * deliveryLine.UnitPrice, 2, MidpointRounding.AwayFromZero),
+                TaxRate = deliveryLine.TaxRate,
+                TaxAmount = lineTax,
+                TotalAmount = lineSubtotal,
+                LineTotal = lineSubtotal + lineTax,
             });
         }
 
@@ -2614,14 +2625,13 @@ public sealed class InvoiceService(
         CancellationToken cancellationToken)
     {
         var invoiceNumber = await GenerateInvoiceNumberAsync(companyId, cancellationToken);
-        var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(companyId, cancellationToken);
         var companyAddress = await ResolveCompanyInvoiceAddressAsync(companyId, null, cancellationToken);
-        var total = lineItems.Sum(x => x.TotalAmount);
-        var taxProfile = ResolveTaxProfile(invoiceSettings);
-        var taxAmount = CalculateTaxAmount(total, taxProfile);
-        var grandTotal = total + taxAmount;
+        var subtotal = lineItems.Sum(x => x.TotalAmount);
+        var taxAmount = lineItems.Sum(x => x.TaxAmount);
+        var grandTotal = lineItems.Sum(x => x.LineTotal);
         var issueDateUtc = DateTime.UtcNow;
         var resolvedDueDateUtc = await ResolveDueDateAsync(companyId, paymentTermId, issueDateUtc, dueDateUtc, cancellationToken);
+        var taxSnapshot = await ResolveInvoiceTaxSnapshotAsync(companyId, lineItems, cancellationToken);
         var invoice = new Invoice
         {
             CompanyId = companyId,
@@ -2633,12 +2643,12 @@ public sealed class InvoiceService(
             IssueDateUtc = issueDateUtc,
             DueDateUtc = resolvedDueDateUtc,
             SourceType = InvoiceSourceType.Manual,
-            Subtotal = total,
+            Subtotal = subtotal,
             TaxAmount = taxAmount,
-            IsTaxEnabled = taxProfile.IsEnabled,
-            TaxName = taxProfile.IsEnabled ? taxProfile.Name : null,
-            TaxRate = taxProfile.IsEnabled ? taxProfile.Rate : null,
-            TaxRegistrationNo = taxProfile.IsEnabled ? taxProfile.RegistrationNo : null,
+            IsTaxEnabled = taxSnapshot.IsTaxEnabled,
+            TaxName = taxSnapshot.TaxName,
+            TaxRate = taxSnapshot.TaxRate,
+            TaxRegistrationNo = taxSnapshot.TaxRegistrationNo,
             Total = grandTotal,
             AmountDue = grandTotal,
             AmountPaid = 0,
@@ -2662,8 +2672,9 @@ public sealed class InvoiceService(
             invoice.IssueDateUtc,
             invoice.DueDateUtc,
             lineItems.Select(x => (x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)),
-            total,
-            taxProfile,
+            subtotal,
+            new CompanyTaxProfile(invoice.IsTaxEnabled, invoice.TaxName ?? "Tax", invoice.TaxRate, invoice.TaxRegistrationNo),
+            taxAmount,
             invoice.Currency,
             cancellationToken);
         invoice.PdfPath = await invoiceStorage.SaveInvoicePdfAsync(companyId, invoiceNumber, pdf, cancellationToken);
@@ -2847,12 +2858,106 @@ public sealed class InvoiceService(
             invoice.Currency,
             invoice.CompanyAddressSnapshot,
             invoice.PdfPath,
-            invoice.LineItems.Select(x => new InvoiceLineItemDto(x.Description, x.Quantity, x.UnitAmount, x.TotalAmount)).ToList(),
+            invoice.LineItems.Select(x => new InvoiceLineItemDto(x.TaxCodeId, x.Description, x.Quantity, x.UnitAmount, x.TaxRate, x.TaxAmount, x.TotalAmount, x.LineTotal)).ToList(),
             history.TryGetValue(invoice.Id, out var entries) ? entries : Array.Empty<InvoiceHistoryDto>(),
             invoice.CreditNotes.OrderByDescending(x => x.IssuedAtUtc).Select(CreditNoteService.Map).ToList(),
             invoice.Refunds.OrderByDescending(x => x.CreatedAtUtc).Select(RefundService.Map).ToList(),
             invoice.CreditNotes.Where(x => x.Status == CreditNoteStatus.Issued).Sum(x => x.TotalReduction),
             Math.Max(0, invoice.Total - invoice.CreditNotes.Where(x => x.Status == CreditNoteStatus.Issued).Sum(x => x.TotalReduction)));
+
+    private async Task<List<InvoiceLineItem>> BuildManualInvoiceLinesAsync(Guid companyId, IReadOnlyCollection<CreateInvoiceLineItemRequest> requests, CancellationToken cancellationToken)
+    {
+        var lines = new List<InvoiceLineItem>();
+        foreach (var request in requests)
+        {
+            if (string.IsNullOrWhiteSpace(request.Description))
+            {
+                throw new InvalidOperationException("Each line requires a description.");
+            }
+
+            var taxCode = await LoadSalesTaxCodeAsync(companyId, request.TaxCodeId, cancellationToken)
+                ?? throw new InvalidOperationException("Select a tax code for each line.");
+            var lineSubtotal = Math.Round(request.Quantity * request.UnitAmount, 2, MidpointRounding.AwayFromZero);
+            var lineTax = Math.Round(lineSubtotal * (taxCode.Rate / 100m), 2, MidpointRounding.AwayFromZero);
+
+            lines.Add(new InvoiceLineItem
+            {
+                CompanyId = companyId,
+                Description = request.Description.Trim(),
+                Quantity = request.Quantity,
+                UnitAmount = request.UnitAmount,
+                TaxCodeId = taxCode.Id,
+                TaxRate = taxCode.Rate,
+                TaxAmount = lineTax,
+                TotalAmount = lineSubtotal,
+                LineTotal = lineSubtotal + lineTax,
+            });
+        }
+
+        return lines;
+    }
+
+    private async Task<InvoiceTaxSnapshot> ResolveInvoiceTaxSnapshotAsync(Guid companyId, IReadOnlyCollection<InvoiceLineItem> lineItems, CancellationToken cancellationToken)
+    {
+        var taxLines = lineItems
+            .Where(x => x.TaxCodeId.HasValue || x.TaxRate != 0m || x.TaxAmount != 0m)
+            .ToList();
+        if (taxLines.Count == 0)
+        {
+            return new InvoiceTaxSnapshot(false, null, null, null);
+        }
+
+        var distinctTaxIds = taxLines
+            .Where(x => x.TaxCodeId.HasValue)
+            .Select(x => x.TaxCodeId!.Value)
+            .Distinct()
+            .ToList();
+        var taxCodes = distinctTaxIds.Count == 0
+            ? new Dictionary<Guid, TaxCode>()
+            : await dbContext.TaxCodes
+                .Where(x => x.CompanyId == companyId && distinctTaxIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, cancellationToken);
+        var distinctRates = taxLines.Select(x => x.TaxRate).Distinct().ToList();
+        var settings = await EnsureCompanyInvoiceSettingsAsync(companyId, cancellationToken);
+
+        string taxName;
+        if (distinctTaxIds.Count == 1
+            && taxCodes.TryGetValue(distinctTaxIds[0], out var taxCode)
+            && !string.IsNullOrWhiteSpace(taxCode.Name))
+        {
+            taxName = taxCode.Name.Trim();
+        }
+        else if (distinctRates.Count == 1)
+        {
+            taxName = "Tax";
+        }
+        else
+        {
+            taxName = "Mixed Tax";
+        }
+
+        return new InvoiceTaxSnapshot(
+            true,
+            taxName,
+            distinctRates.Count == 1 ? distinctRates[0] : null,
+            string.IsNullOrWhiteSpace(settings?.TaxRegistrationNo) ? null : settings.TaxRegistrationNo.Trim());
+    }
+
+    private async Task<TaxCode?> LoadSalesTaxCodeAsync(Guid companyId, Guid? taxCodeId, CancellationToken cancellationToken)
+    {
+        if (!taxCodeId.HasValue || taxCodeId == Guid.Empty)
+        {
+            return null;
+        }
+
+        return await dbContext.TaxCodes.FirstOrDefaultAsync(
+                   x => x.CompanyId == companyId
+                     && x.Id == taxCodeId.Value
+                     && x.IsActive
+                     && (x.Scope == TaxScope.Sales || x.Scope == TaxScope.Both),
+                   cancellationToken)
+               ?? throw new InvalidOperationException("Select a valid tax code.");
+    }
 
     private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
 

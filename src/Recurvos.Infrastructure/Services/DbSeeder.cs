@@ -1026,6 +1026,30 @@ public sealed class DbSeeder(AppDbContext dbContext)
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "InvoiceLineItems"
+            ADD COLUMN IF NOT EXISTS "TaxCodeId" uuid NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "InvoiceLineItems"
+            ADD COLUMN IF NOT EXISTS "TaxRate" numeric(5,2) NOT NULL DEFAULT 0;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "InvoiceLineItems"
+            ADD COLUMN IF NOT EXISTS "TaxAmount" numeric(18,2) NOT NULL DEFAULT 0;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "InvoiceLineItems"
+            ADD COLUMN IF NOT EXISTS "LineTotal" numeric(18,2) NOT NULL DEFAULT 0;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS "IX_InvoiceLineItems_TaxCodeId" ON "InvoiceLineItems" ("TaxCodeId");
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE company_invoice_settings
             ALTER COLUMN "WhatsAppTemplate" TYPE character varying(2000);
             """, cancellationToken);
