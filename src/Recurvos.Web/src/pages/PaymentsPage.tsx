@@ -9,7 +9,7 @@ import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { Payment, PaymentConfirmation } from "../types";
+import type { FeatureAccess, Payment, PaymentConfirmation } from "../types";
 
 function getPaymentStatusClassName(status: string) {
   const normalized = status.toLowerCase();
@@ -111,13 +111,19 @@ export function PaymentsPage() {
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, pagination.currentPage, pagination.pageSize]);
 
   async function load() {
+    const access = await api.get<FeatureAccess>("/settings/feature-access").catch(() => null);
+    const paymentConfirmationsEnabled = access?.featureKeys.includes("public_payment_confirmation") ?? false;
+
     const [payments, confirmationList] = await Promise.all([
       api.get<Payment[]>("/payments"),
-      api.get<PaymentConfirmation[]>("/payment-confirmations"),
+      paymentConfirmationsEnabled ? api.get<PaymentConfirmation[]>("/payment-confirmations") : Promise.resolve([] as PaymentConfirmation[]),
     ]);
+
     setItems(payments);
     setConfirmations(confirmationList);
-    window.dispatchEvent(new Event("payment-confirmations-updated"));
+    if (paymentConfirmationsEnabled) {
+      window.dispatchEvent(new Event("payment-confirmations-updated"));
+    }
   }
 
   useEffect(() => {

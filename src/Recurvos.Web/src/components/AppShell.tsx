@@ -15,11 +15,23 @@ type NavEntry = {
   icon: string;
   disabled?: boolean;
   hint?: string;
+  activePrefixes?: string[];
+  isActive?: (pathname: string, hash: string) => boolean;
+  badgeKey?: "payments" | "feedback";
 };
 
 type NavSection = {
   title: string;
+  items?: NavEntry[];
+  groups?: NavGroup[];
+};
+
+type NavGroup = {
+  key: string;
+  label: string;
+  icon: string;
   items: NavEntry[];
+  activePrefixes?: string[];
 };
 
 function formatPackageLabel(packageCode?: string | null) {
@@ -102,6 +114,7 @@ function getPageLabel(pathname: string, isPlatformOwner: boolean) {
   if (pathname.startsWith("/contact-groups")) return "Contact Groups";
   if (pathname.startsWith("/products")) return "Products";
   if (pathname.startsWith("/plans")) return "Plans";
+  if (/^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname)) return "Statement of Account";
   if (pathname.startsWith("/customers")) return "Contacts";
   if (pathname.startsWith("/sales/quotations")) return "Sales Quotations";
   if (pathname.startsWith("/sales/orders")) return "Sales Orders";
@@ -132,6 +145,53 @@ function getPageLabel(pathname: string, isPlatformOwner: boolean) {
   if (pathname.startsWith("/settings")) return "Settings";
   if (pathname.startsWith("/help/quick-start")) return "Quick Start";
   return "Workspace";
+}
+
+function matchesPrefix(pathname: string, prefix: string) {
+  return prefix === "/"
+    ? pathname === "/"
+    : pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function getPathnameFromTarget(path: string) {
+  try {
+    return new URL(path, "https://recurvos.local").pathname;
+  } catch {
+    return path;
+  }
+}
+
+function getHashFromTarget(path: string) {
+  try {
+    return new URL(path, "https://recurvos.local").hash;
+  } catch {
+    return "";
+  }
+}
+
+function isNavEntryActive(entry: NavEntry, pathname: string, hash: string) {
+  if (entry.isActive) {
+    return entry.isActive(pathname, hash);
+  }
+
+  if (entry.activePrefixes?.some((prefix) => matchesPrefix(pathname, prefix))) {
+    return true;
+  }
+
+  const targetPathname = getPathnameFromTarget(entry.path);
+  const targetHash = getHashFromTarget(entry.path);
+
+  if (targetHash) {
+    return pathname === targetPathname && hash === targetHash;
+  }
+
+  return matchesPrefix(pathname, targetPathname);
+}
+
+function isNavGroupActive(group: NavGroup, pathname: string, hash: string) {
+  return group.items.some((item) => isNavEntryActive(item, pathname, hash))
+    || group.activePrefixes?.some((prefix) => matchesPrefix(pathname, prefix))
+    || false;
 }
 
 function renderNavIcon(icon: string) {
@@ -305,6 +365,7 @@ export function AppShell() {
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [packageBilling, setPackageBilling] = useState<SubscriberPackageBillingSummary | null>(null);
   const [companyCount, setCompanyCount] = useState<number | null>(null);
@@ -410,13 +471,15 @@ export function AppShell() {
         ? `/settings/billing-readiness?companyId=${companies[0].id}`
         : null;
 
-      const [access, billing, readiness, feedbackSummary, paymentConfirmations] = await Promise.all([
+      const [access, billing, readiness, feedbackSummary] = await Promise.all([
         api.get<FeatureAccess>("/settings/feature-access").catch(() => null),
         api.get<SubscriberPackageBillingSummary>("/package-billing").catch(() => null),
         readinessPath ? api.get<BillingReadiness>(readinessPath).catch(() => null) : Promise.resolve(null),
         api.get<FeedbackNotificationSummary>("/feedback/notifications").catch(() => null),
-        api.get<PaymentConfirmation[]>("/payment-confirmations").catch(() => null),
       ]);
+      const paymentConfirmations = access?.featureKeys.includes("public_payment_confirmation")
+        ? await api.get<PaymentConfirmation[]>("/payment-confirmations").catch(() => null)
+        : null;
 
       setFeatureAccess(access);
       setPackageBilling(billing);
@@ -432,7 +495,14 @@ export function AppShell() {
       return;
     }
 
+    const paymentConfirmationsEnabled = featureAccess?.featureKeys.includes("public_payment_confirmation") ?? false;
+
     const refreshPendingPaymentConfirmations = () => {
+      if (!paymentConfirmationsEnabled) {
+        setPendingPaymentConfirmationCount(0);
+        return;
+      }
+
       void api.get<PaymentConfirmation[]>("/payment-confirmations")
         .then((items) => setPendingPaymentConfirmationCount(items.filter((item) => item.status === "Pending").length))
         .catch(() => setPendingPaymentConfirmationCount(0));
@@ -445,12 +515,14 @@ export function AppShell() {
     };
 
     window.addEventListener("feedback-notifications-updated", refreshFeedbackNotifications);
-    window.addEventListener("payment-confirmations-updated", refreshPendingPaymentConfirmations);
+    if (paymentConfirmationsEnabled) {
+      window.addEventListener("payment-confirmations-updated", refreshPendingPaymentConfirmations);
+    }
     return () => {
       window.removeEventListener("feedback-notifications-updated", refreshFeedbackNotifications);
       window.removeEventListener("payment-confirmations-updated", refreshPendingPaymentConfirmations);
     };
-  }, [auth?.accessToken, auth?.isPlatformOwner]);
+  }, [auth?.accessToken, auth?.isPlatformOwner, featureAccess?.featureKeys]);
 
   const featureKeys = new Set((featureAccess?.featureKeys ?? []).map((key) => key.toLowerCase()));
   const primaryLinks = auth?.isPlatformOwner
@@ -466,39 +538,87 @@ export function AppShell() {
         { label: "WhatsApp Sessions", path: "/platform/whatsapp-sessions", icon: "phone" },
         { label: "Settings", path: "/platform/settings", icon: "settings" },
       ]
+    : [];
+  const tenantMainLinks: NavEntry[] = auth?.isPlatformOwner
+    ? []
     : [
         { label: "Dashboard", path: "/", icon: "dashboard", disabled: false, hint: "" },
         { label: "Companies", path: "/companies", icon: "company", disabled: false, hint: "" },
+        {
+          label: "Contacts",
+          path: "/customers",
+          icon: "users",
+          disabled: !featureKeys.has("customer_management"),
+          hint: getFeatureRequirementLabel(featureAccess, "customer_management"),
+          isActive: (pathname) => matchesPrefix(pathname, "/customers") && !/^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname),
+        },
         { label: "Products", path: "/products", icon: "box", disabled: false, hint: "" },
         { label: "Plans", path: "/plans", icon: "plan", disabled: false, hint: "" },
-        { label: "Contacts", path: "/customers", icon: "users", disabled: !featureKeys.has("customer_management"), hint: getFeatureRequirementLabel(featureAccess, "customer_management") },
-        { label: "Sales Quotations", path: "/sales/quotations", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+      ];
+  const tenantSalesLinks: NavEntry[] = auth?.isPlatformOwner
+    ? []
+    : [
+        { label: "Quotations", path: "/sales/quotations", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
         { label: "Sales Orders", path: "/sales/orders", icon: "list", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
         { label: "Delivery Orders", path: "/sales/delivery-orders", icon: "box", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        {
+          label: "Invoices",
+          path: "/invoices",
+          icon: "invoice",
+          disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")),
+          hint: getFeatureRequirementLabel(featureAccess, "manual_invoices"),
+          isActive: (pathname) => matchesPrefix(pathname, "/invoices") || matchesPrefix(pathname, "/sales/invoices"),
+        },
+        {
+          label: "Payments",
+          path: "/payments",
+          icon: "payment",
+          disabled: !featureKeys.has("payment_tracking"),
+          hint: getFeatureRequirementLabel(featureAccess, "payment_tracking"),
+          badgeKey: "payments",
+        },
+        { label: "Subscriptions", path: "/subscriptions", icon: "repeat", disabled: !featureKeys.has("recurring_invoices"), hint: getFeatureRequirementLabel(featureAccess, "recurring_invoices") },
+      ];
+  const tenantPurchaseLinks: NavEntry[] = auth?.isPlatformOwner
+    ? []
+    : [
         { label: "Purchase Orders", path: "/purchases/orders", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
         { label: "Goods Received Notes", path: "/purchases/grns", icon: "box", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
-        { label: "Purchase Bills", path: "/purchases/bills", icon: "invoice", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
-        { label: "Purchase Payments", path: "/purchases/payments", icon: "payment", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
-        { label: "Purchase Credit Notes", path: "/purchases/credit-notes", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
-        { label: "Purchase Refunds", path: "/purchases/refunds", icon: "finance", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
-        { label: "Subscriptions", path: "/subscriptions", icon: "repeat", disabled: !featureKeys.has("recurring_invoices"), hint: getFeatureRequirementLabel(featureAccess, "recurring_invoices") },
-        { label: "Invoices", path: "/invoices", icon: "invoice", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
-        { label: "Payments", path: "/payments", icon: "payment", disabled: !featureKeys.has("payment_tracking"), hint: getFeatureRequirementLabel(featureAccess, "payment_tracking") },
-        { label: "Finance", path: "/finance", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+        { label: "Bills", path: "/purchases/bills", icon: "invoice", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Credit Notes", path: "/purchases/credit-notes", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Payments", path: "/purchases/payments", icon: "payment", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
+        { label: "Refunds", path: "/purchases/refunds", icon: "finance", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
       ];
   const accountLinks = auth?.isPlatformOwner
     ? []
     : ([
         { label: "Quick Start", path: "/help/quick-start", icon: "rocket" },
-        { label: "Feedback", path: "/feedback", icon: "message" },
+        { label: "Feedback", path: "/feedback", icon: "message", badgeKey: "feedback" },
         { label: "My Plan", path: "/package-billing", icon: "plan" },
         { label: "Settings", path: "/settings", icon: "settings" },
         { label: "Notification History", path: "/whatsapp-messages", icon: "mail" },
       ] satisfies NavEntry[]);
+  const financeLinks: NavEntry[] = auth?.isPlatformOwner
+    ? []
+    : [
+        {
+          label: "Statement of Account",
+          path: "/customers#statement-of-account",
+          icon: "finance",
+          disabled: !featureKeys.has("customer_management"),
+          hint: getFeatureRequirementLabel(featureAccess, "customer_management"),
+          isActive: (pathname, hash) => (pathname === "/customers" && hash === "#statement-of-account") || /^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname),
+        },
+        { label: "AR Aging", path: "/finance#ar-aging", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+        { label: "AP Aging", path: "/finance#ap-aging", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+        { label: "Journal Entries", path: "/finance#journal-entries", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+        { label: "Trial Balance", path: "/finance#trial-balance", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+        { label: "Profit & Loss", path: "/finance#profit-and-loss", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+        { label: "Balance Sheet", path: "/finance#balance-sheet", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
+      ];
   const foundationLinks: NavEntry[] = auth?.isPlatformOwner
     ? []
     : [
-        { label: "Foundation", path: "/foundation", icon: "list" },
         { label: "Chart of Accounts", path: "/foundation/chart-of-accounts", icon: "finance" },
         { label: "Tax Codes", path: "/foundation/tax-codes", icon: "document" },
         { label: "Payment Terms", path: "/foundation/payment-terms", icon: "payment" },
@@ -533,11 +653,95 @@ export function AppShell() {
         { title: "Platform", items: (primaryLinks as NavEntry[]).filter((item) => !["Dashboard", "Subscribers"].includes(item.label)) },
       ]
     : [
-        { title: "Main", items: (primaryLinks as NavEntry[]).filter((item) => ["Dashboard", "Companies", "Products", "Plans"].includes(item.label)) },
-        { title: "Apps", items: (primaryLinks as NavEntry[]).filter((item) => !["Dashboard", "Companies", "Products", "Plans"].includes(item.label)) },
-        { title: "Foundation", items: foundationLinks },
+        { title: "Main", items: tenantMainLinks },
+        { title: "Sales", groups: [{ key: "sales", label: "Sales", icon: "invoice", items: tenantSalesLinks, activePrefixes: ["/sales", "/invoices", "/payments", "/subscriptions"] }] },
+        { title: "Purchases", groups: [{ key: "purchases", label: "Purchases", icon: "document", items: tenantPurchaseLinks, activePrefixes: ["/purchases"] }] },
+        { title: "Finance", groups: [{ key: "finance", label: "Finance", icon: "finance", items: financeLinks, activePrefixes: ["/finance"] }] },
+        { title: "Foundation", groups: [{ key: "foundation", label: "Foundation", icon: "list", items: foundationLinks, activePrefixes: ["/foundation"] }] },
         { title: "Account", items: accountLinks },
       ];
+
+  useEffect(() => {
+    if (auth?.isPlatformOwner) {
+      return;
+    }
+
+    const activeGroupKeys = navSections
+      .flatMap((section) => section.groups ?? [])
+      .filter((group) => isNavGroupActive(group, location.pathname, location.hash))
+      .map((group) => group.key);
+
+    setExpandedGroups((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      for (const key of activeGroupKeys) {
+        if (!next[key]) {
+          next[key] = true;
+          changed = true;
+        }
+      }
+
+      if (!changed && Object.keys(current).length > 0) {
+        return current;
+      }
+
+      if (!changed && activeGroupKeys.length === 0) {
+        return current;
+      }
+
+      return next;
+    });
+  }, [auth?.isPlatformOwner, location.hash, location.pathname, navSections]);
+
+  function toggleGroup(groupKey: string) {
+    setExpandedGroups((current) => ({
+      ...current,
+      [groupKey]: !current[groupKey],
+    }));
+  }
+
+  function renderNavItem(item: NavEntry, compact = false) {
+    const active = isNavEntryActive(item, location.pathname, location.hash);
+    const badgeCount = item.badgeKey === "payments"
+      ? pendingPaymentConfirmationCount
+      : item.badgeKey === "feedback"
+        ? feedbackUnreadCount
+        : 0;
+
+    if (item.disabled) {
+      return (
+        <button
+          key={item.path}
+          type="button"
+          className={`nav-link nav-link-disabled${compact ? " nav-link-compact" : ""}`}
+          title={item.hint}
+          onClick={() => {}}
+        >
+          <span className="nav-link-main">
+            <span className="nav-link-icon">{renderNavIcon(item.icon)}</span>
+            <span>{item.label}</span>
+          </span>
+          <span className="nav-link-badge nav-link-badge-muted">{(item.hint ?? "").replace("Available on ", "")}</span>
+        </button>
+      );
+    }
+
+    return (
+      <NavLink
+        key={item.path}
+        to={item.path}
+        className={`nav-link ${active ? "active" : ""}${compact ? " nav-link-compact" : ""}`}
+        onClick={() => setMobileNavOpen(false)}
+      >
+        <span className="nav-link-main">
+          <span className="nav-link-icon">{renderNavIcon(item.icon)}</span>
+          <span>{item.label}</span>
+        </span>
+        {badgeCount > 0 ? <span className="nav-link-badge">{badgeCount}</span> : null}
+      </NavLink>
+    );
+  }
 
   function formatDate(value: string) {
     return new Intl.DateTimeFormat("en-MY", {
@@ -648,45 +852,48 @@ export function AppShell() {
         </div>
         <div className="sidebar-scroll-nav">
           {navSections.map((section) => (
-            section.items.length > 0 ? (
+            (section.items?.length || section.groups?.length) ? (
               <div key={section.title} className="sidebar-section">
                 <p className="sidebar-section-label">{section.title}</p>
-                <nav className="nav nav-secondary">
-                  {section.items.map((item) => (
-                    item.disabled ? (
-                      <button
-                        key={item.path}
-                        type="button"
-                        className="nav-link nav-link-disabled"
-                        title={item.hint}
-                        onClick={() => {}}
-                      >
-                        <span className="nav-link-main">
-                          <span className="nav-link-icon">{renderNavIcon(item.icon)}</span>
-                          <span>{item.label}</span>
-                        </span>
-                        <span className="nav-link-badge nav-link-badge-muted">{(item.hint ?? "").replace("Available on ", "")}</span>
-                      </button>
-                    ) : (
-                      <NavLink
-                        key={item.path}
-                        to={item.path}
-                        className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}
-                        onClick={() => setMobileNavOpen(false)}
-                      >
-                        <span className="nav-link-main">
-                          <span className="nav-link-icon">{renderNavIcon(item.icon)}</span>
-                          <span>{item.label}</span>
-                        </span>
-                        {item.label === "Payments" && pendingPaymentConfirmationCount > 0 ? (
-                          <span className="nav-link-badge">{pendingPaymentConfirmationCount}</span>
-                        ) : item.label === "Feedback" && feedbackUnreadCount > 0 ? (
-                          <span className="nav-link-badge">{feedbackUnreadCount}</span>
-                        ) : null}
-                      </NavLink>
-                    )
-                  ))}
-                </nav>
+                {section.items?.length ? (
+                  <nav className="nav nav-secondary">
+                    {section.items.map((item) => renderNavItem(item))}
+                  </nav>
+                ) : null}
+                {section.groups?.length ? (
+                  <div className="sidebar-group-stack">
+                    {section.groups.map((group) => {
+                      const groupActive = isNavGroupActive(group, location.pathname, location.hash);
+                      const expanded = expandedGroups[group.key] ?? groupActive;
+
+                      return (
+                        <div key={group.key} className={`sidebar-parent-group ${groupActive ? "sidebar-parent-group-active" : ""}`}>
+                          <button
+                            type="button"
+                            className={`sidebar-parent-trigger ${groupActive ? "sidebar-parent-trigger-active" : ""}`}
+                            aria-expanded={expanded}
+                            onClick={() => toggleGroup(group.key)}
+                          >
+                            <span className="nav-link-main">
+                              <span className="nav-link-icon">{renderNavIcon(group.icon)}</span>
+                              <span>{group.label}</span>
+                            </span>
+                            <span className={`sidebar-parent-caret ${expanded ? "sidebar-parent-caret-open" : ""}`} aria-hidden="true">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="m6 9 6 6 6-6" />
+                              </svg>
+                            </span>
+                          </button>
+                          {expanded ? (
+                            <nav className="nav nav-secondary sidebar-child-nav">
+                              {group.items.map((item) => renderNavItem(item, true))}
+                            </nav>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
             ) : null
           ))}

@@ -22,8 +22,17 @@ public sealed class PaymentConfirmationsController(IPaymentConfirmationService p
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyCollection<PendingPaymentConfirmationDto>>> Get(CancellationToken cancellationToken) =>
-        Ok(await paymentConfirmationService.GetPendingAsync(cancellationToken));
+    public async Task<ActionResult<IReadOnlyCollection<PendingPaymentConfirmationDto>>> Get(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await paymentConfirmationService.GetPendingAsync(cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status403Forbidden, title: exception.Message);
+        }
+    }
 
     [HttpPost("invoices/{invoiceId:guid}/link")]
     [Authorize(Policy = "ManageBilling")]

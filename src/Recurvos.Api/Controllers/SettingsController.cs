@@ -22,12 +22,30 @@ public sealed class SettingsController(ISettingsService settingsService) : Contr
         Ok(await featureEntitlementService.GetCurrentAccessAsync(cancellationToken));
 
     [HttpGet("billing-readiness")]
-    public async Task<ActionResult<BillingReadinessDto>> GetBillingReadiness([FromServices] IBillingReadinessService billingReadinessService, [FromQuery] Guid? companyId, CancellationToken cancellationToken) =>
-        Ok(await billingReadinessService.GetAsync(companyId, cancellationToken));
+    public async Task<ActionResult<BillingReadinessDto>> GetBillingReadiness([FromServices] IBillingReadinessService billingReadinessService, [FromQuery] Guid? companyId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await billingReadinessService.GetAsync(companyId, cancellationToken));
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status403Forbidden, title: string.IsNullOrWhiteSpace(exception.Message) ? "You do not have access to this company." : exception.Message);
+        }
+    }
 
     [HttpGet("invoice-settings")]
-    public async Task<ActionResult<CompanyInvoiceSettingsDto>> GetInvoiceSettings([FromQuery] Guid? companyId, CancellationToken cancellationToken) =>
-        Ok(await settingsService.GetCompanyInvoiceSettingsAsync(companyId, cancellationToken));
+    public async Task<ActionResult<CompanyInvoiceSettingsDto>> GetInvoiceSettings([FromQuery] Guid? companyId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await settingsService.GetCompanyInvoiceSettingsAsync(companyId, cancellationToken));
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status403Forbidden, title: string.IsNullOrWhiteSpace(exception.Message) ? "You do not have access to this company." : exception.Message);
+        }
+    }
 
     [HttpPut("invoice-settings")]
     [Authorize(Policy = "OwnerOnly")]

@@ -224,9 +224,9 @@ app.UseExceptionHandler(exceptionApp =>
         var (statusCode, title) = exception switch
         {
             UnauthorizedAccessException unauthorizedException when !string.IsNullOrWhiteSpace(unauthorizedException.Message)
-                => (StatusCodes.Status401Unauthorized, unauthorizedException.Message),
+                => (StatusCodes.Status403Forbidden, unauthorizedException.Message),
             UnauthorizedAccessException
-                => (StatusCodes.Status401Unauthorized, "You are not authorized to perform this action."),
+                => (StatusCodes.Status403Forbidden, "You are not authorized to perform this action."),
             NullReferenceException
                 => (StatusCodes.Status400BadRequest, "We couldn't create your account right now. Please try again."),
             InvalidOperationException invalidOperationException when invalidOperationException.Message.Contains("circular dependency", StringComparison.OrdinalIgnoreCase)

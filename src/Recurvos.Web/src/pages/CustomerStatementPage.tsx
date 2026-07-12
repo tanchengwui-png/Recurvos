@@ -1,13 +1,54 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { RowActionMenu } from "../components/RowActionMenu";
 import { HelperText } from "../components/ui/HelperText";
+import { useClipboardWithFallback } from "../hooks/useClipboardWithFallback";
 import { api } from "../lib/api";
-import { copyTextToClipboard } from "../lib/clipboard";
 import { formatCurrency } from "../lib/format";
 import type { Customer, StatementOfAccountReport } from "../types";
 
 type StatementType = "customer" | "supplier";
 type ColumnKey = "date" | "document" | "description" | "debit" | "credit" | "balance";
+type StatementActionType = "export-pdf" | "export-excel" | "share-email" | "share-link";
+
+type StatementActionConfig = {
+  statementType: StatementType;
+  presetPeriod: string;
+  startDate: string;
+  endDate: string;
+  periods: number;
+  daysPerPeriod: number;
+  contactPerson: string;
+  columns: ColumnKey[];
+  includeOutstandingOnly: boolean;
+  remarks: string;
+  emailTo: string;
+  cc: string;
+  replyTo: string;
+  subject: string;
+  personalMessage: string;
+};
+
+const statementActionLabels: Record<StatementActionType, string> = {
+  "export-pdf": "Export PDF",
+  "export-excel": "Export Excel",
+  "share-email": "Share via Email",
+  "share-link": "Share via Link",
+};
+
+const statementActionDescriptions: Record<StatementActionType, string> = {
+  "export-pdf": "Confirm the statement filters and output settings before exporting the PDF.",
+  "export-excel": "Confirm the statement filters and output settings before exporting the Excel file.",
+  "share-email": "Review the statement filters, then prepare the email details before sending.",
+  "share-link": "Confirm the statement filters before generating a shareable statement link.",
+};
+
+const statementActionSubmitLabels: Record<StatementActionType, string> = {
+  "export-pdf": "Export PDF",
+  "export-excel": "Export Excel",
+  "share-email": "Send",
+  "share-link": "Generate Link",
+};
 
 const columnOptions: { key: ColumnKey; label: string }[] = [
   { key: "date", label: "Date" },
@@ -113,6 +154,60 @@ function buildStatementPath(contactId: string, statementType: StatementType, sta
   return `/statements?${params.toString()}`;
 }
 
+function toggleColumnSelection(current: ColumnKey[], column: ColumnKey, checked: boolean) {
+  if (checked) {
+    return current.includes(column) ? current : [...current, column];
+  }
+
+  const next = current.filter((item) => item !== column);
+  return next.length === 0 ? current : next;
+}
+
+function buildStatementPageSearchParams(config: StatementActionConfig) {
+  const params = new URLSearchParams();
+  params.set("type", config.statementType);
+  params.set("preset", config.presetPeriod);
+  if (config.startDate) {
+    params.set("from", config.startDate);
+  }
+  if (config.endDate) {
+    params.set("to", config.endDate);
+  }
+  params.set("periods", String(config.periods));
+  params.set("days", String(config.daysPerPeriod));
+  if (config.contactPerson !== "all") {
+    params.set("person", config.contactPerson);
+  }
+  params.set("columns", config.columns.join(","));
+  if (config.includeOutstandingOnly) {
+    params.set("outstanding", "1");
+  }
+  return params;
+}
+
+function buildMailtoLink(to: string, cc: string, subject: string, body: string) {
+  const params = new URLSearchParams();
+  if (cc.trim()) {
+    params.set("cc", cc.trim());
+  }
+  if (subject.trim()) {
+    params.set("subject", subject.trim());
+  }
+  if (body.trim()) {
+    params.set("body", body);
+  }
+
+  const query = params.toString();
+  return `mailto:${encodeURIComponent(to.trim())}${query ? `?${query}` : ""}`;
+}
+
+function formatPresetPeriodLabel(value: string) {
+  return value
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function CustomerStatementPage() {
   const navigate = useNavigate();
   const { id = "" } = useParams();
@@ -134,6 +229,11 @@ export function CustomerStatementPage() {
     ?? ["date", "document", "description", "debit", "credit", "balance"],
   );
   const [includeOutstandingOnly, setIncludeOutstandingOnly] = useState(searchParams.get("outstanding") === "1");
+  const [actionModalType, setActionModalType] = useState<StatementActionType | null>(null);
+  const [actionConfig, setActionConfig] = useState<StatementActionConfig | null>(null);
+  const [actionSubmitting, setActionSubmitting] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const { copyTextWithFallback, clipboardFallbackModal } = useClipboardWithFallback();
 
   useEffect(() => {
     async function load() {
@@ -206,6 +306,21 @@ export function CustomerStatementPage() {
     setStartDate(range.start);
     setEndDate(range.end);
   }, [daysPerPeriod, periods, presetPeriod]);
+
+  useEffect(() => {
+    if (!actionConfig || actionConfig.presetPeriod === "custom") {
+      return;
+    }
+
+    const range = getPresetRange(actionConfig.presetPeriod, actionConfig.periods, actionConfig.daysPerPeriod);
+    if (!range) {
+      return;
+    }
+
+    if (range.start !== actionConfig.startDate || range.end !== actionConfig.endDate) {
+      setActionConfig((current) => current ? { ...current, startDate: range.start, endDate: range.end } : current);
+    }
+  }, [actionConfig]);
 
   useEffect(() => {
     const nextParams = new URLSearchParams(searchParams);
@@ -292,25 +407,43 @@ export function CustomerStatementPage() {
   const statementCurrency = statement?.currencyCode || selectedContact?.currency || "MYR";
 
   function toggleColumn(column: ColumnKey, checked: boolean) {
-    setColumns((current) => {
-      if (checked) {
-        return current.includes(column) ? current : [...current, column];
-      }
-
-      const next = current.filter((item) => item !== column);
-      return next.length === 0 ? current : next;
-    });
+    setColumns((current) => toggleColumnSelection(current, column, checked));
   }
 
-  function buildPrintableHtml() {
-    const rowsMarkup = statementRows.map((row) => `
+  function getDefaultActionConfig(actionType: StatementActionType): StatementActionConfig {
+    const defaultEmail = selectedContactPerson?.email || selectedContact?.emailAddresses[0] || selectedContact?.email || "";
+    const contactName = selectedContact?.legalName || selectedContact?.name || "Contact";
+
+    return {
+      statementType,
+      presetPeriod,
+      startDate,
+      endDate,
+      periods,
+      daysPerPeriod,
+      contactPerson,
+      columns,
+      includeOutstandingOnly,
+      remarks: "",
+      emailTo: defaultEmail,
+      cc: "",
+      replyTo: "",
+      subject: `${statementLabel} - ${contactName}`,
+      personalMessage: actionType === "share-email" ? `Please find the ${statementLabel.toLowerCase()} for ${contactName}.` : "",
+    };
+  }
+
+  function buildPrintableHtml(report: StatementOfAccountReport, config: StatementActionConfig) {
+    const orderedColumns = columnOptions.filter((option) => config.columns.includes(option.key));
+    const configContactPerson = selectedContact?.contactPersons.find((person) => person.name === config.contactPerson) ?? null;
+    const rowsMarkup = (report.rows ?? []).map((row) => `
       <tr>
-        ${columns.includes("date") ? `<td>${escapeHtml(formatDate(row.dateUtc))}</td>` : ""}
-        ${columns.includes("document") ? `<td>${escapeHtml(row.documentNumber)}</td>` : ""}
-        ${columns.includes("description") ? `<td>${escapeHtml(row.description)}</td>` : ""}
-        ${columns.includes("debit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.debit, row.currencyCode || statementCurrency))}</td>` : ""}
-        ${columns.includes("credit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.credit, row.currencyCode || statementCurrency))}</td>` : ""}
-        ${columns.includes("balance") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.balance, statementCurrency))}</td>` : ""}
+        ${config.columns.includes("date") ? `<td>${escapeHtml(formatDate(row.dateUtc))}</td>` : ""}
+        ${config.columns.includes("document") ? `<td>${escapeHtml(row.documentNumber)}</td>` : ""}
+        ${config.columns.includes("description") ? `<td>${escapeHtml(row.description)}</td>` : ""}
+        ${config.columns.includes("debit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.debit, row.currencyCode || report.currencyCode))}</td>` : ""}
+        ${config.columns.includes("credit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.credit, row.currencyCode || report.currencyCode))}</td>` : ""}
+        ${config.columns.includes("balance") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.balance, report.currencyCode))}</td>` : ""}
       </tr>
     `).join("");
 
@@ -335,92 +468,198 @@ export function CustomerStatementPage() {
   <p>${escapeHtml(selectedContact?.legalName || selectedContact?.name || "-")}</p>
   <div class="meta">
     <div class="meta-item"><strong>Contact Type</strong><br />${escapeHtml(selectedContact?.contactType || "-")}</div>
-    <div class="meta-item"><strong>Period</strong><br />${escapeHtml(`${startDate || "-"} to ${endDate || "-"}`)}</div>
-    <div class="meta-item"><strong>Contact Person</strong><br />${escapeHtml(selectedContactPerson?.name || "-")}</div>
+    <div class="meta-item"><strong>Period</strong><br />${escapeHtml(`${config.startDate || "-"} to ${config.endDate || "-"}`)}</div>
+    <div class="meta-item"><strong>Contact Person</strong><br />${escapeHtml(configContactPerson?.name || (config.contactPerson === "all" ? "All contact persons" : "-"))}</div>
   </div>
+  ${config.remarks.trim() ? `<p><strong>Remarks</strong><br />${escapeHtml(config.remarks)}</p>` : ""}
   <table>
     <thead>
       <tr>
-        ${columns.includes("date") ? "<th>Date</th>" : ""}
-        ${columns.includes("document") ? "<th>Document No.</th>" : ""}
-        ${columns.includes("description") ? "<th>Description</th>" : ""}
-        ${columns.includes("debit") ? "<th>Debit</th>" : ""}
-        ${columns.includes("credit") ? "<th>Credit</th>" : ""}
-        ${columns.includes("balance") ? "<th>Balance</th>" : ""}
+        ${orderedColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("")}
       </tr>
     </thead>
-    <tbody>${rowsMarkup || `<tr><td colspan="${columns.length}">No transactions found.</td></tr>`}</tbody>
+    <tbody>${rowsMarkup || `<tr><td colspan="${Math.max(orderedColumns.length, 1)}">No transactions found.</td></tr>`}</tbody>
   </table>
   <h2 style="margin-top:24px;">Aging Summary</h2>
   <div class="aging">
-    <div class="aging-item"><strong>Current</strong><br />${escapeHtml(formatCurrency(agingBuckets.current, statementCurrency))}</div>
-    <div class="aging-item"><strong>1-30 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days1To30, statementCurrency))}</div>
-    <div class="aging-item"><strong>31-60 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days31To60, statementCurrency))}</div>
-    <div class="aging-item"><strong>61-90 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days61To90, statementCurrency))}</div>
-    <div class="aging-item"><strong>91+ Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days91Plus, statementCurrency))}</div>
-    <div class="aging-item"><strong>Total</strong><br />${escapeHtml(formatCurrency(agingBuckets.totalOutstanding, statementCurrency))}</div>
+    <div class="aging-item"><strong>Current</strong><br />${escapeHtml(formatCurrency(report.aging.current, report.currencyCode))}</div>
+    <div class="aging-item"><strong>1-30 Days</strong><br />${escapeHtml(formatCurrency(report.aging.days1To30, report.currencyCode))}</div>
+    <div class="aging-item"><strong>31-60 Days</strong><br />${escapeHtml(formatCurrency(report.aging.days31To60, report.currencyCode))}</div>
+    <div class="aging-item"><strong>61-90 Days</strong><br />${escapeHtml(formatCurrency(report.aging.days61To90, report.currencyCode))}</div>
+    <div class="aging-item"><strong>91+ Days</strong><br />${escapeHtml(formatCurrency(report.aging.days91Plus, report.currencyCode))}</div>
+    <div class="aging-item"><strong>Total</strong><br />${escapeHtml(formatCurrency(report.aging.totalOutstanding, report.currencyCode))}</div>
   </div>
 </body>
 </html>`;
   }
 
-  function handlePrint() {
-    window.print();
+  function buildStatementCsv(report: StatementOfAccountReport, config: StatementActionConfig) {
+    const orderedColumns = columnOptions.filter((option) => config.columns.includes(option.key));
+    const headers = orderedColumns.map((option) => option.label);
+    const dataRows = report.rows.map((row) => orderedColumns.map((option) => {
+      switch (option.key) {
+        case "date":
+          return formatDate(row.dateUtc);
+        case "document":
+          return row.documentNumber;
+        case "description":
+          return row.description;
+        case "debit":
+          return row.debit.toFixed(2);
+        case "credit":
+          return row.credit.toFixed(2);
+        case "balance":
+          return row.balance.toFixed(2);
+        default:
+          return "";
+      }
+    }));
+    const detailRows = [
+      ["Statement Type", config.statementType === "supplier" ? "Supplier Statement" : "Customer Statement"],
+      ["Reporting Period", config.presetPeriod.replaceAll("-", " ")],
+      ["Date Range", `${config.startDate || "-"} to ${config.endDate || "-"}`],
+      ["Periods", String(config.periods)],
+      ["Days / Period", String(config.daysPerPeriod)],
+      ["Contact Person", config.contactPerson === "all" ? "All contact persons" : config.contactPerson],
+      ["Include Outstanding Only", config.includeOutstandingOnly ? "Yes" : "No"],
+      ["Remarks", config.remarks],
+      [],
+      ["Aging Summary"],
+      ["Current", report.aging.current.toFixed(2)],
+      ["1-30 Days", report.aging.days1To30.toFixed(2)],
+      ["31-60 Days", report.aging.days31To60.toFixed(2)],
+      ["61-90 Days", report.aging.days61To90.toFixed(2)],
+      ["91+ Days", report.aging.days91Plus.toFixed(2)],
+      ["Total", report.aging.totalOutstanding.toFixed(2)],
+    ];
+
+    return [headers, ...dataRows, [], ...detailRows]
+      .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
+      .join("\n");
   }
 
-  function handleExportPdf() {
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
-    if (!popup) {
-      setMessage("Allow popups to export the statement as PDF.");
+  function openActionModal(type: StatementActionType) {
+    setActionError("");
+    setActionModalType(type);
+    setActionConfig(getDefaultActionConfig(type));
+  }
+
+  function closeActionModal() {
+    if (actionSubmitting) {
       return;
     }
 
+    setActionError("");
+    setActionModalType(null);
+    setActionConfig(null);
+  }
+
+  async function loadStatementForAction(config: StatementActionConfig) {
+    return api.get<StatementOfAccountReport>(
+      buildStatementPath(id, config.statementType, config.startDate, config.endDate, config.contactPerson, config.includeOutstandingOnly),
+    );
+  }
+
+  function buildShareUrl(config: StatementActionConfig) {
+    const params = buildStatementPageSearchParams(config);
+    return `${window.location.origin}/customers/${id}/statement?${params.toString()}`;
+  }
+
+  async function exportPdf(config: StatementActionConfig) {
+    const report = await loadStatementForAction(config);
+    const popup = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
+    if (!popup) {
+      throw new Error("Allow popups to export the statement as PDF.");
+    }
+
     popup.document.open();
-    popup.document.write(buildPrintableHtml());
+    popup.document.write(buildPrintableHtml(report, config));
     popup.document.close();
     popup.focus();
     popup.print();
   }
 
-  function handleExportExcel() {
-    const headers = columnOptions.filter((option) => columns.includes(option.key)).map((option) => option.label);
-    const dataRows = statementRows.map((row) => [
-      columns.includes("date") ? formatDate(row.dateUtc) : null,
-      columns.includes("document") ? row.documentNumber : null,
-      columns.includes("description") ? row.description : null,
-      columns.includes("debit") ? row.debit.toFixed(2) : null,
-      columns.includes("credit") ? row.credit.toFixed(2) : null,
-      columns.includes("balance") ? row.balance.toFixed(2) : null,
-    ].filter((value) => value !== null));
-    const agingRows = [
-      [],
-      ["Aging Summary"],
-      ["Current", agingBuckets.current.toFixed(2)],
-      ["1-30 Days", agingBuckets.days1To30.toFixed(2)],
-      ["31-60 Days", agingBuckets.days31To60.toFixed(2)],
-      ["61-90 Days", agingBuckets.days61To90.toFixed(2)],
-      ["91+ Days", agingBuckets.days91Plus.toFixed(2)],
-      ["Total", agingBuckets.totalOutstanding.toFixed(2)],
-    ];
-    const csv = [headers, ...dataRows, ...agingRows]
-      .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
-      .join("\n");
+  async function exportExcel(config: StatementActionConfig) {
+    const report = await loadStatementForAction(config);
+    const csv = buildStatementCsv(report, config);
     downloadTextFile(csv, `${selectedContact?.legalName || selectedContact?.name || "statement"}-statement.csv`, "text/csv;charset=utf-8");
   }
 
-  async function handleShare() {
-    const url = window.location.href;
-    if (navigator.share) {
-      await navigator.share({
-        title: `${statementLabel} - ${selectedContact?.legalName || selectedContact?.name || "Contact"}`,
-        text: `Statement of account for ${selectedContact?.legalName || selectedContact?.name || "contact"}`,
-        url,
-      });
+  async function shareViaLink(config: StatementActionConfig) {
+    const url = buildShareUrl(config);
+    const payload = config.remarks.trim() ? `${config.remarks.trim()}\n\n${url}` : url;
+    await copyTextWithFallback({
+      title: "Copy statement link",
+      text: payload,
+      description: "Copy this statement link to share the configured statement view.",
+      onCopied: () => setMessage("Statement link copied to clipboard."),
+      onCopyFailed: (copyError) => setMessage(copyError.message),
+    });
+  }
+
+  async function shareViaEmail(config: StatementActionConfig) {
+    const url = buildShareUrl(config);
+    const bodyLines = [
+      config.personalMessage.trim() || `Please find the ${statementLabel.toLowerCase()} link below.`,
+      "",
+      `Statement Type: ${config.statementType === "supplier" ? "Supplier Statement" : "Customer Statement"}`,
+      `Reporting Period: ${formatPresetPeriodLabel(config.presetPeriod)}`,
+      `Date Range: ${config.startDate || "-"} to ${config.endDate || "-"}`,
+      `Periods: ${config.periods}`,
+      `Days / Period: ${config.daysPerPeriod}`,
+      `Contact Person: ${config.contactPerson === "all" ? "All contact persons" : config.contactPerson}`,
+      `Columns: ${columnOptions.filter((option) => config.columns.includes(option.key)).map((option) => option.label).join(", ")}`,
+      `Include Outstanding Only: ${config.includeOutstandingOnly ? "Yes" : "No"}`,
+      config.remarks.trim() ? `Remarks: ${config.remarks.trim()}` : "",
+      config.replyTo.trim() ? `Reply-To: ${config.replyTo.trim()}` : "",
+      "",
+      url,
+    ].filter(Boolean);
+
+    if (!config.emailTo.trim()) {
+      throw new Error("Email To is required.");
+    }
+
+    const mailto = buildMailtoLink(config.emailTo, config.cc, config.subject, bodyLines.join("\n"));
+    window.open(mailto, "_blank", "noopener,noreferrer");
+    setMessage("Opened your email client with the statement link.");
+  }
+
+  async function handleActionConfirm() {
+    if (!actionModalType || !actionConfig) {
       return;
     }
 
-    await copyTextToClipboard(url);
-    setMessage("Statement link copied to clipboard.");
+    try {
+      setActionSubmitting(true);
+      setActionError("");
+
+      switch (actionModalType) {
+        case "export-pdf":
+          await exportPdf(actionConfig);
+          setMessage("Statement PDF export started.");
+          break;
+        case "export-excel":
+          await exportExcel(actionConfig);
+          setMessage("Statement Excel export started.");
+          break;
+        case "share-email":
+          await shareViaEmail(actionConfig);
+          break;
+        case "share-link":
+          await shareViaLink(actionConfig);
+          break;
+        default:
+          break;
+      }
+
+      setActionModalType(null);
+      setActionConfig(null);
+    } catch (submitError) {
+      setActionError(submitError instanceof Error ? submitError.message : "Unable to complete this action.");
+    } finally {
+      setActionSubmitting(false);
+    }
   }
 
   if (loading) {
@@ -454,10 +693,22 @@ export function CustomerStatementPage() {
         </div>
         <div className="contact-page-actions">
           <button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Back to contacts</button>
-          <button type="button" className="button button-secondary" onClick={handlePrint}>Print</button>
-          <button type="button" className="button button-secondary" onClick={handleExportPdf}>Export PDF</button>
-          <button type="button" className="button button-secondary" onClick={handleExportExcel}>Export Excel</button>
-          <button type="button" className="button button-primary" onClick={() => void handleShare()}>Share</button>
+          <div className="statement-action-toolbar">
+            <RowActionMenu
+              label="Share ▼"
+              items={[
+                { label: "Via Email", onClick: () => openActionModal("share-email") },
+                { label: "Via Link", onClick: () => openActionModal("share-link") },
+              ]}
+            />
+            <RowActionMenu
+              label="Export ▼"
+              items={[
+                { label: "PDF", onClick: () => openActionModal("export-pdf") },
+                { label: "Excel", onClick: () => openActionModal("export-excel") },
+              ]}
+            />
+          </div>
         </div>
       </header>
       {message ? <HelperText>{message}</HelperText> : null}
@@ -644,6 +895,220 @@ export function CustomerStatementPage() {
           <div className="statement-aging-card statement-aging-card-total"><span>Total</span><strong>{formatCurrency(agingBuckets.totalOutstanding, statementCurrency)}</strong></div>
         </div>
       </section>
+      {clipboardFallbackModal}
+      {actionModalType && actionConfig ? (
+        <div className="modal-backdrop" role="presentation" onClick={closeActionModal}>
+          <div
+            className="modal-card card statement-action-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="statement-action-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="statement-action-modal-header">
+              <div>
+                <p className="eyebrow">Statement Output Setup</p>
+                <h3 id="statement-action-modal-title">{statementActionLabels[actionModalType]}</h3>
+                <p className="muted statement-action-modal-description">{statementActionDescriptions[actionModalType]}</p>
+              </div>
+              <button type="button" className="button button-secondary button-compact" onClick={closeActionModal} disabled={actionSubmitting}>Close</button>
+            </div>
+            <div className="statement-action-modal-section">
+              <div className="statement-action-section-heading">
+                <span className="statement-columns-label">Statement Filters</span>
+                <span className="muted">Defaults are loaded from the current statement view and can be adjusted here.</span>
+              </div>
+            </div>
+            <div className="statement-action-modal-grid">
+              <label className="form-label">
+                Statement Type
+                <select
+                  value={actionConfig.statementType}
+                  onChange={(event) => setActionConfig((current) => current ? { ...current, statementType: event.target.value as StatementType } : current)}
+                  disabled={availableStatementTypes.length <= 1 || actionSubmitting}
+                >
+                  {availableStatementTypes.map((type) => (
+                    <option key={type} value={type}>{type === "supplier" ? "Supplier Statement" : "Customer Statement"}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-label">
+                Reporting Period
+                <select
+                  value={actionConfig.presetPeriod}
+                  onChange={(event) => setActionConfig((current) => current ? { ...current, presetPeriod: event.target.value } : current)}
+                  disabled={actionSubmitting}
+                >
+                  <option value="this-month">This month</option>
+                  <option value="last-month">Last month</option>
+                  <option value="last-30-days">Last 30 days</option>
+                  <option value="this-year">This year</option>
+                  <option value="rolling">Rolling periods</option>
+                  <option value="custom">Custom range</option>
+                </select>
+              </label>
+              <label className="form-label statement-action-modal-wide">
+                Date Range
+                <div className="statement-action-date-range">
+                  <input
+                    type="date"
+                    className="text-input"
+                    value={actionConfig.startDate}
+                    onChange={(event) => setActionConfig((current) => current ? { ...current, presetPeriod: "custom", startDate: event.target.value } : current)}
+                    disabled={actionSubmitting}
+                  />
+                  <span className="statement-action-date-range-separator">to</span>
+                  <input
+                    type="date"
+                    className="text-input"
+                    value={actionConfig.endDate}
+                    onChange={(event) => setActionConfig((current) => current ? { ...current, presetPeriod: "custom", endDate: event.target.value } : current)}
+                    disabled={actionSubmitting}
+                  />
+                </div>
+              </label>
+              <label className="form-label">
+                Contact Person
+                <select
+                  value={actionConfig.contactPerson}
+                  onChange={(event) => setActionConfig((current) => current ? { ...current, contactPerson: event.target.value } : current)}
+                  disabled={actionSubmitting}
+                >
+                  <option value="all">All contact persons</option>
+                  {selectedContact.contactPersons.map((person) => (
+                    <option key={`${person.name}-${person.email}`} value={person.name}>{person.name || person.email || person.phoneNumber || "Unnamed contact person"}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-label">
+                Periods
+                <input
+                  type="number"
+                  min={1}
+                  className="text-input"
+                  value={actionConfig.periods}
+                  onChange={(event) => setActionConfig((current) => current ? { ...current, periods: Math.max(1, Number(event.target.value) || 1) } : current)}
+                  disabled={actionSubmitting}
+                />
+              </label>
+              <label className="form-label">
+                Days / Period
+                <input
+                  type="number"
+                  min={1}
+                  className="text-input"
+                  value={actionConfig.daysPerPeriod}
+                  onChange={(event) => setActionConfig((current) => current ? { ...current, daysPerPeriod: Math.max(1, Number(event.target.value) || 1) } : current)}
+                  disabled={actionSubmitting}
+                />
+              </label>
+            </div>
+            <div className="statement-action-modal-section">
+              <div className="statement-action-section-heading">
+                <span className="statement-columns-label">Columns</span>
+              </div>
+              <div className="statement-columns-grid">
+                {columnOptions.map((option) => (
+                  <label key={option.key} className="statement-column-toggle">
+                    <input
+                      type="checkbox"
+                      checked={actionConfig.columns.includes(option.key)}
+                      disabled={actionSubmitting}
+                      onChange={(event) => setActionConfig((current) => current ? { ...current, columns: toggleColumnSelection(current.columns, option.key, event.target.checked) } : current)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="statement-action-modal-section statement-action-modal-settings">
+              <label className="statement-column-toggle">
+                <input
+                  type="checkbox"
+                  checked={actionConfig.includeOutstandingOnly}
+                  disabled={actionSubmitting}
+                  onChange={(event) => setActionConfig((current) => current ? { ...current, includeOutstandingOnly: event.target.checked } : current)}
+                />
+                <span>Include Outstanding Only</span>
+              </label>
+              <label className="form-label">
+                Remarks
+                <textarea
+                  className="text-input statement-action-textarea"
+                  rows={3}
+                  value={actionConfig.remarks}
+                  onChange={(event) => setActionConfig((current) => current ? { ...current, remarks: event.target.value } : current)}
+                  disabled={actionSubmitting}
+                />
+              </label>
+            </div>
+            {actionModalType === "share-email" ? (
+              <div className="statement-action-modal-section">
+                <div className="statement-action-section-heading">
+                  <span className="statement-columns-label">Email Details</span>
+                </div>
+              </div>
+            ) : null}
+            {actionModalType === "share-email" ? (
+              <div className="statement-action-modal-grid">
+                <label className="form-label">
+                  Email To
+                  <input
+                    className="text-input"
+                    value={actionConfig.emailTo}
+                    onChange={(event) => setActionConfig((current) => current ? { ...current, emailTo: event.target.value } : current)}
+                    disabled={actionSubmitting}
+                  />
+                </label>
+                <label className="form-label">
+                  CC
+                  <input
+                    className="text-input"
+                    value={actionConfig.cc}
+                    onChange={(event) => setActionConfig((current) => current ? { ...current, cc: event.target.value } : current)}
+                    disabled={actionSubmitting}
+                  />
+                </label>
+                <label className="form-label">
+                  Reply-To
+                  <input
+                    className="text-input"
+                    value={actionConfig.replyTo}
+                    onChange={(event) => setActionConfig((current) => current ? { ...current, replyTo: event.target.value } : current)}
+                    disabled={actionSubmitting}
+                  />
+                </label>
+                <label className="form-label statement-action-modal-wide">
+                  Subject
+                  <input
+                    className="text-input"
+                    value={actionConfig.subject}
+                    onChange={(event) => setActionConfig((current) => current ? { ...current, subject: event.target.value } : current)}
+                    disabled={actionSubmitting}
+                  />
+                </label>
+                <label className="form-label statement-action-modal-wide">
+                  Personal Message
+                  <textarea
+                    className="text-input statement-action-textarea"
+                    rows={5}
+                    value={actionConfig.personalMessage}
+                    onChange={(event) => setActionConfig((current) => current ? { ...current, personalMessage: event.target.value } : current)}
+                    disabled={actionSubmitting}
+                  />
+                </label>
+              </div>
+            ) : null}
+            {actionError ? <HelperText tone="error">{actionError}</HelperText> : null}
+            <div className="modal-actions">
+              <button type="button" className="button button-secondary" onClick={closeActionModal} disabled={actionSubmitting}>Cancel</button>
+              <button type="button" className="button button-primary" onClick={() => void handleActionConfirm()} disabled={actionSubmitting}>
+                {actionSubmitting ? "Working..." : statementActionSubmitLabels[actionModalType]}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
