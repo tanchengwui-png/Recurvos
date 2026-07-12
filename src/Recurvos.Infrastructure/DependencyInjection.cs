@@ -30,12 +30,13 @@ using Recurvos.Infrastructure.Gateways;
 using Recurvos.Infrastructure.Jobs;
 using Recurvos.Infrastructure.Persistence;
 using Recurvos.Infrastructure.Services;
+using Microsoft.Extensions.Hosting;
 
 namespace Recurvos.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration, IHostEnvironment? environment = null)
     {
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
@@ -47,16 +48,21 @@ public static class DependencyInjection
 
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? "Host=localhost;Port=5432;Database=recurvos;Username=postgres;Password=postgres";
+        var isTesting = string.Equals(environment?.EnvironmentName, "Testing", StringComparison.OrdinalIgnoreCase);
 
         services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
-        services.AddHangfire(config => config.UsePostgreSqlStorage(
-            connectionString,
-            new PostgreSqlStorageOptions
-            {
-                SchemaName = "hangfire",
-                PrepareSchemaIfNecessary = true
-            }));
-        services.AddHangfireServer();
+
+        if (!isTesting)
+        {
+            services.AddHangfire(config => config.UsePostgreSqlStorage(
+                connectionString,
+                new PostgreSqlStorageOptions
+                {
+                    SchemaName = "hangfire",
+                    PrepareSchemaIfNecessary = true
+                }));
+            services.AddHangfireServer();
+        }
         services.AddHttpContextAccessor();
         services.AddMemoryCache();
 
@@ -101,6 +107,7 @@ public static class DependencyInjection
         services.AddScoped<ICreditNoteService, CreditNoteService>();
         services.AddScoped<IAccountingExportService, AccountingExportService>();
         services.AddScoped<IReconciliationService, ReconciliationService>();
+        services.AddScoped<IStatementService, StatementService>();
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IPlatformService, PlatformService>();
         services.AddScoped<ISubscriberPackageBillingService, SubscriberPackageBillingService>();

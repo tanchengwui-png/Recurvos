@@ -48,8 +48,8 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
         using var client = CreateClient();
         var response = await client.PostAsJsonAsync("/api/auth/login", new
         {
-            email = "tanchengwui+basic@hotmail.com",
-            password = "Passw0rd!"
+            email = "recurvos-basic@hotmail.com",
+            password = "P@ssw0rd!@#$%"
         });
         response.EnsureSuccessStatusCode();
         var auth = await response.Content.ReadFromJsonAsync<TestAuthResponse>(JsonOptions);
@@ -81,6 +81,7 @@ public sealed class FakeEmailSender : IEmailSender
         string body,
         IReadOnlyCollection<EmailAttachment>? attachments = null,
         IReadOnlyCollection<string>? cc = null,
+        EmailLogContext? logContext = null,
         CancellationToken cancellationToken = default)
     {
         Sent.Add((to, subject, body, attachments ?? Array.Empty<EmailAttachment>(), cc ?? Array.Empty<string>()));

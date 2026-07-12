@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -17,7 +18,7 @@ using Recurvos.Infrastructure.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddInfrastructure(builder.Configuration, builder.Environment);
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -34,6 +35,15 @@ builder.Services.AddCors(options =>
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
+});
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+    // Reverse proxies for staging/production are environment-specific, so avoid rejecting forwarded headers
+    // purely because the proxy IP is not pre-registered in app settings.
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
 });
 
 var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
@@ -169,9 +179,11 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var legacySchemaRepairService = scope.ServiceProvider.GetRequiredService<LegacySchemaRepairService>();
-    var hangfireBootstrapService = scope.ServiceProvider.GetRequiredService<HangfireBootstrapService>();
     if (resetDemoData)
     {
+        var hangfireBootstrapService = app.Environment.IsEnvironment("Testing")
+            ? null
+            : scope.ServiceProvider.GetRequiredService<HangfireBootstrapService>();
         await ResetDemoDataAsync(scope.ServiceProvider, dbContext, legacySchemaRepairService, hangfireBootstrapService);
         return;
     }
@@ -186,7 +198,11 @@ using (var scope = app.Services.CreateScope())
         await dbContext.Database.EnsureCreatedAsync();
     }
     await scope.ServiceProvider.GetRequiredService<DbSeeder>().SeedAsync();
-    hangfireBootstrapService.EnsureConfigured();
+
+    if (!app.Environment.IsEnvironment("Testing"))
+    {
+        scope.ServiceProvider.GetRequiredService<HangfireBootstrapService>().EnsureConfigured();
+    }
 }
 
 if (app.Environment.IsDevelopment())
@@ -227,18 +243,22 @@ app.UseExceptionHandler(exceptionApp =>
     });
 });
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseCors("Web");
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseHangfireDashboard("/hangfire");
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseHangfireDashboard("/hangfire");
+}
 
 app.MapControllers();
 
 app.Run();
 
-static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext, LegacySchemaRepairService legacySchemaRepairService, HangfireBootstrapService hangfireBootstrapService)
+static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext, LegacySchemaRepairService legacySchemaRepairService, HangfireBootstrapService? hangfireBootstrapService)
 {
     Console.WriteLine("Resetting Recurvos demo data...");
 
@@ -257,6 +277,8 @@ static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbC
     services.GetRequiredService<StorageResetService>().ClearAll();
 
     await services.GetRequiredService<DbSeeder>().SeedAsync();
+
+    hangfireBootstrapService?.EnsureConfigured();
 
     Console.WriteLine("Recurvos demo data reset complete.");
     Console.WriteLine("Restart the API process now so Hangfire can recreate its tables and recurring jobs.");

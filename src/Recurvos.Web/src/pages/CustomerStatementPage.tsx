@@ -4,20 +4,10 @@ import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { formatCurrency } from "../lib/format";
-import type { Customer, Invoice, Payment } from "../types";
+import type { Customer, StatementOfAccountReport } from "../types";
 
 type StatementType = "customer" | "supplier";
 type ColumnKey = "date" | "document" | "description" | "debit" | "credit" | "balance";
-type StatementRow = {
-  id: string;
-  invoiceId?: string;
-  dateUtc: string;
-  documentNumber: string;
-  description: string;
-  debit: number;
-  credit: number;
-  sortOrder: number;
-};
 
 const columnOptions: { key: ColumnKey; label: string }[] = [
   { key: "date", label: "Date" },
@@ -103,13 +93,32 @@ function downloadTextFile(content: string, fileName: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+function buildStatementPath(contactId: string, statementType: StatementType, startDate: string, endDate: string, contactPerson: string, includeOutstandingOnly: boolean) {
+  const params = new URLSearchParams();
+  params.set("contactId", contactId);
+  params.set("statementType", statementType === "supplier" ? "Supplier" : "Customer");
+  if (startDate) {
+    params.set("fromDateUtc", `${startDate}T00:00:00Z`);
+  }
+  if (endDate) {
+    params.set("toDateUtc", `${endDate}T23:59:59Z`);
+  }
+  if (contactPerson !== "all") {
+    params.set("contactPerson", contactPerson);
+  }
+  if (includeOutstandingOnly) {
+    params.set("includeOutstandingOnly", "true");
+  }
+
+  return `/statements?${params.toString()}`;
+}
+
 export function CustomerStatementPage() {
   const navigate = useNavigate();
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [statement, setStatement] = useState<StatementOfAccountReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -131,14 +140,8 @@ export function CustomerStatementPage() {
       try {
         setLoading(true);
         setError("");
-        const [customerList, invoiceList, paymentList] = await Promise.all([
-          api.get<Customer[]>("/customers"),
-          api.get<Invoice[]>("/invoices"),
-          api.get<Payment[]>("/payments").catch(() => []),
-        ]);
+        const customerList = await api.get<Customer[]>("/customers");
         setCustomers(customerList);
-        setInvoices(invoiceList);
-        setPayments(paymentList);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Unable to load statement data.");
       } finally {
@@ -238,134 +241,55 @@ export function CustomerStatementPage() {
     }
   }, [columns, contactPerson, daysPerPeriod, endDate, includeOutstandingOnly, periods, presetPeriod, searchParams, setSearchParams, startDate, statementType]);
 
-  const fromTime = startDate ? new Date(`${startDate}T00:00:00Z`).getTime() : Number.NEGATIVE_INFINITY;
-  const toTime = endDate ? new Date(`${endDate}T23:59:59Z`).getTime() : Number.POSITIVE_INFINITY;
-  const invoiceMap = new Map(invoices.map((invoice) => [invoice.id, invoice]));
-  const customerInvoices = selectedContact && statementType === "customer"
-    ? invoices.filter((invoice) => invoice.customerId === selectedContact.id)
-    : [];
-  const filteredCustomerInvoices = customerInvoices.filter((invoice) => {
-    const issuedAt = new Date(invoice.issueDateUtc).getTime();
-    return issuedAt >= fromTime && issuedAt <= toTime;
-  });
-  const outstandingInvoiceIds = new Set(filteredCustomerInvoices.filter((invoice) => invoice.balanceAmount > 0).map((invoice) => invoice.id));
-  const customerPayments = selectedContact && statementType === "customer"
-    ? payments.filter((payment) => {
-      const invoice = invoiceMap.get(payment.invoiceId);
-      if (!invoice || invoice.customerId !== selectedContact.id || payment.status !== "Succeeded" || !payment.paidAtUtc) {
-        return false;
+  useEffect(() => {
+    if (!selectedContact) {
+      setStatement(null);
+      return;
+    }
+
+    const selectedContactId = selectedContact.id;
+    let cancelled = false;
+
+    async function loadStatement() {
+      try {
+        setLoading(true);
+        setError("");
+        const report = await api.get<StatementOfAccountReport>(
+          buildStatementPath(selectedContactId, statementType, startDate, endDate, contactPerson, includeOutstandingOnly),
+        );
+
+        if (!cancelled) {
+          setStatement(report);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setStatement(null);
+          setError(loadError instanceof Error ? loadError.message : "Unable to load statement data.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
+    }
 
-      const paidAt = new Date(payment.paidAtUtc).getTime();
-      return paidAt >= fromTime && paidAt <= toTime;
-    })
-    : [];
+    void loadStatement();
 
-  const rawRows: StatementRow[] = statementType === "supplier"
-    ? []
-    : [
-        ...filteredCustomerInvoices.flatMap((invoice) => [
-          {
-            id: `invoice-${invoice.id}`,
-            invoiceId: invoice.id,
-            dateUtc: invoice.issueDateUtc,
-            documentNumber: invoice.invoiceNumber,
-            description: `Invoice ${invoice.invoiceNumber}`,
-            debit: invoice.total,
-            credit: 0,
-            sortOrder: 1,
-          },
-          ...invoice.creditNotes
-            .filter((creditNote) => creditNote.status === "Issued")
-            .map((creditNote) => ({
-              id: `credit-${creditNote.id}`,
-              invoiceId: invoice.id,
-              dateUtc: creditNote.issuedAtUtc,
-              documentNumber: creditNote.creditNoteNumber,
-              description: creditNote.reason ? `Credit note: ${creditNote.reason}` : `Credit note ${creditNote.creditNoteNumber}`,
-              debit: 0,
-              credit: creditNote.totalReduction,
-              sortOrder: 2,
-            })),
-        ]),
-        ...customerPayments.map((payment) => ({
-          id: `payment-${payment.id}`,
-          invoiceId: payment.invoiceId,
-          dateUtc: payment.paidAtUtc ?? "",
-          documentNumber: payment.externalPaymentId || payment.invoiceNumber,
-          description: `Payment received for ${payment.invoiceNumber}`,
-          debit: 0,
-          credit: payment.amount,
-          sortOrder: 3,
-        })),
-        ...customerPayments.flatMap((payment) =>
-          payment.refunds
-            .filter((refund) => refund.status === "Succeeded")
-            .map((refund) => ({
-              id: `refund-${refund.id}`,
-              invoiceId: payment.invoiceId,
-              dateUtc: refund.createdAtUtc,
-              documentNumber: refund.externalRefundId || payment.invoiceNumber,
-              description: refund.reason ? `Refund: ${refund.reason}` : `Refund for ${payment.invoiceNumber}`,
-              debit: refund.amount,
-              credit: 0,
-              sortOrder: 4,
-            })),
-        ),
-      ];
+    return () => {
+      cancelled = true;
+    };
+  }, [contactPerson, endDate, id, includeOutstandingOnly, selectedContact, startDate, statementType]);
 
-  const filteredRows = rawRows
-    .filter((row) => !includeOutstandingOnly || (row.invoiceId ? outstandingInvoiceIds.has(row.invoiceId) : false))
-    .sort((left, right) => {
-      const dateComparison = new Date(left.dateUtc).getTime() - new Date(right.dateUtc).getTime();
-      if (dateComparison !== 0) {
-        return dateComparison;
-      }
-
-      if (left.sortOrder !== right.sortOrder) {
-        return left.sortOrder - right.sortOrder;
-      }
-
-      return left.documentNumber.localeCompare(right.documentNumber);
-    });
-
-  let runningBalance = 0;
-  const statementRows = filteredRows.map((row) => {
-    runningBalance += row.debit - row.credit;
-    return { ...row, balance: runningBalance };
-  });
-
-  const agingBuckets = {
+  const statementRows = statement?.rows ?? [];
+  const agingBuckets = statement?.aging ?? {
     current: 0,
     days1To30: 0,
     days31To60: 0,
     days61To90: 0,
     days91Plus: 0,
-    total: 0,
+    totalOutstanding: 0,
   };
-
-  if (statementType === "customer") {
-    const today = new Date();
-    const invoicesForAging = filteredCustomerInvoices.filter((invoice) => invoice.balanceAmount > 0);
-    for (const invoice of invoicesForAging) {
-      const dueDate = new Date(invoice.dueDateUtc);
-      const ageInDays = Math.floor((today.getTime() - dueDate.getTime()) / 86_400_000);
-      const amount = invoice.balanceAmount;
-      agingBuckets.total += amount;
-
-      if (ageInDays <= 0) {
-        agingBuckets.current += amount;
-      } else if (ageInDays <= 30) {
-        agingBuckets.days1To30 += amount;
-      } else if (ageInDays <= 60) {
-        agingBuckets.days31To60 += amount;
-      } else if (ageInDays <= 90) {
-        agingBuckets.days61To90 += amount;
-      } else {
-        agingBuckets.days91Plus += amount;
-      }
-    }
-  }
+  const statementCurrency = statement?.currencyCode || selectedContact?.currency || "MYR";
 
   function toggleColumn(column: ColumnKey, checked: boolean) {
     setColumns((current) => {
@@ -384,9 +308,9 @@ export function CustomerStatementPage() {
         ${columns.includes("date") ? `<td>${escapeHtml(formatDate(row.dateUtc))}</td>` : ""}
         ${columns.includes("document") ? `<td>${escapeHtml(row.documentNumber)}</td>` : ""}
         ${columns.includes("description") ? `<td>${escapeHtml(row.description)}</td>` : ""}
-        ${columns.includes("debit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.debit, selectedContact?.currency || "MYR"))}</td>` : ""}
-        ${columns.includes("credit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.credit, selectedContact?.currency || "MYR"))}</td>` : ""}
-        ${columns.includes("balance") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.balance, selectedContact?.currency || "MYR"))}</td>` : ""}
+        ${columns.includes("debit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.debit, row.currencyCode || statementCurrency))}</td>` : ""}
+        ${columns.includes("credit") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.credit, row.currencyCode || statementCurrency))}</td>` : ""}
+        ${columns.includes("balance") ? `<td style="text-align:right;">${escapeHtml(formatCurrency(row.balance, statementCurrency))}</td>` : ""}
       </tr>
     `).join("");
 
@@ -429,12 +353,12 @@ export function CustomerStatementPage() {
   </table>
   <h2 style="margin-top:24px;">Aging Summary</h2>
   <div class="aging">
-    <div class="aging-item"><strong>Current</strong><br />${escapeHtml(formatCurrency(agingBuckets.current, selectedContact?.currency || "MYR"))}</div>
-    <div class="aging-item"><strong>1-30 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days1To30, selectedContact?.currency || "MYR"))}</div>
-    <div class="aging-item"><strong>31-60 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days31To60, selectedContact?.currency || "MYR"))}</div>
-    <div class="aging-item"><strong>61-90 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days61To90, selectedContact?.currency || "MYR"))}</div>
-    <div class="aging-item"><strong>91+ Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days91Plus, selectedContact?.currency || "MYR"))}</div>
-    <div class="aging-item"><strong>Total</strong><br />${escapeHtml(formatCurrency(agingBuckets.total, selectedContact?.currency || "MYR"))}</div>
+    <div class="aging-item"><strong>Current</strong><br />${escapeHtml(formatCurrency(agingBuckets.current, statementCurrency))}</div>
+    <div class="aging-item"><strong>1-30 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days1To30, statementCurrency))}</div>
+    <div class="aging-item"><strong>31-60 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days31To60, statementCurrency))}</div>
+    <div class="aging-item"><strong>61-90 Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days61To90, statementCurrency))}</div>
+    <div class="aging-item"><strong>91+ Days</strong><br />${escapeHtml(formatCurrency(agingBuckets.days91Plus, statementCurrency))}</div>
+    <div class="aging-item"><strong>Total</strong><br />${escapeHtml(formatCurrency(agingBuckets.totalOutstanding, statementCurrency))}</div>
   </div>
 </body>
 </html>`;
@@ -476,7 +400,7 @@ export function CustomerStatementPage() {
       ["31-60 Days", agingBuckets.days31To60.toFixed(2)],
       ["61-90 Days", agingBuckets.days61To90.toFixed(2)],
       ["91+ Days", agingBuckets.days91Plus.toFixed(2)],
-      ["Total", agingBuckets.total.toFixed(2)],
+      ["Total", agingBuckets.totalOutstanding.toFixed(2)],
     ];
     const csv = [headers, ...dataRows, ...agingRows]
       .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
@@ -558,8 +482,8 @@ export function CustomerStatementPage() {
           </div>
           <div className="statement-summary-item">
             <span className="statement-summary-label">Closing Balance</span>
-            <strong>{formatCurrency(statementRows[statementRows.length - 1]?.balance ?? 0, selectedContact.currency || "MYR")}</strong>
-            <span className="muted">{statementType === "supplier" ? "No payable transactions available in the current module set." : `${statementRows.length} transaction row(s)`}</span>
+            <strong>{formatCurrency(statement?.closingBalance ?? 0, statementCurrency)}</strong>
+            <span className="muted">{`${statementRows.length} transaction row(s)`}</span>
           </div>
         </div>
       </section>
@@ -656,6 +580,9 @@ export function CustomerStatementPage() {
             <span>Include Outstanding Only</span>
           </label>
         </div>
+        <HelperText>
+          Contact Person filtering is preserved for forward compatibility, but most current transaction records do not yet store transaction-level contact person references consistently, so statement results are not narrowed by that filter yet.
+        </HelperText>
       </section>
 
       <section className="card">
@@ -664,10 +591,6 @@ export function CustomerStatementPage() {
             <h3 className="section-title">Statement Output</h3>
           </div>
         </div>
-
-        {statementType === "supplier" ? (
-          <HelperText>Supplier statements are available, but payable transactions are not yet recorded by the current billing modules, so no rows are shown here.</HelperText>
-        ) : null}
 
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table statement-table">
@@ -696,9 +619,9 @@ export function CustomerStatementPage() {
                   {columns.includes("date") ? <td>{formatDate(row.dateUtc)}</td> : null}
                   {columns.includes("document") ? <td>{row.documentNumber}</td> : null}
                   {columns.includes("description") ? <td>{row.description}</td> : null}
-                  {columns.includes("debit") ? <td>{formatCurrency(row.debit, selectedContact.currency || "MYR")}</td> : null}
-                  {columns.includes("credit") ? <td>{formatCurrency(row.credit, selectedContact.currency || "MYR")}</td> : null}
-                  {columns.includes("balance") ? <td>{formatCurrency(row.balance, selectedContact.currency || "MYR")}</td> : null}
+                  {columns.includes("debit") ? <td>{formatCurrency(row.debit, row.currencyCode || statementCurrency)}</td> : null}
+                  {columns.includes("credit") ? <td>{formatCurrency(row.credit, row.currencyCode || statementCurrency)}</td> : null}
+                  {columns.includes("balance") ? <td>{formatCurrency(row.balance, statementCurrency)}</td> : null}
                 </tr>
               ))}
             </tbody>
@@ -713,12 +636,12 @@ export function CustomerStatementPage() {
           </div>
         </div>
         <div className="statement-aging-grid">
-          <div className="statement-aging-card"><span>Current</span><strong>{formatCurrency(agingBuckets.current, selectedContact.currency || "MYR")}</strong></div>
-          <div className="statement-aging-card"><span>1-30 Days</span><strong>{formatCurrency(agingBuckets.days1To30, selectedContact.currency || "MYR")}</strong></div>
-          <div className="statement-aging-card"><span>31-60 Days</span><strong>{formatCurrency(agingBuckets.days31To60, selectedContact.currency || "MYR")}</strong></div>
-          <div className="statement-aging-card"><span>61-90 Days</span><strong>{formatCurrency(agingBuckets.days61To90, selectedContact.currency || "MYR")}</strong></div>
-          <div className="statement-aging-card"><span>91+ Days</span><strong>{formatCurrency(agingBuckets.days91Plus, selectedContact.currency || "MYR")}</strong></div>
-          <div className="statement-aging-card statement-aging-card-total"><span>Total</span><strong>{formatCurrency(agingBuckets.total, selectedContact.currency || "MYR")}</strong></div>
+          <div className="statement-aging-card"><span>Current</span><strong>{formatCurrency(agingBuckets.current, statementCurrency)}</strong></div>
+          <div className="statement-aging-card"><span>1-30 Days</span><strong>{formatCurrency(agingBuckets.days1To30, statementCurrency)}</strong></div>
+          <div className="statement-aging-card"><span>31-60 Days</span><strong>{formatCurrency(agingBuckets.days31To60, statementCurrency)}</strong></div>
+          <div className="statement-aging-card"><span>61-90 Days</span><strong>{formatCurrency(agingBuckets.days61To90, statementCurrency)}</strong></div>
+          <div className="statement-aging-card"><span>91+ Days</span><strong>{formatCurrency(agingBuckets.days91Plus, statementCurrency)}</strong></div>
+          <div className="statement-aging-card statement-aging-card-total"><span>Total</span><strong>{formatCurrency(agingBuckets.totalOutstanding, statementCurrency)}</strong></div>
         </div>
       </section>
     </div>

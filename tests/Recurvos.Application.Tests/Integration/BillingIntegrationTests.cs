@@ -775,7 +775,8 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
                 .OrderByDescending(x => x.IssueDateUtc)
                 .FirstAsync();
             invoice.Status.Should().Be(InvoiceStatus.Open);
-        invoice.InvoiceNumber.Should().NotBeNullOrWhiteSpace();
+            invoice.InvoiceNumber.Should().NotBeNullOrWhiteSpace();
+        }
     }
 
     [Fact]
@@ -902,7 +903,6 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         repairedCustomer.PayableAccount.Should().Be("2100");
         repairedCustomer.IncomeAccount.Should().Be("4000");
         repairedCustomer.ExpenseAccount.Should().Be("5000");
-    }
     }
 
     [Fact]
@@ -3611,15 +3611,17 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
 
         Guid contactId;
         Guid taxCodeId;
+        decimal taxRate;
 
         await using (var scope = _factory.Services.CreateAsyncScope())
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
-            taxCodeId = await dbContext.TaxCodes
+            var taxCode = await dbContext.TaxCodes
                 .Where(x => x.CompanyId == companyId && x.IsActive && (x.Scope == TaxScope.Sales || x.Scope == TaxScope.Both))
-                .Select(x => x.Id)
                 .FirstAsync();
+            taxCodeId = taxCode.Id;
+            taxRate = taxCode.Rate;
         }
 
         var createOrderResponse = await client.PostAsJsonAsync("/api/sales/orders", new

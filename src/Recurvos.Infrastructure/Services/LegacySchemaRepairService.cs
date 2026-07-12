@@ -81,6 +81,12 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "AuditLogs"
+            ADD COLUMN IF NOT EXISTS "OldValue" text NULL,
+            ADD COLUMN IF NOT EXISTS "NewValue" text NULL;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "Customers"
             ADD COLUMN IF NOT EXISTS "LegalName" character varying(200) NULL,
             ADD COLUMN IF NOT EXISTS "OtherName" character varying(200) NULL,
@@ -115,6 +121,22 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             UPDATE "Customers"
             SET "LegalName" = COALESCE(NULLIF(TRIM("Name"), ''), "LegalName")
             WHERE "LegalName" IS NULL OR TRIM("LegalName") = '';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "Invoices"
+            ADD COLUMN IF NOT EXISTS "SubscriberCompanyId" uuid NULL,
+            ADD COLUMN IF NOT EXISTS "SalesOrderId" uuid NULL,
+            ADD COLUMN IF NOT EXISTS "DeliveryOrderId" uuid NULL,
+            ADD COLUMN IF NOT EXISTS "SourceType" integer NOT NULL DEFAULT 1,
+            ADD COLUMN IF NOT EXISTS "PaymentConfirmationTokenHash" character varying(128) NULL,
+            ADD COLUMN IF NOT EXISTS "PaymentConfirmationTokenIssuedAtUtc" timestamp with time zone NULL,
+            ADD COLUMN IF NOT EXISTS "AccountingExportedAtUtc" timestamp with time zone NULL;
+
+            CREATE INDEX IF NOT EXISTS "IX_Invoices_SalesOrderId" ON "Invoices" ("SalesOrderId");
+            CREATE INDEX IF NOT EXISTS "IX_Invoices_DeliveryOrderId" ON "Invoices" ("DeliveryOrderId");
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Invoices_PaymentConfirmationTokenHash" ON "Invoices" ("PaymentConfirmationTokenHash");
+            CREATE INDEX IF NOT EXISTS "IX_Invoices_SubscriberCompanyId_SourceType" ON "Invoices" ("SubscriberCompanyId", "SourceType");
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
@@ -182,115 +204,6 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
-            UPDATE "Customers" AS c
-            SET "ReceivableAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 0
-             AND a."Code" = c."ReceivableAccount"
-            WHERE c."SubscriberId" = u."Id"
-              AND c."ReceivableAccountId" IS NULL
-              AND COALESCE(c."ReceivableAccount", '') <> '';
-
-            UPDATE "Customers" AS c
-            SET "PayableAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 1
-             AND a."Code" = c."PayableAccount"
-            WHERE c."SubscriberId" = u."Id"
-              AND c."PayableAccountId" IS NULL
-              AND COALESCE(c."PayableAccount", '') <> '';
-
-            UPDATE "Customers" AS c
-            SET "IncomeAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 3
-             AND a."Code" = c."IncomeAccount"
-            WHERE c."SubscriberId" = u."Id"
-              AND c."IncomeAccountId" IS NULL
-              AND COALESCE(c."IncomeAccount", '') <> '';
-
-            UPDATE "Customers" AS c
-            SET "ExpenseAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 4
-             AND a."Code" = c."ExpenseAccount"
-            WHERE c."SubscriberId" = u."Id"
-              AND c."ExpenseAccountId" IS NULL
-              AND COALESCE(c."ExpenseAccount", '') <> '';
-            """, cancellationToken);
-
-        await dbContext.Database.ExecuteSqlRawAsync("""
-            UPDATE "Customers" AS c
-            SET "ReceivableAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 0
-             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."ReceivableAccount"))
-            WHERE c."SubscriberId" = u."Id"
-              AND c."ReceivableAccountId" IS NULL
-              AND COALESCE(TRIM(c."ReceivableAccount"), '') <> '';
-
-            UPDATE "Customers" AS c
-            SET "PayableAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 1
-             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."PayableAccount"))
-            WHERE c."SubscriberId" = u."Id"
-              AND c."PayableAccountId" IS NULL
-              AND COALESCE(TRIM(c."PayableAccount"), '') <> '';
-
-            UPDATE "Customers" AS c
-            SET "IncomeAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 3
-             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."IncomeAccount"))
-            WHERE c."SubscriberId" = u."Id"
-              AND c."IncomeAccountId" IS NULL
-              AND COALESCE(TRIM(c."IncomeAccount"), '') <> '';
-
-            UPDATE "Customers" AS c
-            SET "ExpenseAccountId" = a."Id"
-            FROM "Users" AS u
-            JOIN "Accounts" AS a
-              ON a."CompanyId" = u."CompanyId"
-             AND a."Type" = 4
-             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."ExpenseAccount"))
-            WHERE c."SubscriberId" = u."Id"
-              AND c."ExpenseAccountId" IS NULL
-              AND COALESCE(TRIM(c."ExpenseAccount"), '') <> '';
-            """, cancellationToken);
-
-        await dbContext.Database.ExecuteSqlRawAsync("""
-            CREATE TABLE IF NOT EXISTS "Warehouses" (
-                "Id" uuid NOT NULL,
-                "CompanyId" uuid NOT NULL,
-                "Code" character varying(50) NOT NULL,
-                "Name" character varying(200) NOT NULL,
-                "AddressJson" character varying(2000) NOT NULL DEFAULT '{}',
-                "IsActive" boolean NOT NULL DEFAULT TRUE,
-                "CreatedAtUtc" timestamp with time zone NOT NULL,
-                "UpdatedAtUtc" timestamp with time zone NULL,
-                CONSTRAINT "PK_Warehouses" PRIMARY KEY ("Id"),
-                CONSTRAINT "FK_Warehouses_Companies_CompanyId" FOREIGN KEY ("CompanyId") REFERENCES "Companies" ("Id") ON DELETE CASCADE
-            );
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Warehouses_CompanyId_Code" ON "Warehouses" ("CompanyId", "Code");
-            CREATE INDEX IF NOT EXISTS "IX_Warehouses_CompanyId_IsActive" ON "Warehouses" ("CompanyId", "IsActive");
-            """, cancellationToken);
-
-        await dbContext.Database.ExecuteSqlRawAsync("""
             CREATE TABLE IF NOT EXISTS "Accounts" (
                 "Id" uuid NOT NULL,
                 "CompanyId" uuid NOT NULL,
@@ -308,6 +221,107 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             );
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_Accounts_CompanyId_Code" ON "Accounts" ("CompanyId", "Code");
             CREATE INDEX IF NOT EXISTS "IX_Accounts_CompanyId_Type_IsActive" ON "Accounts" ("CompanyId", "Type", "IsActive");
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            UPDATE "Customers" AS c
+            SET "ReceivableAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 0
+              AND a."Code" = c."ReceivableAccount"
+              AND c."ReceivableAccountId" IS NULL
+              AND COALESCE(c."ReceivableAccount", '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "PayableAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 1
+              AND a."Code" = c."PayableAccount"
+              AND c."PayableAccountId" IS NULL
+              AND COALESCE(c."PayableAccount", '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "IncomeAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 3
+              AND a."Code" = c."IncomeAccount"
+              AND c."IncomeAccountId" IS NULL
+              AND COALESCE(c."IncomeAccount", '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "ExpenseAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 4
+              AND a."Code" = c."ExpenseAccount"
+              AND c."ExpenseAccountId" IS NULL
+              AND COALESCE(c."ExpenseAccount", '') <> '';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            UPDATE "Customers" AS c
+            SET "ReceivableAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 0
+              AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."ReceivableAccount"))
+              AND c."ReceivableAccountId" IS NULL
+              AND COALESCE(TRIM(c."ReceivableAccount"), '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "PayableAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 1
+              AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."PayableAccount"))
+              AND c."PayableAccountId" IS NULL
+              AND COALESCE(TRIM(c."PayableAccount"), '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "IncomeAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 3
+              AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."IncomeAccount"))
+              AND c."IncomeAccountId" IS NULL
+              AND COALESCE(TRIM(c."IncomeAccount"), '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "ExpenseAccountId" = a."Id"
+            FROM "Users" AS u, "Accounts" AS a
+            WHERE c."SubscriberId" = u."Id"
+              AND a."CompanyId" = u."CompanyId"
+              AND a."Type" = 4
+              AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."ExpenseAccount"))
+              AND c."ExpenseAccountId" IS NULL
+              AND COALESCE(TRIM(c."ExpenseAccount"), '') <> '';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "Warehouses" (
+                "Id" uuid NOT NULL,
+                "CompanyId" uuid NOT NULL,
+                "Code" character varying(50) NOT NULL,
+                "Name" character varying(200) NOT NULL,
+                "AddressJson" character varying(2000) NOT NULL DEFAULT '{{}}',
+                "IsActive" boolean NOT NULL DEFAULT TRUE,
+                "CreatedAtUtc" timestamp with time zone NOT NULL,
+                "UpdatedAtUtc" timestamp with time zone NULL,
+                CONSTRAINT "PK_Warehouses" PRIMARY KEY ("Id"),
+                CONSTRAINT "FK_Warehouses_Companies_CompanyId" FOREIGN KEY ("CompanyId") REFERENCES "Companies" ("Id") ON DELETE CASCADE
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Warehouses_CompanyId_Code" ON "Warehouses" ("CompanyId", "Code");
+            CREATE INDEX IF NOT EXISTS "IX_Warehouses_CompanyId_IsActive" ON "Warehouses" ("CompanyId", "IsActive");
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""

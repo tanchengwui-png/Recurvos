@@ -178,6 +178,61 @@ export type Customer = {
   myInvoisControl: string;
 };
 
+export type StatementAccountType = "Customer" | "Supplier";
+
+export type StatementRowSourceType =
+  | "OpeningBalance"
+  | "Invoice"
+  | "Payment"
+  | "CreditNote"
+  | "Refund"
+  | "PurchaseBill"
+  | "PurchasePayment"
+  | "PurchaseCreditNote"
+  | "PurchaseRefund";
+
+export type StatementAgingSummary = {
+  current: number;
+  days1To30: number;
+  days31To60: number;
+  days61To90: number;
+  days91Plus: number;
+  totalOutstanding: number;
+};
+
+export type StatementRow = {
+  id: string;
+  sourceType: StatementRowSourceType;
+  sourceDocumentId?: string | null;
+  referenceDocumentId?: string | null;
+  dateUtc: string;
+  dueDateUtc?: string | null;
+  documentNumber: string;
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  outstandingAmount: number;
+  isOutstanding: boolean;
+  currencyCode: string;
+  isOpeningBalance: boolean;
+};
+
+export type StatementOfAccountReport = {
+  contactId: string;
+  contactName: string;
+  contactType: string;
+  statementType: StatementAccountType;
+  currencyCode: string;
+  openingBalance: number;
+  closingBalance: number;
+  hasOpeningBalance: boolean;
+  hasMixedCurrencies: boolean;
+  currencyCodes: string[];
+  aging: StatementAgingSummary;
+  rows: StatementRow[];
+};
+
 export type ContactGroup = {
   id: string;
   name: string;
