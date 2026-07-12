@@ -4,7 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, Product, SalesOrder, SalesQuotation, SalesQuotationListItem, TaxCode } from "../types";
+import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, PriceLevel, Product, SalesOrder, SalesQuotation, SalesQuotationListItem, TaxCode } from "../types";
 
 type LineForm = { productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
 const emptyLine: LineForm = { productId: "", taxCodeId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 0 };
@@ -17,6 +17,7 @@ export function SalesOrderFormPage() {
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [contacts, setContacts] = useState<Customer[]>([]);
   const [currencies, setCurrencies] = useState<CurrencyDefinition[]>([]);
+  const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [quotations, setQuotations] = useState<SalesQuotationListItem[]>([]);
@@ -44,10 +45,12 @@ export function SalesOrderFormPage() {
         !id && quotationId ? api.get<SalesQuotation>(`/sales/quotations/${quotationId}`) : Promise.resolve(null),
       ]);
       const activeCurrencies = snapshot.currencies.filter((item) => item.isActive);
+      const activePriceLevels = snapshot.priceLevels.filter((item) => item.isActive);
       const activeTaxCodes = snapshot.taxCodes.filter((item) => item.isActive && (item.scope === "Sales" || item.scope === "Both"));
       setCompanies(companyList);
       setContacts(contactList);
       setCurrencies(activeCurrencies);
+      setPriceLevels(activePriceLevels);
       setTaxCodes(activeTaxCodes);
       setProducts(productResult.items);
       setQuotations(quotationList);
@@ -98,6 +101,10 @@ export function SalesOrderFormPage() {
   }
 
   const filteredProducts = products.filter((item) => item.companyId === companyId);
+  const selectedContact = contacts.find((item) => item.id === contactId);
+  const selectedPriceLevel = priceLevels.find((item) =>
+    selectedContact?.priceLevel
+      && item.code.toUpperCase() === selectedContact.priceLevel.trim().toUpperCase());
   const quotationOptions = quotations.filter((item) =>
     (item.status === "Sent" || item.status === "Accepted" || item.id === salesQuotationId)
     && !item.convertedSalesOrderId
@@ -108,6 +115,24 @@ export function SalesOrderFormPage() {
 
   function updateLine(index: number, next: Partial<LineForm>) {
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...next } : line));
+  }
+
+  function getSuggestedUnitPrice(productId: string) {
+    const product = filteredProducts.find((item) => item.id === productId);
+    const baseAmount = product?.defaultPlan?.unitAmount;
+    if (baseAmount === undefined) {
+      return undefined;
+    }
+
+    if (product?.defaultPlan?.currency && currency && product.defaultPlan.currency !== currency) {
+      return undefined;
+    }
+
+    if (!selectedPriceLevel) {
+      return baseAmount;
+    }
+
+    return Number((baseAmount * (1 + (selectedPriceLevel.adjustmentPercent / 100))).toFixed(2));
   }
 
   async function submit() {
@@ -176,6 +201,11 @@ export function SalesOrderFormPage() {
           <label className="form-label master-data-form-wide">Notes<input className="text-input" value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         </div>
         {!id ? <HelperText>Choose a source quotation to preload the customer, currency, notes, and lines. Draft manual sales orders can still be created without one.</HelperText> : null}
+        <HelperText>
+          {selectedPriceLevel
+            ? `Price level default: ${selectedPriceLevel.code} (${selectedPriceLevel.adjustmentPercent}%). Product selection will suggest adjusted unit prices.`
+            : "No customer price level default is set. Product selection will use the product default price when available."}
+        </HelperText>
       </section>
       <section className="card">
         <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Lines</h3></div><button type="button" className="button button-secondary" onClick={() => setLines((current) => [...current, { ...emptyLine }])}>Add line</button></div>
@@ -187,7 +217,12 @@ export function SalesOrderFormPage() {
                 <tr key={index}>
                   <td><select value={line.productId} onChange={(event) => {
                     const product = filteredProducts.find((item) => item.id === event.target.value);
-                    updateLine(index, { productId: event.target.value, description: line.description || product?.name || "" });
+                    const suggestedUnitPrice = getSuggestedUnitPrice(event.target.value);
+                    updateLine(index, {
+                      productId: event.target.value,
+                      description: line.description || product?.name || "",
+                      unitPrice: suggestedUnitPrice ?? line.unitPrice,
+                    });
                   }}><option value="">Manual</option>{filteredProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td>
                   <td><input className="text-input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} /></td>
                   <td><input type="number" min="0.01" step="0.01" className="text-input" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} /></td>

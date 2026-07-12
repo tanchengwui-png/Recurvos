@@ -460,6 +460,11 @@ export function CustomerFormPage() {
       return;
     }
 
+    const receivableAccountId = resolveAccountIdByCode(masterData?.accounts, form.receivableAccount);
+    const payableAccountId = resolveAccountIdByCode(masterData?.accounts, form.payableAccount);
+    const incomeAccountId = resolveAccountIdByCode(masterData?.accounts, form.incomeAccount);
+    const expenseAccountId = resolveAccountIdByCode(masterData?.accounts, form.expenseAccount);
+
     const payload = {
       name: form.legalName.trim(),
       legalName: form.legalName.trim(),
@@ -490,14 +495,18 @@ export function CustomerFormPage() {
       phoneNumbers: normalizedPhoneNumbers,
       emailAddresses: normalizedEmailAddresses,
       addresses: normalizedAddresses,
+      receivableAccountId: showReceivableAccount ? receivableAccountId : null,
       receivableAccount: showReceivableAccount ? form.receivableAccount.trim() : "",
       creditLimit: showCreditLimit && form.creditLimit.trim() ? Number(form.creditLimit) : null,
+      payableAccountId: showPayableAccount ? payableAccountId : null,
       payableAccount: showPayableAccount ? form.payableAccount.trim() : "",
       groups: normalizedGroups,
       priceLevel: form.priceLevel.trim(),
       currency: form.currency.trim(),
       paymentTerm: form.paymentTerm.trim(),
+      incomeAccountId,
       incomeAccount: form.incomeAccount.trim(),
+      expenseAccountId,
       expenseAccount: form.expenseAccount.trim(),
       location: form.location.trim(),
       tags: normalizedTags,
@@ -985,6 +994,15 @@ function buildAccountOptions(accounts?: MasterDataSnapshot["accounts"]): Searcha
       label: `${account.code} - ${account.name}`,
       keywords: [account.name, account.type, account.currencyCode],
     }));
+}
+
+function resolveAccountIdByCode(accounts: MasterDataSnapshot["accounts"] | undefined, selectedCode: string) {
+  const normalized = selectedCode.trim().toUpperCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return accounts?.find((account) => account.code.toUpperCase() === normalized)?.id ?? null;
 }
 
 function buildCurrencyOptions(

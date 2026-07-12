@@ -160,14 +160,18 @@ export type Customer = {
   phoneNumbers: string[];
   emailAddresses: string[];
   addresses: ContactAddress[];
+  receivableAccountId?: string | null;
   receivableAccount: string;
   creditLimit?: number | null;
+  payableAccountId?: string | null;
   payableAccount: string;
   groups: string[];
   priceLevel: string;
   currency: string;
   paymentTerm: string;
+  incomeAccountId?: string | null;
   incomeAccount: string;
+  expenseAccountId?: string | null;
   expenseAccount: string;
   location: string;
   tags: string[];

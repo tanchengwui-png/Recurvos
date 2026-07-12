@@ -59,7 +59,7 @@ export function GoodsReceivedNoteFormPage() {
 
       if (existing) {
         setCompanyId(existing.companyId);
-        setWarehouseId(existing.warehouseId ?? activeWarehouses[0]?.id ?? "");
+        setWarehouseId(existing.warehouseId ?? "");
         setDocumentDateUtc(existing.documentDateUtc.slice(0, 10));
         setReferenceNo(existing.referenceNo);
         setNotes(existing.notes);
@@ -81,7 +81,7 @@ export function GoodsReceivedNoteFormPage() {
 
       if (order) {
         setCompanyId(order.companyId);
-        setWarehouseId(activeWarehouses[0]?.id ?? "");
+        setWarehouseId("");
         setReferenceNo(order.referenceNo);
         setNotes(order.notes);
         setLines(order.lines.map((line) => ({
@@ -106,16 +106,6 @@ export function GoodsReceivedNoteFormPage() {
     void load();
   }, [id, initialPurchaseOrderId]);
 
-  useEffect(() => {
-    if (warehouseId || warehouses.length === 0) {
-      return;
-    }
-
-    if (purchaseOrder || record) {
-      setWarehouseId(warehouses[0]?.id ?? "");
-    }
-  }, [warehouseId, warehouses, purchaseOrder, record]);
-
   async function handlePurchaseOrderChange(nextPurchaseOrderId: string) {
     setError("");
     setSelectedPurchaseOrderId(nextPurchaseOrderId);
@@ -133,7 +123,7 @@ export function GoodsReceivedNoteFormPage() {
     const order = await api.get<PurchaseOrder>(`/purchases/orders/${nextPurchaseOrderId}`);
     setPurchaseOrder(order);
     setCompanyId(order.companyId);
-    setWarehouseId((current) => current || warehouses[0]?.id || "");
+    setWarehouseId("");
     setReferenceNo(order.referenceNo);
     setNotes(order.notes);
     setLines(order.lines.map((line) => ({
@@ -243,7 +233,7 @@ export function GoodsReceivedNoteFormPage() {
           <label className="form-label">Reference<input className="text-input" value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} disabled={!editable} /></label>
           <label className="form-label master-data-form-wide">Notes<input className="text-input" value={notes} onChange={(event) => setNotes(event.target.value)} disabled={!editable} /></label>
         </div>
-        {!id ? <HelperText>Select a purchase order with remaining quantity to receive.</HelperText> : null}
+        {!id ? <HelperText>Select a purchase order with remaining quantity to receive, then choose the warehouse explicitly.</HelperText> : null}
       </section>
       <section className="card">
         <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Lines</h3></div></div>

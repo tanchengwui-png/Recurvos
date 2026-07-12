@@ -99,10 +99,14 @@ public sealed class CustomerRequest
     public IReadOnlyCollection<string> EmailAddresses { get; set; } = Array.Empty<string>();
     public IReadOnlyCollection<CustomerAddressInput> Addresses { get; set; } = Array.Empty<CustomerAddressInput>();
 
+    public Guid? ReceivableAccountId { get; set; }
+
     [MaxLength(100)]
     public string ReceivableAccount { get; set; } = string.Empty;
 
     public decimal? CreditLimit { get; set; }
+
+    public Guid? PayableAccountId { get; set; }
 
     [MaxLength(100)]
     public string PayableAccount { get; set; } = string.Empty;
@@ -118,8 +122,12 @@ public sealed class CustomerRequest
     [MaxLength(100)]
     public string PaymentTerm { get; set; } = string.Empty;
 
+    public Guid? IncomeAccountId { get; set; }
+
     [MaxLength(100)]
     public string IncomeAccount { get; set; } = string.Empty;
+
+    public Guid? ExpenseAccountId { get; set; }
 
     [MaxLength(100)]
     public string ExpenseAccount { get; set; } = string.Empty;
@@ -155,14 +163,18 @@ public sealed class CustomerDto
     public IReadOnlyCollection<string> PhoneNumbers { get; set; } = Array.Empty<string>();
     public IReadOnlyCollection<string> EmailAddresses { get; set; } = Array.Empty<string>();
     public IReadOnlyCollection<CustomerAddressInput> Addresses { get; set; } = Array.Empty<CustomerAddressInput>();
+    public Guid? ReceivableAccountId { get; set; }
     public string ReceivableAccount { get; set; } = string.Empty;
     public decimal? CreditLimit { get; set; }
+    public Guid? PayableAccountId { get; set; }
     public string PayableAccount { get; set; } = string.Empty;
     public IReadOnlyCollection<string> Groups { get; set; } = Array.Empty<string>();
     public string PriceLevel { get; set; } = string.Empty;
     public string Currency { get; set; } = string.Empty;
     public string PaymentTerm { get; set; } = string.Empty;
+    public Guid? IncomeAccountId { get; set; }
     public string IncomeAccount { get; set; } = string.Empty;
+    public Guid? ExpenseAccountId { get; set; }
     public string ExpenseAccount { get; set; } = string.Empty;
     public string Location { get; set; } = string.Empty;
     public IReadOnlyCollection<string> Tags { get; set; } = Array.Empty<string>();

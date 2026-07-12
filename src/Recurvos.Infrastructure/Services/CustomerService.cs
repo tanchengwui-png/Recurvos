@@ -73,10 +73,10 @@ public sealed class CustomerService(
         var groups = NormalizeStringList(request.Groups);
         var tags = NormalizeStringList(request.Tags);
         ValidateConditionalFields(contactType, request.ReceivableAccount, request.PayableAccount);
-        var receivableAccount = await ValidateAccountAsync(request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
-        var payableAccount = await ValidateAccountAsync(request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
-        var incomeAccount = await ValidateAccountAsync(request.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken);
-        var expenseAccount = await ValidateAccountAsync(request.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken);
+        var receivableAccount = await ResolveAccountSelectionAsync(request.ReceivableAccountId, request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
+        var payableAccount = await ResolveAccountSelectionAsync(request.PayableAccountId, request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
+        var incomeAccount = await ResolveAccountSelectionAsync(request.IncomeAccountId, request.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken);
+        var expenseAccount = await ResolveAccountSelectionAsync(request.ExpenseAccountId, request.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken);
         var priceLevel = await ValidatePriceLevelAsync(request.PriceLevel, cancellationToken);
         var currency = await ValidateCurrencyAsync(request.Currency, cancellationToken);
         var paymentTerm = await ValidatePaymentTermAsync(request.PaymentTerm, cancellationToken);
@@ -102,15 +102,19 @@ public sealed class CustomerService(
             PhoneNumbersJson = SerializeList(phoneNumbers),
             EmailAddressesJson = SerializeList(emailAddresses),
             AddressesJson = SerializeList(addresses),
-            ReceivableAccount = receivableAccount,
+            ReceivableAccountId = receivableAccount.AccountId,
+            ReceivableAccount = receivableAccount.AccountCode,
             CreditLimit = request.CreditLimit,
-            PayableAccount = payableAccount,
+            PayableAccountId = payableAccount.AccountId,
+            PayableAccount = payableAccount.AccountCode,
             GroupsJson = SerializeList(groups),
             PriceLevel = priceLevel,
             Currency = currency,
             PaymentTerm = paymentTerm,
-            IncomeAccount = incomeAccount,
-            ExpenseAccount = expenseAccount,
+            IncomeAccountId = incomeAccount.AccountId,
+            IncomeAccount = incomeAccount.AccountCode,
+            ExpenseAccountId = expenseAccount.AccountId,
+            ExpenseAccount = expenseAccount.AccountCode,
             Location = request.Location.Trim(),
             TagsJson = SerializeList(tags),
             MyInvoisControl = request.MyInvoisControl.Trim(),
@@ -141,10 +145,10 @@ public sealed class CustomerService(
         var groups = NormalizeStringList(request.Groups);
         var tags = NormalizeStringList(request.Tags);
         ValidateConditionalFields(contactType, request.ReceivableAccount, request.PayableAccount);
-        var receivableAccount = await ValidateAccountAsync(request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
-        var payableAccount = await ValidateAccountAsync(request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
-        var incomeAccount = await ValidateAccountAsync(request.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken);
-        var expenseAccount = await ValidateAccountAsync(request.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken);
+        var receivableAccount = await ResolveAccountSelectionAsync(request.ReceivableAccountId, request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
+        var payableAccount = await ResolveAccountSelectionAsync(request.PayableAccountId, request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
+        var incomeAccount = await ResolveAccountSelectionAsync(request.IncomeAccountId, request.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken);
+        var expenseAccount = await ResolveAccountSelectionAsync(request.ExpenseAccountId, request.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken);
         var priceLevel = await ValidatePriceLevelAsync(request.PriceLevel, cancellationToken);
         var currency = await ValidateCurrencyAsync(request.Currency, cancellationToken);
         var paymentTerm = await ValidatePaymentTermAsync(request.PaymentTerm, cancellationToken);
@@ -168,15 +172,19 @@ public sealed class CustomerService(
         customer.PhoneNumbersJson = SerializeList(phoneNumbers);
         customer.EmailAddressesJson = SerializeList(emailAddresses);
         customer.AddressesJson = SerializeList(addresses);
-        customer.ReceivableAccount = receivableAccount;
+        customer.ReceivableAccountId = receivableAccount.AccountId;
+        customer.ReceivableAccount = receivableAccount.AccountCode;
         customer.CreditLimit = request.CreditLimit;
-        customer.PayableAccount = payableAccount;
+        customer.PayableAccountId = payableAccount.AccountId;
+        customer.PayableAccount = payableAccount.AccountCode;
         customer.GroupsJson = SerializeList(groups);
         customer.PriceLevel = priceLevel;
         customer.Currency = currency;
         customer.PaymentTerm = paymentTerm;
-        customer.IncomeAccount = incomeAccount;
-        customer.ExpenseAccount = expenseAccount;
+        customer.IncomeAccountId = incomeAccount.AccountId;
+        customer.IncomeAccount = incomeAccount.AccountCode;
+        customer.ExpenseAccountId = expenseAccount.AccountId;
+        customer.ExpenseAccount = expenseAccount.AccountCode;
         customer.Location = request.Location.Trim();
         customer.TagsJson = SerializeList(tags);
         customer.MyInvoisControl = request.MyInvoisControl.Trim();
@@ -395,30 +403,39 @@ public sealed class CustomerService(
         }
     }
 
-    private async Task<string> ValidateAccountAsync(
+    private async Task<AccountSelection> ResolveAccountSelectionAsync(
+        Guid? accountId,
         string? value,
         AccountType expectedType,
         string fieldName,
         CancellationToken cancellationToken)
     {
         var normalized = value?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(normalized))
+        if (string.IsNullOrWhiteSpace(normalized) && (!accountId.HasValue || accountId == Guid.Empty))
         {
-            return string.Empty;
+            return AccountSelection.Empty;
         }
 
         var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
-        var account = await dbContext.Accounts
-            .AsNoTracking()
-            .FirstOrDefaultAsync(
-                x => x.CompanyId == companyId
-                    && x.IsActive
-                    && x.Code == normalized,
-                cancellationToken);
+        var account = accountId.HasValue && accountId != Guid.Empty
+            ? await dbContext.Accounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.CompanyId == companyId
+                        && x.IsActive
+                        && x.Id == accountId.Value,
+                    cancellationToken)
+            : await dbContext.Accounts
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x => x.CompanyId == companyId
+                        && x.IsActive
+                        && x.Code == normalized,
+                    cancellationToken);
 
         if (account is null)
         {
-            throw new InvalidOperationException($"{fieldName} must reference an active account code.");
+            throw new InvalidOperationException($"{fieldName} must reference an active account.");
         }
 
         if (account.Type != expectedType)
@@ -426,7 +443,7 @@ public sealed class CustomerService(
             throw new InvalidOperationException($"{fieldName} must reference an active {expectedType.ToString().ToLowerInvariant()} account.");
         }
 
-        return account.Code;
+        return new AccountSelection(account.Id, account.Code);
     }
 
     private async Task<string> ValidateCurrencyAsync(string? value, CancellationToken cancellationToken)
@@ -564,17 +581,26 @@ public sealed class CustomerService(
                         IsDefaultShipping = true,
                     },
                 },
+        ReceivableAccountId = customer.ReceivableAccountId,
         ReceivableAccount = customer.ReceivableAccount,
         CreditLimit = customer.CreditLimit,
+        PayableAccountId = customer.PayableAccountId,
         PayableAccount = customer.PayableAccount,
         Groups = DeserializeList<string>(customer.GroupsJson),
         PriceLevel = customer.PriceLevel,
         Currency = customer.Currency,
         PaymentTerm = customer.PaymentTerm,
+        IncomeAccountId = customer.IncomeAccountId,
         IncomeAccount = customer.IncomeAccount,
+        ExpenseAccountId = customer.ExpenseAccountId,
         ExpenseAccount = customer.ExpenseAccount,
         Location = customer.Location,
         Tags = DeserializeList<string>(customer.TagsJson),
         MyInvoisControl = customer.MyInvoisControl,
     };
+
+    private sealed record AccountSelection(Guid? AccountId, string AccountCode)
+    {
+        public static readonly AccountSelection Empty = new(null, string.Empty);
+    }
 }

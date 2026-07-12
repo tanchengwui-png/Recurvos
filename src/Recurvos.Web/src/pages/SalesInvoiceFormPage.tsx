@@ -33,6 +33,7 @@ export function SalesInvoiceFormPage() {
   const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrder | null>(null);
   const [dueDateUtc, setDueDateUtc] = useState(new Date().toISOString().slice(0, 10));
   const [paymentTermId, setPaymentTermId] = useState("");
+  const [isDueDateManuallyEdited, setIsDueDateManuallyEdited] = useState(false);
   const [lines, setLines] = useState<LineForm[]>([]);
   const [error, setError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
@@ -51,6 +52,7 @@ export function SalesInvoiceFormPage() {
       const defaultDueDate = new Date();
       defaultDueDate.setDate(defaultDueDate.getDate() + (settings?.paymentDueDays ?? 7));
       setDueDateUtc(defaultDueDate.toISOString().slice(0, 10));
+      setIsDueDateManuallyEdited(false);
       const eligibleOrders = orderOptions.filter((item) => item.status === "Confirmed" || item.status === "PartiallyDelivered" || item.status === "FullyDelivered");
       const eligibleDeliveries = deliveryOptions.filter((item) => item.status !== "Draft" && item.status !== "Cancelled" && item.status !== "FullyInvoiced");
       setSalesOrderOptions(eligibleOrders);
@@ -104,8 +106,10 @@ export function SalesInvoiceFormPage() {
 
     const resolvedPaymentTermId = resolvePaymentTermId(contactId);
     setPaymentTermId(resolvedPaymentTermId);
-    setDueDateUtc((current) => getDueDateForTerm(resolvedPaymentTermId, current));
-  }, [deliveryOrder, salesOrder, customers, paymentTerms]);
+    if (!isDueDateManuallyEdited) {
+      setDueDateUtc((current) => getDueDateForTerm(resolvedPaymentTermId, current));
+    }
+  }, [deliveryOrder, salesOrder, customers, paymentTerms, isDueDateManuallyEdited]);
 
   async function loadSourceDocument(nextSource: SourceType, nextSourceId: string) {
     setSource(nextSource);
@@ -115,9 +119,12 @@ export function SalesInvoiceFormPage() {
       setSalesOrder(null);
       setDeliveryOrder(null);
       setPaymentTermId("");
+      setIsDueDateManuallyEdited(false);
       setLines([]);
       return;
     }
+
+    setIsDueDateManuallyEdited(false);
 
     if (nextSource === "delivery-order") {
       const record = await api.get<DeliveryOrder>(`/sales/delivery-orders/${nextSourceId}`);
@@ -186,6 +193,7 @@ export function SalesInvoiceFormPage() {
         const payload = {
           dueDateUtc: new Date(`${dueDateUtc}T00:00:00Z`).toISOString(),
           paymentTermId: paymentTermId || null,
+          usePaymentTermDueDate: Boolean(paymentTermId) && !isDueDateManuallyEdited,
           lineItems: activeLines.map((line) => source === "delivery-order"
             ? { deliveryOrderLineId: line.id, quantity: Number(line.selectedQuantity) }
             : { salesOrderLineId: line.id, quantity: Number(line.selectedQuantity) }),
@@ -244,13 +252,17 @@ export function SalesInvoiceFormPage() {
             <select value={paymentTermId} onChange={(event) => {
               const nextPaymentTermId = event.target.value;
               setPaymentTermId(nextPaymentTermId);
+              setIsDueDateManuallyEdited(false);
               setDueDateUtc(getDueDateForTerm(nextPaymentTermId, dueDateUtc));
             }}>
               <option value="">Manual due date</option>
               {paymentTerms.map((item) => <option key={item.id} value={item.id}>{`${item.code} · ${item.name}`}</option>)}
             </select>
           </label>
-          <label className="form-label">Due Date<input type="date" className="text-input" value={dueDateUtc} onChange={(event) => setDueDateUtc(event.target.value)} /></label>
+          <label className="form-label">Due Date<input type="date" className="text-input" value={dueDateUtc} onChange={(event) => {
+            setDueDateUtc(event.target.value);
+            setIsDueDateManuallyEdited(true);
+          }} /></label>
         </div>
         <HelperText>Select a sales order or delivery order with remaining billable quantity.</HelperText>
       </section>

@@ -57,6 +57,8 @@ public sealed class CreateSalesInvoiceRequest
 
     public Guid? PaymentTermId { get; set; }
 
+    public bool UsePaymentTermDueDate { get; set; } = true;
+
     [Required, MinLength(1)]
     public List<CreateSalesInvoiceLineItemRequest> LineItems { get; set; } = new();
 }

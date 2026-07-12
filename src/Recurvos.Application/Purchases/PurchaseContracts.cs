@@ -118,6 +118,8 @@ public sealed class CreatePurchaseBillRequest
 
     public Guid? PaymentTermId { get; set; }
 
+    public bool UsePaymentTermDueDate { get; set; } = true;
+
     [MaxLength(100)]
     public string ReferenceNo { get; set; } = string.Empty;
 

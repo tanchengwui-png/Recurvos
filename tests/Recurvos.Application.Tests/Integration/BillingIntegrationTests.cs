@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Recurvos.Application.Common;
 using Recurvos.Application.Companies;
 using Recurvos.Application.CreditNotes;
+using Recurvos.Application.Customers;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
 using Recurvos.Application.Purchases;
@@ -774,8 +775,134 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
                 .OrderByDescending(x => x.IssueDateUtc)
                 .FirstAsync();
             invoice.Status.Should().Be(InvoiceStatus.Open);
-            invoice.InvoiceNumber.Should().NotBeNullOrWhiteSpace();
+        invoice.InvoiceNumber.Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task CustomerCreate_PopulatesAccountReferenceIdsFromSelectedAccounts()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid receivableAccountId;
+        Guid payableAccountId;
+        Guid incomeAccountId;
+        Guid expenseAccountId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            receivableAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Asset && x.Code == "1100").Select(x => x.Id).FirstAsync();
+            payableAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Liability && x.Code == "2100").Select(x => x.Id).FirstAsync();
+            incomeAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Revenue && x.Code == "4000").Select(x => x.Id).FirstAsync();
+            expenseAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Expense && x.Code == "5000").Select(x => x.Id).FirstAsync();
         }
+
+        var response = await client.PostAsJsonAsync("/api/customers", new
+        {
+            name = "Account Ref Contact",
+            legalName = "Account Ref Contact",
+            email = "account-ref@example.test",
+            phoneNumber = "0123456789",
+            contactType = "Customer, Supplier",
+            status = "Active",
+            receivableAccountId,
+            payableAccountId,
+            incomeAccountId,
+            expenseAccountId,
+            receivableAccount = "1100",
+            payableAccount = "2100",
+            incomeAccount = "4000",
+            expenseAccount = "5000",
+            currency = "MYR",
+            paymentTerm = "NET30",
+            priceLevel = "",
+            contactPersons = Array.Empty<object>(),
+            phoneNumbers = new[] { "0123456789" },
+            emailAddresses = new[] { "account-ref@example.test" },
+            addresses = Array.Empty<object>(),
+            groups = Array.Empty<string>(),
+            tags = Array.Empty<string>(),
+            myInvoisControl = "Default"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var customer = await response.Content.ReadFromJsonAsync<CustomerDto>(TestWebApplicationFactory.JsonOptions);
+        customer.Should().NotBeNull();
+        customer!.ReceivableAccountId.Should().Be(receivableAccountId);
+        customer.PayableAccountId.Should().Be(payableAccountId);
+        customer.IncomeAccountId.Should().Be(incomeAccountId);
+        customer.ExpenseAccountId.Should().Be(expenseAccountId);
+        customer.ReceivableAccount.Should().Be("1100");
+        customer.PayableAccount.Should().Be("2100");
+        customer.IncomeAccount.Should().Be("4000");
+        customer.ExpenseAccount.Should().Be("5000");
+    }
+
+    [Fact]
+    public async Task LegacySchemaRepair_BackfillsCustomerAccountReferenceIdsFromHistoricalCodes()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        _ = token;
+
+        Guid customerId;
+        Guid receivableAccountId;
+        Guid payableAccountId;
+        Guid incomeAccountId;
+        Guid expenseAccountId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var repairService = scope.ServiceProvider.GetRequiredService<LegacySchemaRepairService>();
+            var subscriberUser = await dbContext.Users.FirstAsync(x => x.CompanyId == companyId && !x.IsPlatformOwner);
+
+            receivableAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Asset && x.Code == "1100").Select(x => x.Id).FirstAsync();
+            payableAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Liability && x.Code == "2100").Select(x => x.Id).FirstAsync();
+            incomeAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Revenue && x.Code == "4000").Select(x => x.Id).FirstAsync();
+            expenseAccountId = await dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == AccountType.Expense && x.Code == "5000").Select(x => x.Id).FirstAsync();
+
+            var historicalCustomer = new Customer
+            {
+                SubscriberId = subscriberUser.Id,
+                Name = "Historical Account Contact",
+                Email = "historical-account@example.test",
+                PhoneNumber = "0123000000",
+                ReceivableAccount = " 1100 ",
+                PayableAccount = "2100",
+                IncomeAccount = "4000",
+                ExpenseAccount = "5000",
+                Currency = "MYR",
+                PaymentTerm = "NET30",
+                PriceLevel = ""
+            };
+
+            dbContext.Customers.Add(historicalCustomer);
+            await dbContext.SaveChangesAsync();
+            customerId = historicalCustomer.Id;
+
+            await repairService.EnsureAsync();
+        }
+
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var repairedCustomer = await verifyDbContext.Customers.FirstAsync(x => x.Id == customerId);
+
+        repairedCustomer.ReceivableAccountId.Should().Be(receivableAccountId);
+        repairedCustomer.PayableAccountId.Should().Be(payableAccountId);
+        repairedCustomer.IncomeAccountId.Should().Be(incomeAccountId);
+        repairedCustomer.ExpenseAccountId.Should().Be(expenseAccountId);
+        repairedCustomer.ReceivableAccount.Should().Be(" 1100 ");
+        repairedCustomer.PayableAccount.Should().Be("2100");
+        repairedCustomer.IncomeAccount.Should().Be("4000");
+        repairedCustomer.ExpenseAccount.Should().Be("5000");
+    }
     }
 
     [Fact]
@@ -2358,6 +2485,153 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     }
 
     [Fact]
+    public async Task GoodsReceivedNoteCreate_RequiresExplicitWarehouseSelection()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+            await dbContext.SaveChangesAsync();
+            contactId = supplier.Id;
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/purchases/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "PO-GRN-WH-REQ-001",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Purchase line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var purchaseOrder = await createOrderResponse.Content.ReadFromJsonAsync<PurchaseOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        purchaseOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder!.Id}/status", new { status = "Sent" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder.Id}/status", new { status = "Approved" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var response = await client.PostAsJsonAsync("/api/purchases/grns", new
+        {
+            companyId,
+            purchaseOrderId = purchaseOrder.Id,
+            warehouseId = (Guid?)null,
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "GRN-WH-REQ-001",
+            notes = "",
+            lines = new[]
+            {
+                new { purchaseOrderLineId = purchaseOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Warehouse is required.");
+    }
+
+    [Fact]
+    public async Task GoodsReceivedNoteReceipt_UsesSelectedWarehouseForInventoryMovement()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid warehouseId;
+        Guid? productId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+            await dbContext.SaveChangesAsync();
+
+            contactId = supplier.Id;
+            warehouseId = await dbContext.Warehouses
+                .Where(x => x.CompanyId == companyId && x.IsActive)
+                .OrderByDescending(x => x.Code)
+                .Select(x => x.Id)
+                .FirstAsync();
+            productId = await dbContext.Products.Select(x => (Guid?)x.Id).FirstOrDefaultAsync();
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/purchases/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "PO-GRN-WH-MOVE-001",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Warehouse-bound purchase line", quantity = 2m, unitPrice = 100m, taxRate = 0m, productId, taxCodeId = (Guid?)null }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var purchaseOrder = await createOrderResponse.Content.ReadFromJsonAsync<PurchaseOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        purchaseOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder!.Id}/status", new { status = "Sent" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder.Id}/status", new { status = "Approved" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var createGrnResponse = await client.PostAsJsonAsync("/api/purchases/grns", new
+        {
+            companyId,
+            purchaseOrderId = purchaseOrder.Id,
+            warehouseId,
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "GRN-WH-MOVE-001",
+            notes = "",
+            lines = new[]
+            {
+                new { purchaseOrderLineId = purchaseOrder.Lines.Single().Id, quantity = 2m }
+            }
+        });
+
+        createGrnResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var grn = await createGrnResponse.Content.ReadFromJsonAsync<GoodsReceivedNoteDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        grn.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/grns/{grn!.Id}/status", new { status = "Received" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var movement = await verifyDbContext.InventoryMovements
+            .Where(x => x.CompanyId == companyId && x.SourceDocumentId == grn.Id && x.SourceDocumentType == nameof(GoodsReceivedNote))
+            .SingleAsync();
+
+        movement.WarehouseId.Should().Be(warehouseId);
+
+        var balance = await verifyDbContext.InventoryBalances
+            .Where(x => x.CompanyId == companyId && x.ProductId == productId && x.WarehouseId == warehouseId)
+            .SingleAsync();
+
+        balance.QuantityOnHand.Should().Be(2m);
+    }
+
+    [Fact]
     public async Task SalesQuotationCreate_RejectsInactiveRequestedCurrency()
     {
         await _factory.EnsureSeededAsync();
@@ -2944,6 +3218,323 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).Should().Contain("Select a valid currency.");
+    }
+
+    [Fact]
+    public async Task SalesOrderToInvoice_UsesSelectedPaymentTermDueDate()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid paymentTermId;
+        int paymentTermDays;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+            var paymentTerm = await dbContext.PaymentTerms
+                .Where(x => x.CompanyId == companyId && x.IsActive && x.Code == "NET30")
+                .Select(x => new { x.Id, x.Days })
+                .FirstAsync();
+            paymentTermId = paymentTerm.Id;
+            paymentTermDays = paymentTerm.Days;
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/sales/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "SO-PAYTERM-001",
+            notes = "",
+            salesQuotationId = (Guid?)null,
+            lines = new[]
+            {
+                new { description = "Sales invoice line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var salesOrder = await createOrderResponse.Content.ReadFromJsonAsync<SalesOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        salesOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/sales/orders/{salesOrder!.Id}/status", new { status = "Confirmed" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var requestedDueDateUtc = DateTime.UtcNow.Date.AddDays(5);
+        var convertResponse = await client.PostAsJsonAsync($"/api/sales/orders/{salesOrder.Id}/convert-to-invoice", new
+        {
+            dueDateUtc = requestedDueDateUtc,
+            paymentTermId,
+            usePaymentTermDueDate = true,
+            lineItems = new[]
+            {
+                new { salesOrderLineId = salesOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        convertResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var invoice = await convertResponse.Content.ReadFromJsonAsync<InvoiceDto>(TestWebApplicationFactory.JsonOptions);
+        invoice.Should().NotBeNull();
+        invoice!.DueDateUtc.Date.Should().Be(DateTime.UtcNow.Date.AddDays(paymentTermDays));
+    }
+
+    [Fact]
+    public async Task SalesOrderToInvoice_PreservesManualDueDateOverrideWhenPaymentTermSelected()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid paymentTermId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            contactId = await dbContext.Customers.Select(x => x.Id).FirstAsync();
+            paymentTermId = await dbContext.PaymentTerms
+                .Where(x => x.CompanyId == companyId && x.IsActive && x.Code == "NET30")
+                .Select(x => x.Id)
+                .FirstAsync();
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/sales/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "SO-PAYTERM-OVERRIDE-001",
+            notes = "",
+            salesQuotationId = (Guid?)null,
+            lines = new[]
+            {
+                new { description = "Sales invoice line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var salesOrder = await createOrderResponse.Content.ReadFromJsonAsync<SalesOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        salesOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/sales/orders/{salesOrder!.Id}/status", new { status = "Confirmed" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var requestedDueDateUtc = DateTime.UtcNow.Date.AddDays(11);
+        var convertResponse = await client.PostAsJsonAsync($"/api/sales/orders/{salesOrder.Id}/convert-to-invoice", new
+        {
+            dueDateUtc = requestedDueDateUtc,
+            paymentTermId,
+            usePaymentTermDueDate = false,
+            lineItems = new[]
+            {
+                new { salesOrderLineId = salesOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        convertResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var invoice = await convertResponse.Content.ReadFromJsonAsync<InvoiceDto>(TestWebApplicationFactory.JsonOptions);
+        invoice.Should().NotBeNull();
+        invoice!.DueDateUtc.Date.Should().Be(requestedDueDateUtc.Date);
+    }
+
+    [Fact]
+    public async Task GoodsReceivedNoteToBill_UsesSelectedPaymentTermDueDate()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid paymentTermId;
+        int paymentTermDays;
+        Guid warehouseId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+            await dbContext.SaveChangesAsync();
+
+            contactId = supplier.Id;
+            warehouseId = await dbContext.Warehouses
+                .Where(x => x.CompanyId == companyId && x.IsActive)
+                .Select(x => x.Id)
+                .FirstAsync();
+
+            var paymentTerm = await dbContext.PaymentTerms
+                .Where(x => x.CompanyId == companyId && x.IsActive && x.Code == "NET30")
+                .Select(x => new { x.Id, x.Days })
+                .FirstAsync();
+            paymentTermId = paymentTerm.Id;
+            paymentTermDays = paymentTerm.Days;
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/purchases/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "PO-PAYTERM-001",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Purchase line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var purchaseOrder = await createOrderResponse.Content.ReadFromJsonAsync<PurchaseOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        purchaseOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder!.Id}/status", new { status = "Sent" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder.Id}/status", new { status = "Approved" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var createGrnResponse = await client.PostAsJsonAsync("/api/purchases/grns", new
+        {
+            companyId,
+            purchaseOrderId = purchaseOrder.Id,
+            warehouseId,
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "GRN-PAYTERM-001",
+            notes = "",
+            lines = new[]
+            {
+                new { purchaseOrderLineId = purchaseOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        createGrnResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var goodsReceivedNote = await createGrnResponse.Content.ReadFromJsonAsync<GoodsReceivedNoteDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        goodsReceivedNote.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/grns/{goodsReceivedNote!.Id}/status", new { status = "Received" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var requestedDueDateUtc = DateTime.UtcNow.Date.AddDays(4);
+        var convertResponse = await client.PostAsJsonAsync($"/api/purchases/grns/{goodsReceivedNote.Id}/convert-to-bill", new
+        {
+            dueDateUtc = requestedDueDateUtc,
+            paymentTermId,
+            usePaymentTermDueDate = true,
+            referenceNo = "PB-PAYTERM-001",
+            notes = "",
+            lines = new[]
+            {
+                new { goodsReceivedNoteLineId = goodsReceivedNote.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        convertResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var bill = await convertResponse.Content.ReadFromJsonAsync<PurchaseBillDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        bill.Should().NotBeNull();
+        bill!.DueDateUtc.Date.Should().Be(DateTime.UtcNow.Date.AddDays(paymentTermDays));
+    }
+
+    [Fact]
+    public async Task GoodsReceivedNoteToBill_PreservesManualDueDateOverrideWhenPaymentTermSelected()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        var companyId = Guid.Parse(ParseJwtClaim(token, "companyId"));
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        await EnsureMasterDataDefaultsAsync(client);
+
+        Guid contactId;
+        Guid paymentTermId;
+        Guid warehouseId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var supplier = await dbContext.Customers.FirstAsync();
+            supplier.ContactType = "Customer,Supplier";
+            await dbContext.SaveChangesAsync();
+
+            contactId = supplier.Id;
+            warehouseId = await dbContext.Warehouses
+                .Where(x => x.CompanyId == companyId && x.IsActive)
+                .Select(x => x.Id)
+                .FirstAsync();
+            paymentTermId = await dbContext.PaymentTerms
+                .Where(x => x.CompanyId == companyId && x.IsActive && x.Code == "NET30")
+                .Select(x => x.Id)
+                .FirstAsync();
+        }
+
+        var createOrderResponse = await client.PostAsJsonAsync("/api/purchases/orders", new
+        {
+            companyId,
+            contactId,
+            documentDateUtc = DateTime.UtcNow,
+            currency = "MYR",
+            referenceNo = "PO-PAYTERM-OVERRIDE-001",
+            notes = "",
+            lines = new[]
+            {
+                new { description = "Purchase line", quantity = 1m, unitPrice = 100m, taxRate = 0m, productId = (Guid?)null }
+            }
+        });
+
+        createOrderResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var purchaseOrder = await createOrderResponse.Content.ReadFromJsonAsync<PurchaseOrderDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        purchaseOrder.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder!.Id}/status", new { status = "Sent" })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await client.PatchAsJsonAsync($"/api/purchases/orders/{purchaseOrder.Id}/status", new { status = "Approved" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var createGrnResponse = await client.PostAsJsonAsync("/api/purchases/grns", new
+        {
+            companyId,
+            purchaseOrderId = purchaseOrder.Id,
+            warehouseId,
+            documentDateUtc = DateTime.UtcNow,
+            referenceNo = "GRN-PAYTERM-OVERRIDE-001",
+            notes = "",
+            lines = new[]
+            {
+                new { purchaseOrderLineId = purchaseOrder.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        createGrnResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var goodsReceivedNote = await createGrnResponse.Content.ReadFromJsonAsync<GoodsReceivedNoteDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        goodsReceivedNote.Should().NotBeNull();
+
+        (await client.PatchAsJsonAsync($"/api/purchases/grns/{goodsReceivedNote!.Id}/status", new { status = "Received" })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var requestedDueDateUtc = DateTime.UtcNow.Date.AddDays(13);
+        var convertResponse = await client.PostAsJsonAsync($"/api/purchases/grns/{goodsReceivedNote.Id}/convert-to-bill", new
+        {
+            dueDateUtc = requestedDueDateUtc,
+            paymentTermId,
+            usePaymentTermDueDate = false,
+            referenceNo = "PB-PAYTERM-OVERRIDE-001",
+            notes = "",
+            lines = new[]
+            {
+                new { goodsReceivedNoteLineId = goodsReceivedNote.Lines.Single().Id, quantity = 1m }
+            }
+        });
+
+        convertResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var bill = await convertResponse.Content.ReadFromJsonAsync<PurchaseBillDetailsDto>(TestWebApplicationFactory.JsonOptions);
+        bill.Should().NotBeNull();
+        bill!.DueDateUtc.Date.Should().Be(requestedDueDateUtc.Date);
     }
 
     [Fact]

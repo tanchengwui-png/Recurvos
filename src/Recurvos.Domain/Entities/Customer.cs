@@ -24,14 +24,18 @@ public sealed class Customer : BaseEntity
     public string PhoneNumbersJson { get; set; } = "[]";
     public string EmailAddressesJson { get; set; } = "[]";
     public string AddressesJson { get; set; } = "[]";
+    public Guid? ReceivableAccountId { get; set; }
     public string ReceivableAccount { get; set; } = string.Empty;
     public decimal? CreditLimit { get; set; }
+    public Guid? PayableAccountId { get; set; }
     public string PayableAccount { get; set; } = string.Empty;
     public string GroupsJson { get; set; } = "[]";
     public string PriceLevel { get; set; } = string.Empty;
     public string Currency { get; set; } = string.Empty;
     public string PaymentTerm { get; set; } = string.Empty;
+    public Guid? IncomeAccountId { get; set; }
     public string IncomeAccount { get; set; } = string.Empty;
+    public Guid? ExpenseAccountId { get; set; }
     public string ExpenseAccount { get; set; } = string.Empty;
     public string Location { get; set; } = string.Empty;
     public string TagsJson { get; set; } = "[]";

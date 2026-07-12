@@ -93,14 +93,18 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             ADD COLUMN IF NOT EXISTS "PhoneNumbersJson" text NOT NULL DEFAULT '[]',
             ADD COLUMN IF NOT EXISTS "EmailAddressesJson" text NOT NULL DEFAULT '[]',
             ADD COLUMN IF NOT EXISTS "AddressesJson" text NOT NULL DEFAULT '[]',
+            ADD COLUMN IF NOT EXISTS "ReceivableAccountId" uuid NULL,
             ADD COLUMN IF NOT EXISTS "ReceivableAccount" character varying(100) NULL,
             ADD COLUMN IF NOT EXISTS "CreditLimit" numeric(18,2) NULL,
+            ADD COLUMN IF NOT EXISTS "PayableAccountId" uuid NULL,
             ADD COLUMN IF NOT EXISTS "PayableAccount" character varying(100) NULL,
             ADD COLUMN IF NOT EXISTS "GroupsJson" text NOT NULL DEFAULT '[]',
             ADD COLUMN IF NOT EXISTS "PriceLevel" character varying(100) NULL,
             ADD COLUMN IF NOT EXISTS "Currency" character varying(20) NULL,
             ADD COLUMN IF NOT EXISTS "PaymentTerm" character varying(100) NULL,
+            ADD COLUMN IF NOT EXISTS "IncomeAccountId" uuid NULL,
             ADD COLUMN IF NOT EXISTS "IncomeAccount" character varying(100) NULL,
+            ADD COLUMN IF NOT EXISTS "ExpenseAccountId" uuid NULL,
             ADD COLUMN IF NOT EXISTS "ExpenseAccount" character varying(100) NULL,
             ADD COLUMN IF NOT EXISTS "Location" character varying(100) NULL,
             ADD COLUMN IF NOT EXISTS "TagsJson" text NOT NULL DEFAULT '[]',
@@ -175,6 +179,98 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             WHERE "PhoneNumbersJson" = '[]'
                OR "EmailAddressesJson" = '[]'
                OR "AddressesJson" = '[]';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            UPDATE "Customers" AS c
+            SET "ReceivableAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 0
+             AND a."Code" = c."ReceivableAccount"
+            WHERE c."SubscriberId" = u."Id"
+              AND c."ReceivableAccountId" IS NULL
+              AND COALESCE(c."ReceivableAccount", '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "PayableAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 1
+             AND a."Code" = c."PayableAccount"
+            WHERE c."SubscriberId" = u."Id"
+              AND c."PayableAccountId" IS NULL
+              AND COALESCE(c."PayableAccount", '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "IncomeAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 3
+             AND a."Code" = c."IncomeAccount"
+            WHERE c."SubscriberId" = u."Id"
+              AND c."IncomeAccountId" IS NULL
+              AND COALESCE(c."IncomeAccount", '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "ExpenseAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 4
+             AND a."Code" = c."ExpenseAccount"
+            WHERE c."SubscriberId" = u."Id"
+              AND c."ExpenseAccountId" IS NULL
+              AND COALESCE(c."ExpenseAccount", '') <> '';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            UPDATE "Customers" AS c
+            SET "ReceivableAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 0
+             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."ReceivableAccount"))
+            WHERE c."SubscriberId" = u."Id"
+              AND c."ReceivableAccountId" IS NULL
+              AND COALESCE(TRIM(c."ReceivableAccount"), '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "PayableAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 1
+             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."PayableAccount"))
+            WHERE c."SubscriberId" = u."Id"
+              AND c."PayableAccountId" IS NULL
+              AND COALESCE(TRIM(c."PayableAccount"), '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "IncomeAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 3
+             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."IncomeAccount"))
+            WHERE c."SubscriberId" = u."Id"
+              AND c."IncomeAccountId" IS NULL
+              AND COALESCE(TRIM(c."IncomeAccount"), '') <> '';
+
+            UPDATE "Customers" AS c
+            SET "ExpenseAccountId" = a."Id"
+            FROM "Users" AS u
+            JOIN "Accounts" AS a
+              ON a."CompanyId" = u."CompanyId"
+             AND a."Type" = 4
+             AND UPPER(TRIM(a."Code")) = UPPER(TRIM(c."ExpenseAccount"))
+            WHERE c."SubscriberId" = u."Id"
+              AND c."ExpenseAccountId" IS NULL
+              AND COALESCE(TRIM(c."ExpenseAccount"), '') <> '';
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""

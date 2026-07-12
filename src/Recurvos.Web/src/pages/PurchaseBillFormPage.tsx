@@ -34,6 +34,7 @@ export function PurchaseBillFormPage() {
   const [grn, setGrn] = useState<GoodsReceivedNote | null>(null);
   const [dueDateUtc, setDueDateUtc] = useState(new Date().toISOString().slice(0, 10));
   const [paymentTermId, setPaymentTermId] = useState("");
+  const [isDueDateManuallyEdited, setIsDueDateManuallyEdited] = useState(false);
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineForm[]>([]);
@@ -61,6 +62,7 @@ export function PurchaseBillFormPage() {
       const defaultDueDate = new Date();
       defaultDueDate.setDate(defaultDueDate.getDate() + 7);
       setDueDateUtc(defaultDueDate.toISOString().slice(0, 10));
+      setIsDueDateManuallyEdited(false);
 
       if (!sourceId) {
         const defaultSource = eligibleOrders.length > 0 ? "purchase-order" : "grn";
@@ -110,8 +112,10 @@ export function PurchaseBillFormPage() {
 
     const resolvedPaymentTermId = resolvePaymentTermId(contactId);
     setPaymentTermId(resolvedPaymentTermId);
-    setDueDateUtc((current) => getDueDateForTerm(resolvedPaymentTermId, current));
-  }, [grn, purchaseOrder, customers, paymentTerms]);
+    if (!isDueDateManuallyEdited) {
+      setDueDateUtc((current) => getDueDateForTerm(resolvedPaymentTermId, current));
+    }
+  }, [grn, purchaseOrder, customers, paymentTerms, isDueDateManuallyEdited]);
 
   async function loadSourceDocument(nextSource: SourceType, nextSourceId: string) {
     setSource(nextSource);
@@ -121,11 +125,14 @@ export function PurchaseBillFormPage() {
       setPurchaseOrder(null);
       setGrn(null);
       setPaymentTermId("");
+      setIsDueDateManuallyEdited(false);
       setReferenceNo("");
       setNotes("");
       setLines([]);
       return;
     }
+
+    setIsDueDateManuallyEdited(false);
 
     if (nextSource === "grn") {
       const record = await api.get<GoodsReceivedNote>(`/purchases/grns/${nextSourceId}`);
@@ -205,6 +212,7 @@ export function PurchaseBillFormPage() {
         const payload = {
           dueDateUtc: new Date(`${dueDateUtc}T00:00:00Z`).toISOString(),
           paymentTermId: paymentTermId || null,
+          usePaymentTermDueDate: Boolean(paymentTermId) && !isDueDateManuallyEdited,
           referenceNo,
           notes,
           lines: activeLines.map((line) => source === "grn"
@@ -264,13 +272,17 @@ export function PurchaseBillFormPage() {
             <select value={paymentTermId} onChange={(event) => {
               const nextPaymentTermId = event.target.value;
               setPaymentTermId(nextPaymentTermId);
+              setIsDueDateManuallyEdited(false);
               setDueDateUtc(getDueDateForTerm(nextPaymentTermId, dueDateUtc));
             }}>
               <option value="">Manual due date</option>
               {paymentTerms.map((item) => <option key={item.id} value={item.id}>{`${item.code} · ${item.name}`}</option>)}
             </select>
           </label>
-          <label className="form-label">Due Date<input type="date" className="text-input" value={dueDateUtc} onChange={(event) => setDueDateUtc(event.target.value)} /></label>
+          <label className="form-label">Due Date<input type="date" className="text-input" value={dueDateUtc} onChange={(event) => {
+            setDueDateUtc(event.target.value);
+            setIsDueDateManuallyEdited(true);
+          }} /></label>
           <label className="form-label">Reference No<input className="text-input" value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} /></label>
           <label className="form-label">Notes<textarea className="text-input" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         </div>

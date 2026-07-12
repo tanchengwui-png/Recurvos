@@ -167,7 +167,7 @@ public sealed class PurchaseBillService(
         var tax = lines.Sum(x => x.TaxAmount);
         var total = subtotal + tax;
         var issueDateUtc = DateTime.UtcNow;
-        var dueDateUtc = await ResolveDueDateAsync(companyId, request.PaymentTermId, issueDateUtc, request.DueDateUtc, cancellationToken);
+        var dueDateUtc = await ResolveDueDateAsync(companyId, request.PaymentTermId, request.UsePaymentTermDueDate, issueDateUtc, request.DueDateUtc, cancellationToken);
         var entity = new PurchaseBill
         {
             CompanyId = companyId,
@@ -198,9 +198,9 @@ public sealed class PurchaseBillService(
         return entity;
     }
 
-    private async Task<DateTime> ResolveDueDateAsync(Guid companyId, Guid? paymentTermId, DateTime issueDateUtc, DateTime requestedDueDateUtc, CancellationToken cancellationToken)
+    private async Task<DateTime> ResolveDueDateAsync(Guid companyId, Guid? paymentTermId, bool usePaymentTermDueDate, DateTime issueDateUtc, DateTime requestedDueDateUtc, CancellationToken cancellationToken)
     {
-        if (!paymentTermId.HasValue || paymentTermId == Guid.Empty)
+        if (!paymentTermId.HasValue || paymentTermId == Guid.Empty || !usePaymentTermDueDate)
         {
             return requestedDueDateUtc.ToUniversalTime();
         }

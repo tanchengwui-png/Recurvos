@@ -236,6 +236,7 @@ public sealed class InvoiceService(
             salesOrder.Currency,
             request.DueDateUtc,
             request.PaymentTermId,
+            request.UsePaymentTermDueDate,
             invoiceLineItems,
             salesOrder.Id,
             null,
@@ -290,6 +291,7 @@ public sealed class InvoiceService(
             deliveryOrder.Currency,
             request.DueDateUtc,
             request.PaymentTermId,
+            request.UsePaymentTermDueDate,
             invoiceLineItems,
             salesOrder.Id,
             deliveryOrder.Id,
@@ -2619,6 +2621,7 @@ public sealed class InvoiceService(
         string currency,
         DateTime dueDateUtc,
         Guid? paymentTermId,
+        bool usePaymentTermDueDate,
         List<InvoiceLineItem> lineItems,
         Guid salesOrderId,
         Guid? deliveryOrderId,
@@ -2630,7 +2633,7 @@ public sealed class InvoiceService(
         var taxAmount = lineItems.Sum(x => x.TaxAmount);
         var grandTotal = lineItems.Sum(x => x.LineTotal);
         var issueDateUtc = DateTime.UtcNow;
-        var resolvedDueDateUtc = await ResolveDueDateAsync(companyId, paymentTermId, issueDateUtc, dueDateUtc, cancellationToken);
+        var resolvedDueDateUtc = await ResolveDueDateAsync(companyId, paymentTermId, usePaymentTermDueDate, issueDateUtc, dueDateUtc, cancellationToken);
         var taxSnapshot = await ResolveInvoiceTaxSnapshotAsync(companyId, lineItems, cancellationToken);
         var invoice = new Invoice
         {
@@ -2699,9 +2702,9 @@ public sealed class InvoiceService(
         return invoice;
     }
 
-    private async Task<DateTime> ResolveDueDateAsync(Guid companyId, Guid? paymentTermId, DateTime issueDateUtc, DateTime requestedDueDateUtc, CancellationToken cancellationToken)
+    private async Task<DateTime> ResolveDueDateAsync(Guid companyId, Guid? paymentTermId, bool usePaymentTermDueDate, DateTime issueDateUtc, DateTime requestedDueDateUtc, CancellationToken cancellationToken)
     {
-        if (!paymentTermId.HasValue || paymentTermId == Guid.Empty)
+        if (!paymentTermId.HasValue || paymentTermId == Guid.Empty || !usePaymentTermDueDate)
         {
             return requestedDueDateUtc.ToUniversalTime();
         }
