@@ -4,6 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { resolveProductUnitPrice } from "../lib/productPricing";
 import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, PriceLevel, Product, SalesOrder, SalesQuotation, SalesQuotationListItem, TaxCode } from "../types";
 
 type LineForm = { productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
@@ -119,20 +120,29 @@ export function SalesOrderFormPage() {
 
   function getSuggestedUnitPrice(productId: string) {
     const product = filteredProducts.find((item) => item.id === productId);
-    const baseAmount = product?.defaultPlan?.unitAmount;
-    if (baseAmount === undefined) {
+    if (!product) {
       return undefined;
     }
 
-    if (product?.defaultPlan?.currency && currency && product.defaultPlan.currency !== currency) {
+    const resolved = resolveProductUnitPrice({
+      product,
+      contact: selectedContact,
+      quantity: 1,
+      effectiveDate: documentDateUtc,
+      mode: "sales",
+    });
+    if (resolved != null) {
+      return resolved;
+    }
+
+    const baseAmount = product.defaultPlan?.unitAmount;
+    if (baseAmount == null) {
       return undefined;
     }
 
-    if (!selectedPriceLevel) {
-      return baseAmount;
-    }
-
-    return Number((baseAmount * (1 + (selectedPriceLevel.adjustmentPercent / 100))).toFixed(2));
+    return selectedPriceLevel
+      ? Number((baseAmount * (1 + (selectedPriceLevel.adjustmentPercent / 100))).toFixed(2))
+      : baseAmount;
   }
 
   async function submit() {

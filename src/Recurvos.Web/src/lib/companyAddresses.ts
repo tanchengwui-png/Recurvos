@@ -1,5 +1,6 @@
 export type CompanyAddress = {
   id: string;
+  addressName: string;
   addressLine1: string;
   addressLine2?: string | null;
   addressLine3?: string | null;
@@ -13,15 +14,15 @@ export type CompanyAddress = {
 };
 
 export function formatCompanyAddress(address: Pick<CompanyAddress, "addressLine1" | "addressLine2" | "addressLine3" | "postcode" | "city" | "state" | "country">) {
-  const cityLine = [address.city?.trim(), address.state?.trim(), address.postcode?.trim()].filter(Boolean).join(", ");
-
   return [
     address.addressLine1.trim(),
     address.addressLine2?.trim(),
     address.addressLine3?.trim(),
-    cityLine,
+    address.city?.trim(),
+    address.state?.trim(),
+    address.postcode?.trim(),
     address.country.trim(),
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean).join(", ");
 }
 
 export function parseLegacyCompanyAddress(address: string): CompanyAddress | null {
@@ -60,6 +61,7 @@ export function parseLegacyCompanyAddress(address: string): CompanyAddress | nul
 
   return {
     id: `legacy-${Math.random().toString(36).slice(2, 10)}`,
+    addressName: "Primary",
     addressLine1,
     addressLine2,
     addressLine3,
@@ -73,6 +75,6 @@ export function parseLegacyCompanyAddress(address: string): CompanyAddress | nul
   };
 }
 
-export function getCompanyAddressTitle(_address: Pick<CompanyAddress, "addressLine1" | "city" | "state" | "country">, index: number) {
-  return `Address ${index + 1}`;
+export function getCompanyAddressTitle(address: Partial<Pick<CompanyAddress, "addressName">>, index: number) {
+  return address.addressName?.trim() || `Address ${index + 1}`;
 }

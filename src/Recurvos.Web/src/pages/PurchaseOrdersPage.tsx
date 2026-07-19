@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
+import { TablePagination } from "../components/TablePagination";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { CompanyLookup, PurchaseOrderListItem } from "../types";
@@ -14,6 +16,7 @@ export function PurchaseOrdersPage() {
   const [search, setSearch] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [status, setStatus] = useState("");
+  const [sort, setSort] = useState<"date-desc" | "date-asc" | "number" | "amount-desc">("date-desc");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
   async function load() {
@@ -31,14 +34,22 @@ export function PurchaseOrdersPage() {
 
   useEffect(() => { void load(); }, [search, companyId, status]);
 
+  const sortedItems = useMemo(() => [...items].sort((left, right) => {
+    if (sort === "number") return left.purchaseOrderNumber.localeCompare(right.purchaseOrderNumber, undefined, { numeric: true });
+    if (sort === "amount-desc") return right.totalAmount - left.totalAmount;
+    const result = new Date(left.documentDateUtc).getTime() - new Date(right.documentDateUtc).getTime();
+    return sort === "date-asc" ? result : -result;
+  }), [items, sort]);
+  const pagination = useClientPagination(sortedItems, [search, companyId, status, sort]);
+
   function getActions(item: PurchaseOrderListItem) {
     return [
       { label: "View", onClick: () => navigate(`/purchases/orders/${item.id}`) },
-      { label: "Edit", onClick: () => navigate(`/purchases/orders/${item.id}/edit`) },
+      ...(item.status !== "Closed" && item.status !== "Cancelled" && item.status !== "PartiallyReceived" && item.status !== "FullyReceived" ? [{ label: "Edit", onClick: () => navigate(`/purchases/orders/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{ label: "Mark as Sent", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Sent" }); await load(); } }] : []),
       ...(item.status === "Sent" ? [{ label: "Approve", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Approved" }); await load(); } }] : []),
-      ...(item.status !== "Closed" && item.status !== "Cancelled" && item.status !== "FullyReceived" ? [{ label: "Create GRN", onClick: () => navigate(`/purchases/grns/new?purchaseOrderId=${item.id}`) }] : []),
-      ...(item.status !== "Cancelled" ? [{ label: "Create Bill", onClick: () => navigate(`/purchases/bills/new?source=purchase-order&sourceId=${item.id}`) }] : []),
+      ...((item.status === "Approved" || item.status === "PartiallyReceived") ? [{ label: "Create GRN", onClick: () => navigate(`/purchases/grns/new?purchaseOrderId=${item.id}`) }] : []),
+      ...((item.status === "Approved" || item.status === "PartiallyReceived" || item.status === "FullyReceived") ? [{ label: "Create Bill", onClick: () => navigate(`/purchases/bills/new?source=purchase-order&sourceId=${item.id}`) }] : []),
       ...(item.status !== "Closed" && item.status !== "Cancelled" ? [{ label: "Close", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Closed" }); await load(); } }] : []),
       {
         label: "Delete",
@@ -68,6 +79,7 @@ export function PurchaseOrdersPage() {
           <option value="">All companies</option>
           {companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
+        <select aria-label="Sort purchase orders" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="number">Order number</option><option value="amount-desc">Highest total</option></select>
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
           <option value="Draft">Draft</option>
@@ -84,7 +96,7 @@ export function PurchaseOrdersPage() {
           <table className="catalog-table">
             <thead><tr><th>Purchase Order No</th><th>Date</th><th>Supplier</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {items.length === 0 ? <EmptyTableRow colSpan={6} title="No purchase orders yet" description="Create a purchase order to start the purchases workflow." actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/orders/new")}>Create purchase order</button>} /> : items.map((item) => (
+              {sortedItems.length === 0 ? <EmptyTableRow colSpan={6} title="No purchase orders yet" description="Create a purchase order to start the purchases workflow." actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/orders/new")}>Create purchase order</button>} /> : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.purchaseOrderNumber}</td>
                   <td>{new Date(item.documentDateUtc).toLocaleDateString()}</td>
@@ -97,6 +109,7 @@ export function PurchaseOrdersPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination currentPage={pagination.currentPage} pageSize={pagination.pageSize} totalItems={sortedItems.length} totalPages={pagination.totalPages} rangeStart={pagination.rangeStart} rangeEnd={pagination.rangeEnd} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -842,6 +843,188 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         customer.PayableAccount.Should().Be("2100");
         customer.IncomeAccount.Should().Be("4000");
         customer.ExpenseAccount.Should().Be("5000");
+    }
+
+    [Fact]
+    public async Task CustomerBatchUpdate_ReplaceExistingGroups_OnlyTouchesTargetedValues()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        Guid firstCustomerId;
+        Guid secondCustomerId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var subscriberId = Guid.Parse(ParseJwtClaim(token, "sub"));
+
+            var firstCustomer = new Customer
+            {
+                SubscriberId = subscriberId,
+                Name = "Batch Group Contact A",
+                LegalName = "Batch Group Contact A",
+                Email = "batch-group-a@example.test",
+                ContactType = "Customer",
+                Status = "Active",
+                GroupsJson = JsonSerializer.Serialize(new[] { "Customer", "Supplier" })
+            };
+
+            var secondCustomer = new Customer
+            {
+                SubscriberId = subscriberId,
+                Name = "Batch Group Contact B",
+                LegalName = "Batch Group Contact B",
+                Email = "batch-group-b@example.test",
+                ContactType = "Customer",
+                Status = "Active",
+                GroupsJson = JsonSerializer.Serialize(new[] { "Customer", "Employee" })
+            };
+
+            dbContext.Customers.AddRange(firstCustomer, secondCustomer);
+            await dbContext.SaveChangesAsync();
+            firstCustomerId = firstCustomer.Id;
+            secondCustomerId = secondCustomer.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/customers/batch-update", new
+        {
+            customerIds = new[] { firstCustomerId, secondCustomerId },
+            fields = new
+            {
+                groups = true
+            },
+            values = new
+            {
+                groups = new[] { "VIP" }
+            },
+            modes = new
+            {
+                groups = "Replace"
+            },
+            targets = new
+            {
+                groups = new[] { "Customer" }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.Content.ReadFromJsonAsync<CustomerBatchUpdateResult>(TestWebApplicationFactory.JsonOptions);
+        result.Should().NotBeNull();
+        result!.SuccessCount.Should().Be(2);
+
+        var firstCustomer = result.Customers.Single(x => x.Id == firstCustomerId);
+        var secondCustomer = result.Customers.Single(x => x.Id == secondCustomerId);
+        firstCustomer.Groups.Should().BeEquivalentTo(new[] { "Supplier", "VIP" }, options => options.WithStrictOrdering());
+        secondCustomer.Groups.Should().BeEquivalentTo(new[] { "Employee", "VIP" }, options => options.WithStrictOrdering());
+
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persistedCustomers = await verifyDbContext.Customers
+            .Where(x => x.Id == firstCustomerId || x.Id == secondCustomerId)
+            .OrderBy(x => x.Name)
+            .ToListAsync();
+
+        persistedCustomers[0].GroupsJson.Should().Be(JsonSerializer.Serialize(new[] { "Supplier", "VIP" }));
+        persistedCustomers[1].GroupsJson.Should().Be(JsonSerializer.Serialize(new[] { "Employee", "VIP" }));
+    }
+
+    [Fact]
+    public async Task CustomerBatchUpdate_RemoveExistingAddresses_OnlyRemovesTargetedRecords()
+    {
+        await _factory.EnsureSeededAsync();
+        var token = await _factory.LoginAsSubscriberOwnerAsync();
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), token);
+
+        var warehouseAddress = new
+        {
+            addressName = "Warehouse",
+            streetAddress = "Warehouse 4, Jalan Utama",
+            addressLine2 = "",
+            addressLine3 = "",
+            city = "Shah Alam",
+            postcode = "40000",
+            country = "MY",
+            state = "Selangor",
+            isDefaultBilling = false,
+            isDefaultShipping = false
+        };
+
+        Guid firstCustomerId;
+        Guid secondCustomerId;
+
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var subscriberId = Guid.Parse(ParseJwtClaim(token, "sub"));
+
+            var firstCustomer = new Customer
+            {
+                SubscriberId = subscriberId,
+                Name = "Batch Address Contact A",
+                LegalName = "Batch Address Contact A",
+                Email = "batch-address-a@example.test",
+                ContactType = "Customer",
+                Status = "Active",
+                BillingAddress = "Level 10, Jalan Sultan Ismail",
+                AddressesJson = """
+                [{"AddressName":"HQ","StreetAddress":"Level 10, Jalan Sultan Ismail","AddressLine2":"","AddressLine3":"","City":"Kuala Lumpur","Postcode":"50250","Country":"MY","State":"Kuala Lumpur","IsDefaultBilling":true,"IsDefaultShipping":true},{"AddressName":"Warehouse","StreetAddress":"Warehouse 4, Jalan Utama","AddressLine2":"","AddressLine3":"","City":"Shah Alam","Postcode":"40000","Country":"MY","State":"Selangor","IsDefaultBilling":false,"IsDefaultShipping":false}]
+                """
+            };
+
+            var secondCustomer = new Customer
+            {
+                SubscriberId = subscriberId,
+                Name = "Batch Address Contact B",
+                LegalName = "Batch Address Contact B",
+                Email = "batch-address-b@example.test",
+                ContactType = "Customer",
+                Status = "Active",
+                BillingAddress = "3 Persiaran Dagang",
+                AddressesJson = """
+                [{"AddressName":"Billing","StreetAddress":"3 Persiaran Dagang","AddressLine2":"","AddressLine3":"","City":"Petaling Jaya","Postcode":"47810","Country":"MY","State":"Selangor","IsDefaultBilling":true,"IsDefaultShipping":true},{"AddressName":"Warehouse","StreetAddress":"Warehouse 4, Jalan Utama","AddressLine2":"","AddressLine3":"","City":"Shah Alam","Postcode":"40000","Country":"MY","State":"Selangor","IsDefaultBilling":false,"IsDefaultShipping":false}]
+                """
+            };
+
+            dbContext.Customers.AddRange(firstCustomer, secondCustomer);
+            await dbContext.SaveChangesAsync();
+            firstCustomerId = firstCustomer.Id;
+            secondCustomerId = secondCustomer.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/customers/batch-update", new
+        {
+            customerIds = new[] { firstCustomerId, secondCustomerId },
+            fields = new
+            {
+                addresses = true
+            },
+            values = new
+            {
+                addresses = Array.Empty<object>()
+            },
+            modes = new
+            {
+                addresses = "Remove"
+            },
+            targets = new
+            {
+                addresses = new[] { warehouseAddress }
+            }
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await response.Content.ReadFromJsonAsync<CustomerBatchUpdateResult>(TestWebApplicationFactory.JsonOptions);
+        result.Should().NotBeNull();
+        result!.SuccessCount.Should().Be(2);
+
+        var firstCustomer = result.Customers.Single(x => x.Id == firstCustomerId);
+        var secondCustomer = result.Customers.Single(x => x.Id == secondCustomerId);
+        firstCustomer.Addresses.Should().ContainSingle(x => x.AddressName == "HQ");
+        secondCustomer.Addresses.Should().ContainSingle(x => x.AddressName == "Billing");
+        firstCustomer.Addresses.Should().NotContain(x => x.AddressName == "Warehouse");
+        secondCustomer.Addresses.Should().NotContain(x => x.AddressName == "Warehouse");
     }
 
     [Fact]

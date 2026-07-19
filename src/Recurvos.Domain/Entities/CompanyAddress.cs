@@ -5,6 +5,7 @@ namespace Recurvos.Domain.Entities;
 public sealed class CompanyAddress : BaseEntity
 {
     public Guid CompanyId { get; set; }
+    public string AddressName { get; set; } = string.Empty;
     public string AddressLine1 { get; set; } = string.Empty;
     public string? AddressLine2 { get; set; }
     public string? AddressLine3 { get; set; }

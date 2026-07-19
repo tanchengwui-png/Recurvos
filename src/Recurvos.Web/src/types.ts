@@ -178,6 +178,95 @@ export type Customer = {
   myInvoisControl: string;
 };
 
+export type CustomerBatchUpdateFields = {
+  legalName: boolean;
+  email: boolean;
+  phoneNumber: boolean;
+  contactPersons: boolean;
+  phoneNumbers: boolean;
+  emailAddresses: boolean;
+  addresses: boolean;
+  contactType: boolean;
+  status: boolean;
+  receivableAccount: boolean;
+  creditLimit: boolean;
+  payableAccount: boolean;
+  groups: boolean;
+  priceLevel: boolean;
+  currency: boolean;
+  paymentTerm: boolean;
+  incomeAccount: boolean;
+  expenseAccount: boolean;
+  location: boolean;
+  tags: boolean;
+  myInvoisControl: boolean;
+};
+
+export type CustomerBatchUpdateListMode = "Append" | "Replace" | "Remove";
+
+export type CustomerBatchUpdateListModes = {
+  contactPersons: CustomerBatchUpdateListMode;
+  phoneNumbers: CustomerBatchUpdateListMode;
+  emailAddresses: CustomerBatchUpdateListMode;
+  addresses: CustomerBatchUpdateListMode;
+  groups: CustomerBatchUpdateListMode;
+  tags: CustomerBatchUpdateListMode;
+};
+
+export type CustomerBatchUpdateValues = {
+  legalName: string;
+  email: string;
+  phoneNumber: string;
+  contactPersons: ContactPerson[];
+  phoneNumbers: string[];
+  emailAddresses: string[];
+  addresses: ContactAddress[];
+  contactType: string;
+  status: Customer["status"];
+  receivableAccountId?: string | null;
+  receivableAccount: string;
+  creditLimit?: number | null;
+  payableAccountId?: string | null;
+  payableAccount: string;
+  groups: string[];
+  priceLevel: string;
+  currency: string;
+  paymentTerm: string;
+  incomeAccountId?: string | null;
+  incomeAccount: string;
+  expenseAccountId?: string | null;
+  expenseAccount: string;
+  location: string;
+  tags: string[];
+  myInvoisControl: string;
+};
+
+export type CustomerBatchUpdateTargets = {
+  contactPersons: ContactPerson[];
+  phoneNumbers: string[];
+  emailAddresses: string[];
+  addresses: ContactAddress[];
+  groups: string[];
+  tags: string[];
+};
+
+export type CustomerBatchUpdateRequest = {
+  customerIds: string[];
+  fields: CustomerBatchUpdateFields;
+  values: CustomerBatchUpdateValues;
+  modes: CustomerBatchUpdateListModes;
+  targets: CustomerBatchUpdateTargets;
+};
+
+export type CustomerBatchUpdateResult = {
+  requestedCount: number;
+  successCount: number;
+  failureCount: number;
+  failedCustomerIds: string[];
+  updatedFields: string[];
+  customers: Customer[];
+};
+
 export type StatementAccountType = "Customer" | "Supplier";
 
 export type StatementRowSourceType =
@@ -242,6 +331,29 @@ export type ContactGroup = {
   contactIds: string[];
 };
 
+export type ProductGroup = {
+  id: string;
+  name: string;
+  description: string;
+  productsCount: number;
+  createdAtUtc: string;
+  updatedAtUtc?: string | null;
+  productIds: string[];
+};
+
+export type ProductGroupProductLookup = {
+  id: string;
+  name: string;
+  code: string;
+  barcode?: string | null;
+  isSelling: boolean;
+  isBuying: boolean;
+  trackInventory: boolean;
+  isActive: boolean;
+  companyName: string;
+  productGroups: string[];
+};
+
 export type Warehouse = {
   id: string;
   code: string;
@@ -264,6 +376,21 @@ export type Account = {
   createdAtUtc: string;
   updatedAtUtc?: string | null;
 };
+
+export type JournalEntryStatus = "Draft" | "Posted" | "Reversed" | "Cancelled";
+export type JournalEntryLine = { id: string; sortOrder: number; accountId: string; accountCode: string; accountName: string; description: string; debitAmount: number; creditAmount: number; baseDebitAmount: number; baseCreditAmount: number };
+export type JournalEntryListItem = { id: string; companyId: string; companyName: string; journalNumber: string; journalDateUtc: string; currency: string; exchangeRate: number; referenceNo: string; description: string; totalDebit: number; totalCredit: number; status: JournalEntryStatus; reversesJournalEntryId?: string | null; reversedByJournalEntryId?: string | null };
+export type JournalEntry = JournalEntryListItem & { createdAtUtc: string; updatedAtUtc?: string | null; postedAtUtc?: string | null; lines: JournalEntryLine[] };
+export type GeneralLedgerTransaction = { journalEntryId: string; journalNumber: string; journalDateUtc: string; referenceNo: string; description: string; debitAmount: number; creditAmount: number; runningBalance: number };
+export type GeneralLedgerAccount = { accountId: string; accountCode: string; accountName: string; accountType: Account["type"]; openingBalance: number; periodDebit: number; periodCredit: number; closingBalance: number; transactions: GeneralLedgerTransaction[] };
+export type GeneralLedgerReport = { companyId: string; companyName: string; currency: string; fromDateUtc: string; toDateUtc: string; accounts: GeneralLedgerAccount[] };
+export type TrialBalanceLine = { accountId: string; accountCode: string; accountName: string; accountType: Account["type"]; openingDebit: number; openingCredit: number; periodDebit: number; periodCredit: number; closingDebit: number; closingCredit: number };
+export type TrialBalanceReport = { companyId: string; companyName: string; currency: string; fromDateUtc: string; toDateUtc: string; lines: TrialBalanceLine[]; totalOpeningDebit: number; totalOpeningCredit: number; totalPeriodDebit: number; totalPeriodCredit: number; totalClosingDebit: number; totalClosingCredit: number; isBalanced: boolean };
+export type FinancialStatementAccount = { accountId: string; accountCode: string; accountName: string; amount: number; comparisonAmount?: number | null };
+export type FinancialStatementGroup = { key: string; name: string; amount: number; comparisonAmount?: number | null; accounts: FinancialStatementAccount[] };
+export type ProfitAndLossReport = { companyId: string; companyName: string; currency: string; fromDateUtc: string; toDateUtc: string; hasComparison: boolean; groups: FinancialStatementGroup[]; revenue: number; costOfSales: number; grossProfit: number; operatingExpenses: number; otherIncome: number; otherExpenses: number; netProfit: number; comparisonNetProfit?: number | null };
+export type BalanceSheetReport = { companyId: string; companyName: string; currency: string; asOfDateUtc: string; assetGroups: FinancialStatementGroup[]; liabilityGroups: FinancialStatementGroup[]; equityGroup: FinancialStatementGroup; totalAssets: number; totalLiabilities: number; totalEquity: number; retainedEarnings: number; isBalanced: boolean };
+export type CashFlowReport = { companyId: string; companyName: string; currency: string; fromDateUtc: string; toDateUtc: string; operatingActivities: FinancialStatementGroup[]; investingActivities: FinancialStatementGroup[]; financingActivities: FinancialStatementGroup[]; openingCash: number; netCashMovement: number; closingCash: number; isBalanced: boolean };
 
 export type TaxCode = {
   id: string;
@@ -779,7 +906,18 @@ export type Product = {
   companyName: string;
   name: string;
   code: string;
+  barcode?: string | null;
   category?: string | null;
+  productGroups: string[];
+  salesPrice?: number | null;
+  purchasePrice?: number | null;
+  baseUnitLabel: string;
+  hasMultipleUoms: boolean;
+  uomConversions: ProductUomConversion[];
+  hasCustomSalesPrices: boolean;
+  customSalesPrices: ProductCustomPrice[];
+  hasCustomPurchasePrices: boolean;
+  customPurchasePrices: ProductCustomPrice[];
   productType: string;
   plansCount: number;
   isActive: boolean;
@@ -795,6 +933,31 @@ export type ProductDefaultPlanSummary = {
   currency: string;
 };
 
+export type ProductUomConversion = {
+  label: string;
+  factor: number;
+  salePrice?: number | null;
+  purchasePrice?: number | null;
+  isDefaultSalesUom: boolean;
+  isDefaultPurchaseUom: boolean;
+};
+
+export type ProductCustomPriceTargetType = "Contact" | "ContactGroup" | "PriceLevel";
+
+export type ProductCustomPrice = {
+  targetType: ProductCustomPriceTargetType;
+  contactId?: string | null;
+  contactCode: string;
+  contactName: string;
+  contactGroup: string;
+  priceLevel: string;
+  dateFromUtc?: string | null;
+  dateToUtc?: string | null;
+  minQuantity?: number | null;
+  uom: string;
+  unitPrice: number;
+};
+
 export type ProductDetails = {
   id: string;
   companyId: string;
@@ -802,7 +965,40 @@ export type ProductDetails = {
   name: string;
   code: string;
   description?: string | null;
+  barcode?: string | null;
   category?: string | null;
+  productGroups: string[];
+  binLocation?: string | null;
+  hasImage: boolean;
+  trackInventory: boolean;
+  inventoryAccountId?: string | null;
+  inventoryAccount: string;
+  reorderLevel?: number | null;
+  openingQuantity?: number | null;
+  openingCost?: number | null;
+  isSelling: boolean;
+  salesPrice?: number | null;
+  salesTaxCodeId?: string | null;
+  salesTaxCode: string;
+  incomeAccountId?: string | null;
+  incomeAccount: string;
+  salesDescription?: string | null;
+  isBuying: boolean;
+  purchasePrice?: number | null;
+  purchaseTaxCodeId?: string | null;
+  purchaseTaxCode: string;
+  expenseAccountId?: string | null;
+  expenseAccount: string;
+  preferredSupplierId?: string | null;
+  preferredSupplierName: string;
+  purchaseDescription?: string | null;
+  baseUnitLabel: string;
+  hasMultipleUoms: boolean;
+  uomConversions: ProductUomConversion[];
+  hasCustomSalesPrices: boolean;
+  customSalesPrices: ProductCustomPrice[];
+  hasCustomPurchasePrices: boolean;
+  customPurchasePrices: ProductCustomPrice[];
   isSubscriptionProduct: boolean;
   isActive: boolean;
   createdAtUtc: string;
@@ -1578,6 +1774,7 @@ export type CompanyLookup = {
   address: string;
   addresses: {
     id: string;
+    addressName: string;
     addressLine1: string;
     addressLine2?: string | null;
     addressLine3?: string | null;

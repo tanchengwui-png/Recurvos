@@ -24,6 +24,7 @@ public sealed class Company : BaseEntity
     public bool IsPlatformAccount { get; set; }
     public string Currency { get; set; } = "MYR";
     public int InvoiceSequence { get; set; } = 1000;
+    public int JournalEntrySequence { get; set; } = 1;
     public string? SelectedPackage { get; set; }
     public string? PendingPackageCode { get; set; }
     public string? PackageStatus { get; set; }

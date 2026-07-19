@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
+import { TablePagination } from "../components/TablePagination";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
@@ -32,6 +34,7 @@ export function PurchasePaymentsPage() {
     const matchesStatus = !status || item.status === status;
     return matchesSearch && matchesStatus;
   }), [items, search, status]);
+  const pagination = useClientPagination(filtered, [search, status]);
 
   function getActions(item: PurchasePaymentListItem) {
     return [
@@ -86,7 +89,7 @@ export function PurchasePaymentsPage() {
                   description="Record a supplier payment from one or more purchase bills."
                   actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/bills")}>Go to purchase bills</button>}
                 />
-              ) : filtered.map((item) => (
+              ) : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.purchasePaymentNumber}</td>
                   <td>{new Date(item.paymentDateUtc).toLocaleDateString()}</td>
@@ -100,6 +103,7 @@ export function PurchasePaymentsPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination currentPage={pagination.currentPage} pageSize={pagination.pageSize} totalItems={pagination.totalItems} totalPages={pagination.totalPages} rangeStart={pagination.rangeStart} rangeEnd={pagination.rangeEnd} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

@@ -50,6 +50,8 @@ public sealed class CompanyAddressUpsertRequest
 {
     [JsonPropertyName("id")]
     public Guid? Id { get; set; }
+    [JsonPropertyName("addressName")]
+    public string AddressName { get; set; } = string.Empty;
     [JsonPropertyName("addressLine1")]
     public string AddressLine1 { get; set; } = string.Empty;
     [JsonPropertyName("addressLine2")]
@@ -74,6 +76,7 @@ public sealed class CompanyAddressUpsertRequest
 
 public sealed record CompanyAddressDto(
     Guid Id,
+    string AddressName,
     string AddressLine1,
     string? AddressLine2,
     string? AddressLine3,

@@ -9,10 +9,19 @@ const CompaniesPage = lazy(() => import("./pages/CompaniesPage").then((module) =
 const CompanyFormPage = lazy(() => import("./pages/CompanyFormPage").then((module) => ({ default: module.CompanyFormPage })));
 const ContactGroupsPage = lazy(() => import("./pages/ContactGroupsPage").then((module) => ({ default: module.ContactGroupsPage })));
 const CustomerFormPage = lazy(() => import("./pages/CustomerFormPage").then((module) => ({ default: module.CustomerFormPage })));
+const CustomerImportPage = lazy(() => import("./pages/CustomerImportPage").then((module) => ({ default: module.CustomerImportPage })));
 const CustomersPage = lazy(() => import("./pages/CustomersPage").then((module) => ({ default: module.CustomersPage })));
 const CustomerStatementPage = lazy(() => import("./pages/CustomerStatementPage").then((module) => ({ default: module.CustomerStatementPage })));
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 const FinancePage = lazy(() => import("./pages/FinancePage").then((module) => ({ default: module.FinancePage })));
+const JournalEntriesPage = lazy(() => import("./pages/JournalEntriesPage").then((module) => ({ default: module.JournalEntriesPage })));
+const JournalEntryFormPage = lazy(() => import("./pages/JournalEntryFormPage").then((module) => ({ default: module.JournalEntryFormPage })));
+const JournalEntryDetailsPage = lazy(() => import("./pages/JournalEntryDetailsPage").then((module) => ({ default: module.JournalEntryDetailsPage })));
+const GeneralLedgerPage = lazy(() => import("./pages/GeneralLedgerPage").then((module) => ({ default: module.GeneralLedgerPage })));
+const TrialBalancePage = lazy(() => import("./pages/TrialBalancePage").then((module) => ({ default: module.TrialBalancePage })));
+const ProfitAndLossPage = lazy(() => import("./pages/ProfitAndLossPage").then((module) => ({ default: module.ProfitAndLossPage })));
+const BalanceSheetPage = lazy(() => import("./pages/BalanceSheetPage").then((module) => ({ default: module.BalanceSheetPage })));
+const CashFlowPage = lazy(() => import("./pages/CashFlowPage").then((module) => ({ default: module.CashFlowPage })));
 const FeedbackPage = lazy(() => import("./pages/FeedbackPage").then((module) => ({ default: module.FeedbackPage })));
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage").then((module) => ({ default: module.ForgotPasswordPage })));
 const InfoPage = lazy(() => import("./pages/InfoPage").then((module) => ({ default: module.InfoPage })));
@@ -40,6 +49,9 @@ const PlatformWhatsAppSessionsPage = lazy(() => import("./pages/PlatformWhatsApp
 const PricingPage = lazy(() => import("./pages/PricingPage").then((module) => ({ default: module.PricingPage })));
 const ProductDetailsPage = lazy(() => import("./pages/ProductDetailsPage").then((module) => ({ default: module.ProductDetailsPage })));
 const ProductFormPage = lazy(() => import("./pages/ProductFormPage").then((module) => ({ default: module.ProductFormPage })));
+const ProductImportPage = lazy(() => import("./pages/ProductImportPage").then((module) => ({ default: module.ProductImportPage })));
+const ProductBatchUpdatePage = lazy(() => import("./pages/ProductBatchUpdatePage").then((module) => ({ default: module.ProductBatchUpdatePage })));
+const ProductGroupsPage = lazy(() => import("./pages/ProductGroupsPage").then((module) => ({ default: module.ProductGroupsPage })));
 const ProductPlanFormPage = lazy(() => import("./pages/ProductPlanFormPage").then((module) => ({ default: module.ProductPlanFormPage })));
 const ProductPlansPage = lazy(() => import("./pages/ProductPlansPage").then((module) => ({ default: module.ProductPlansPage })));
 const ProductsPage = lazy(() => import("./pages/ProductsPage").then((module) => ({ default: module.ProductsPage })));
@@ -211,11 +223,15 @@ function AppRoutes() {
             <Route path="/companies/:id/edit" element={<TenantRoute><CompanyFormPage /></TenantRoute>} />
             <Route path="/contact-groups" element={<TenantRoute><ContactGroupsPage /></TenantRoute>} />
             <Route path="/customers" element={<TenantRoute><CustomersPage /></TenantRoute>} />
+            <Route path="/customers/import" element={<TenantRoute><CustomerImportPage /></TenantRoute>} />
             <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
             <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
             <Route path="/customers/:id/statement" element={<TenantRoute><CustomerStatementPage /></TenantRoute>} />
             <Route path="/products" element={<TenantRoute><ProductsPage /></TenantRoute>} />
+            <Route path="/product-groups" element={<TenantRoute><ProductGroupsPage /></TenantRoute>} />
             <Route path="/products/new" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
+            <Route path="/products/import" element={<TenantRoute><ProductImportPage /></TenantRoute>} />
+            <Route path="/products/batch-update" element={<TenantRoute><ProductBatchUpdatePage /></TenantRoute>} />
             <Route path="/products/:id/edit" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
             <Route path="/products/:id" element={<TenantRoute><ProductDetailsPage /></TenantRoute>} />
             <Route path="/plans" element={<TenantRoute><ProductPlansPage /></TenantRoute>} />
@@ -258,6 +274,15 @@ function AppRoutes() {
             <Route path="/purchases/refunds/new" element={<TenantRoute><PurchaseRefundFormPage /></TenantRoute>} />
             <Route path="/purchases/refunds/:id" element={<TenantRoute><PurchaseRefundDetailsPage /></TenantRoute>} />
             <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
+            <Route path="/finance/journal-entries" element={<TenantRoute><JournalEntriesPage /></TenantRoute>} />
+            <Route path="/finance/journal-entries/new" element={<TenantRoute><JournalEntryFormPage /></TenantRoute>} />
+            <Route path="/finance/journal-entries/:id/edit" element={<TenantRoute><JournalEntryFormPage /></TenantRoute>} />
+            <Route path="/finance/journal-entries/:id" element={<TenantRoute><JournalEntryDetailsPage /></TenantRoute>} />
+            <Route path="/finance/general-ledger" element={<TenantRoute><GeneralLedgerPage /></TenantRoute>} />
+            <Route path="/finance/trial-balance" element={<TenantRoute><TrialBalancePage /></TenantRoute>} />
+            <Route path="/finance/profit-and-loss" element={<TenantRoute><ProfitAndLossPage /></TenantRoute>} />
+            <Route path="/finance/balance-sheet" element={<TenantRoute><BalanceSheetPage /></TenantRoute>} />
+            <Route path="/finance/cash-flow" element={<TenantRoute><CashFlowPage /></TenantRoute>} />
             <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
             <Route path="/foundation" element={<TenantRoute><FoundationOverviewPage /></TenantRoute>} />
             <Route path="/foundation/chart-of-accounts" element={<TenantRoute><FoundationModuleListPage moduleKey="chart-of-accounts" /></TenantRoute>} />

@@ -4,6 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { resolveProductUnitPrice } from "../lib/productPricing";
 import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, Product, PurchaseOrder, TaxCode } from "../types";
 
 type LineForm = { productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
@@ -74,6 +75,21 @@ export function PurchaseOrderFormPage() {
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...next } : line));
   }
 
+  function getSuggestedUnitPrice(productId: string) {
+    const product = filteredProducts.find((item) => item.id === productId);
+    if (!product) {
+      return undefined;
+    }
+
+    return resolveProductUnitPrice({
+      product,
+      contact: contacts.find((item) => item.id === contactId),
+      quantity: 1,
+      effectiveDate: documentDateUtc,
+      mode: "purchase",
+    });
+  }
+
   async function submit() {
     if (lines.some((line) => !line.taxCodeId)) {
       setError("Select a tax code for each line.");
@@ -138,7 +154,11 @@ export function PurchaseOrderFormPage() {
                 <tr key={index}>
                   <td><select value={line.productId} onChange={(event) => {
                     const product = filteredProducts.find((item) => item.id === event.target.value);
-                    updateLine(index, { productId: event.target.value, description: line.description || product?.name || "" });
+                    updateLine(index, {
+                      productId: event.target.value,
+                      description: line.description || product?.name || "",
+                      unitPrice: getSuggestedUnitPrice(event.target.value) ?? line.unitPrice,
+                    });
                   }}><option value="">Manual</option>{filteredProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td>
                   <td><input className="text-input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} /></td>
                   <td><input type="number" min="0.01" step="0.01" className="text-input" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} /></td>

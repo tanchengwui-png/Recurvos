@@ -427,6 +427,7 @@ public sealed class CompanyService(
     private static CompanyAddressDto MapAddress(Domain.Entities.CompanyAddress address) =>
         new(
             address.Id,
+            address.AddressName,
             address.AddressLine1,
             address.AddressLine2,
             address.AddressLine3,
@@ -507,13 +508,14 @@ public sealed class CompanyService(
                 keptIds.Add(address.Id);
             }
 
-            address.AddressLine1 = request.AddressLine1.Trim();
+            address.AddressName = (request.AddressName ?? string.Empty).Trim();
+            address.AddressLine1 = (request.AddressLine1 ?? string.Empty).Trim();
             address.AddressLine2 = NormalizeOptional(request.AddressLine2);
             address.AddressLine3 = NormalizeOptional(request.AddressLine3);
             address.Postcode = NormalizeOptional(request.Postcode);
             address.City = NormalizeOptional(request.City);
             address.State = NormalizeOptional(request.State);
-            address.Country = request.Country.Trim();
+            address.Country = (request.Country ?? string.Empty).Trim();
             address.IsDefault = request.IsDefault;
             address.IsDefaultBilling = request.IsDefaultBilling;
             address.IsDefaultShipping = request.IsDefaultShipping;
@@ -561,13 +563,14 @@ public sealed class CompanyService(
             .Select(request => new CompanyAddressUpsertRequest
             {
                 Id = request.Id,
-                AddressLine1 = request.AddressLine1,
-                AddressLine2 = request.AddressLine2,
-                AddressLine3 = request.AddressLine3,
-                Postcode = request.Postcode,
-                City = request.City,
-                State = request.State,
-                Country = request.Country,
+                AddressName = (request.AddressName ?? string.Empty).Trim(),
+                AddressLine1 = (request.AddressLine1 ?? string.Empty).Trim(),
+                AddressLine2 = NormalizeOptional(request.AddressLine2),
+                AddressLine3 = NormalizeOptional(request.AddressLine3),
+                Postcode = NormalizeOptional(request.Postcode),
+                City = NormalizeOptional(request.City),
+                State = NormalizeOptional(request.State),
+                Country = (request.Country ?? string.Empty).Trim(),
                 IsDefault = request.IsDefault,
                 IsDefaultBilling = request.IsDefaultBilling || (!hasExplicitBillingDefault && request.IsDefault),
                 IsDefaultShipping = request.IsDefaultShipping || (!hasExplicitShippingDefault && request.IsDefault),
@@ -579,7 +582,8 @@ public sealed class CompanyService(
     }
 
     private static bool ShouldPersistAddress(CompanyAddressUpsertRequest request) =>
-        HasAddressBodyContent(request)
+        !string.IsNullOrWhiteSpace(request.AddressName)
+        || HasAddressBodyContent(request)
         || (!string.IsNullOrWhiteSpace(request.AddressLine1) && !string.IsNullOrWhiteSpace(request.Country));
 
     private static bool HasAddressBodyContent(CompanyAddressUpsertRequest request) =>
@@ -607,10 +611,11 @@ public sealed class CompanyService(
             .Select((address, index) => new { address, index })
             .FirstOrDefault(item =>
                 string.IsNullOrWhiteSpace(item.address.AddressLine1)
+                || string.IsNullOrWhiteSpace(item.address.AddressName)
                 || string.IsNullOrWhiteSpace(item.address.Country));
         if (invalidAddressIndex is not null)
         {
-            throw new InvalidOperationException($"Address {invalidAddressIndex.index + 1} must include Address Line 1 and Country.");
+            throw new InvalidOperationException($"Address {invalidAddressIndex.index + 1} must include Address Name, Address Line 1, and Country.");
         }
     }
 
@@ -666,6 +671,7 @@ public sealed class CompanyService(
 
         return new CompanyAddressUpsertRequest
         {
+            AddressName = "Primary",
             AddressLine1 = addressLine1,
             AddressLine2 = addressLine2,
             AddressLine3 = addressLine3,

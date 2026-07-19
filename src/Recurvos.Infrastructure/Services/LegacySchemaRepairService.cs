@@ -977,6 +977,7 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             CREATE TABLE IF NOT EXISTS company_addresses (
                 "Id" uuid NOT NULL,
                 "CompanyId" uuid NOT NULL,
+                "AddressName" character varying(120) NOT NULL DEFAULT 'Primary',
                 "AddressLine1" character varying(250) NOT NULL,
                 "AddressLine2" character varying(250) NULL,
                 "AddressLine3" character varying(250) NULL,
@@ -995,6 +996,27 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
         await dbContext.Database.ExecuteSqlRawAsync("""
             CREATE INDEX IF NOT EXISTS "IX_company_addresses_CompanyId"
             ON company_addresses ("CompanyId");
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE company_addresses
+            ADD COLUMN IF NOT EXISTS "AddressName" character varying(120) NOT NULL DEFAULT 'Primary';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            WITH numbered_addresses AS (
+                SELECT "Id",
+                       ROW_NUMBER() OVER (PARTITION BY "CompanyId" ORDER BY "CreatedAtUtc", "Id") AS row_number
+                FROM company_addresses
+                WHERE COALESCE(TRIM("AddressName"), '') = ''
+            )
+            UPDATE company_addresses addresses
+            SET "AddressName" = CASE
+                WHEN numbered_addresses.row_number = 1 THEN 'Primary'
+                ELSE 'Address ' || numbered_addresses.row_number::text
+            END
+            FROM numbered_addresses
+            WHERE addresses."Id" = numbered_addresses."Id";
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
@@ -1113,6 +1135,48 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
         await dbContext.Database.ExecuteSqlRawAsync("""
             CREATE UNIQUE INDEX IF NOT EXISTS "IX_ContactGroups_SubscriberId_Name"
             ON "ContactGroups" ("SubscriberId", "Name");
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE IF NOT EXISTS "ProductGroups" (
+                "Id" uuid NOT NULL,
+                "SubscriberId" uuid NOT NULL,
+                "Name" character varying(150) NOT NULL,
+                "Description" character varying(1000) NOT NULL DEFAULT '',
+                "CreatedAtUtc" timestamp with time zone NOT NULL,
+                "UpdatedAtUtc" timestamp with time zone NULL,
+                CONSTRAINT "PK_ProductGroups" PRIMARY KEY ("Id")
+            );
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            CREATE INDEX IF NOT EXISTS "IX_ProductGroups_SubscriberId"
+            ON "ProductGroups" ("SubscriberId");
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_ProductGroups_SubscriberId_Name"
+            ON "ProductGroups" ("SubscriberId", "Name");
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "products"
+            ADD COLUMN IF NOT EXISTS "HasCustomSalesPrices" boolean NOT NULL DEFAULT FALSE;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "products"
+            ADD COLUMN IF NOT EXISTS "CustomSalesPricesJson" text NOT NULL DEFAULT '[]';
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "products"
+            ADD COLUMN IF NOT EXISTS "HasCustomPurchasePrices" boolean NOT NULL DEFAULT FALSE;
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "products"
+            ADD COLUMN IF NOT EXISTS "CustomPurchasePricesJson" text NOT NULL DEFAULT '[]';
             """, cancellationToken);
     }
 }

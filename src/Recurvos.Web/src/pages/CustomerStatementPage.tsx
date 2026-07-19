@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { HelperText } from "../components/ui/HelperText";
@@ -212,7 +212,7 @@ export function CustomerStatementPage() {
   const navigate = useNavigate();
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [selectedContact, setSelectedContact] = useState<Customer | null>(null);
   const [statement, setStatement] = useState<StatementOfAccountReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -237,12 +237,19 @@ export function CustomerStatementPage() {
 
   useEffect(() => {
     async function load() {
+      if (!id) {
+        setSelectedContact(null);
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError("");
-        const customerList = await api.get<Customer[]>("/customers");
-        setCustomers(customerList);
+        const contact = await api.get<Customer>(`/customers/${id}`);
+        setSelectedContact(contact);
       } catch (loadError) {
+        setSelectedContact(null);
         setError(loadError instanceof Error ? loadError.message : "Unable to load statement data.");
       } finally {
         setLoading(false);
@@ -250,21 +257,19 @@ export function CustomerStatementPage() {
     }
 
     void load();
-  }, []);
+  }, [id]);
 
-  const eligibleContacts = customers.filter((customer) => {
-    const types = parseContactTypes(customer.contactType);
-    return types.includes("Customer") || types.includes("Supplier");
-  });
-  const selectedContact = customers.find((customer) => customer.id === id) ?? null;
-  const selectedContactTypes = selectedContact ? parseContactTypes(selectedContact.contactType) : [];
-  const availableStatementTypes: StatementType[] = selectedContactTypes.includes("Customer") && selectedContactTypes.includes("Supplier")
-    ? ["customer", "supplier"]
-    : selectedContactTypes.includes("Supplier")
-      ? ["supplier"]
-      : selectedContactTypes.includes("Customer")
-        ? ["customer"]
-        : [];
+  const availableStatementTypes = useMemo<StatementType[]>(() => {
+    const selectedContactTypes = selectedContact ? parseContactTypes(selectedContact.contactType) : [];
+
+    return selectedContactTypes.includes("Customer") && selectedContactTypes.includes("Supplier")
+      ? ["customer", "supplier"]
+      : selectedContactTypes.includes("Supplier")
+        ? ["supplier"]
+        : selectedContactTypes.includes("Customer")
+          ? ["customer"]
+          : [];
+  }, [selectedContact]);
   const selectedContactPerson = selectedContact?.contactPersons.find((person) => person.name === contactPerson) ?? selectedContact?.contactPersons[0] ?? null;
   const statementLabel = statementType === "supplier" ? "Supplier Statement of Account" : "Customer Statement of Account";
 
@@ -393,7 +398,7 @@ export function CustomerStatementPage() {
     return () => {
       cancelled = true;
     };
-  }, [contactPerson, endDate, id, includeOutstandingOnly, selectedContact, startDate, statementType]);
+  }, [contactPerson, endDate, includeOutstandingOnly, selectedContact, startDate, statementType]);
 
   const statementRows = statement?.rows ?? [];
   const agingBuckets = statement?.aging ?? {
@@ -556,13 +561,13 @@ export function CustomerStatementPage() {
 
   async function loadStatementForAction(config: StatementActionConfig) {
     return api.get<StatementOfAccountReport>(
-      buildStatementPath(id, config.statementType, config.startDate, config.endDate, config.contactPerson, config.includeOutstandingOnly),
+      buildStatementPath(selectedContact?.id ?? id, config.statementType, config.startDate, config.endDate, config.contactPerson, config.includeOutstandingOnly),
     );
   }
 
   function buildShareUrl(config: StatementActionConfig) {
     const params = buildStatementPageSearchParams(config);
-    return `${window.location.origin}/customers/${id}/statement?${params.toString()}`;
+    return `${window.location.origin}/customers/${selectedContact?.id ?? id}/statement?${params.toString()}`;
   }
 
   async function exportPdf(config: StatementActionConfig) {
@@ -689,7 +694,9 @@ export function CustomerStatementPage() {
       <header className="page-header">
         <div className="page-header-copy">
           <h2>{statementLabel}</h2>
-          <p className="muted">Review statement activity, aging, and export-ready output for the selected contact.</p>
+          <p className="muted">
+            {selectedContact.legalName || selectedContact.name} · {selectedContact.contactType}
+          </p>
         </div>
         <div className="contact-page-actions">
           <button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Back to contacts</button>
@@ -714,31 +721,6 @@ export function CustomerStatementPage() {
       {message ? <HelperText>{message}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
 
-      <section className="card statement-hero-card">
-        <div className="statement-hero-copy">
-          <p className="eyebrow">Selected Contact</p>
-          <h3>{selectedContact.legalName || selectedContact.name}</h3>
-          <p className="muted">{selectedContact.contactType}</p>
-        </div>
-        <div className="statement-summary-grid">
-          <div className="statement-summary-item">
-            <span className="statement-summary-label">Contact Person</span>
-            <strong>{selectedContactPerson?.name || "-"}</strong>
-            <span className="muted">{selectedContactPerson?.role || selectedContactPerson?.email || selectedContactPerson?.phoneNumber || "No contact person recorded"}</span>
-          </div>
-          <div className="statement-summary-item">
-            <span className="statement-summary-label">Date Range</span>
-            <strong>{startDate || "-"} to {endDate || "-"}</strong>
-            <span className="muted">{presetPeriod === "rolling" ? `${periods} period(s) x ${daysPerPeriod} day(s)` : presetPeriod.replaceAll("-", " ")}</span>
-          </div>
-          <div className="statement-summary-item">
-            <span className="statement-summary-label">Closing Balance</span>
-            <strong>{formatCurrency(statement?.closingBalance ?? 0, statementCurrency)}</strong>
-            <span className="muted">{`${statementRows.length} transaction row(s)`}</span>
-          </div>
-        </div>
-      </section>
-
       <section className="card">
         <div className="card-section-header">
           <div className="section-header-cluster">
@@ -746,18 +728,29 @@ export function CustomerStatementPage() {
           </div>
         </div>
 
+        <div className="statement-summary-grid statement-filter-summary-grid">
+          <div className="statement-summary-item">
+            <span className="statement-summary-label">Contact</span>
+            <strong>{selectedContact.legalName || selectedContact.name}</strong>
+            <span className="muted">{selectedContact.contactType}</span>
+          </div>
+          <div className="statement-summary-item">
+            <span className="statement-summary-label">Contact Person</span>
+            <strong>{contactPerson === "all" ? "All contact persons" : selectedContactPerson?.name || "-"}</strong>
+            <span className="muted">
+              {contactPerson === "all"
+                ? "Statement includes all recorded contact persons"
+                : selectedContactPerson?.role || selectedContactPerson?.email || selectedContactPerson?.phoneNumber || "No contact person selected"}
+            </span>
+          </div>
+          <div className="statement-summary-item">
+            <span className="statement-summary-label">Closing Balance</span>
+            <strong>{formatCurrency(statement?.closingBalance ?? 0, statementCurrency)}</strong>
+            <span className="muted">{`${statementRows.length} transaction row(s)`}</span>
+          </div>
+        </div>
+
         <div className="statement-filter-grid">
-          <label className="form-label">
-            Contact
-            <select
-              value={selectedContact.id}
-              onChange={(event) => navigate(`/customers/${event.target.value}/statement?${searchParams.toString()}`)}
-            >
-              {eligibleContacts.map((customer) => (
-                <option key={customer.id} value={customer.id}>{customer.legalName || customer.name}</option>
-              ))}
-            </select>
-          </label>
           <label className="form-label">
             Statement Type
             <select value={statementType} onChange={(event) => setStatementType(event.target.value as StatementType)} disabled={availableStatementTypes.length <= 1}>
@@ -765,10 +758,6 @@ export function CustomerStatementPage() {
                 <option key={type} value={type}>{type === "supplier" ? "Supplier Statement" : "Customer Statement"}</option>
               ))}
             </select>
-          </label>
-          <label className="form-label">
-            Contact Type
-            <input className="text-input" value={selectedContact.contactType} readOnly />
           </label>
           <label className="form-label">
             Contact Person

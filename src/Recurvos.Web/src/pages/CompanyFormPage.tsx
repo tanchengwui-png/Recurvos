@@ -20,6 +20,7 @@ const FACTORY_RESET_CONFIRMATION = "RESET COMPANY DATA";
 type EditableCompanyAddress = {
   clientId: string;
   persistedId?: string;
+  addressName: string;
   addressLine1: string;
   addressLine2: string;
   addressLine3: string;
@@ -61,6 +62,7 @@ function createEditableAddress(overrides: Partial<EditableCompanyAddress> = {}):
   return {
     clientId: overrides.clientId ?? createLocalAddressId(),
     persistedId: overrides.persistedId,
+    addressName: overrides.addressName ?? "",
     addressLine1: overrides.addressLine1 ?? "",
     addressLine2: overrides.addressLine2 ?? "",
     addressLine3: overrides.addressLine3 ?? "",
@@ -102,6 +104,7 @@ function mapCompanyAddressToEditable(address: CompanyAddress, persisted = true):
   return normalizeAddressForCountry(createEditableAddress({
     clientId: address.id,
     persistedId: persisted ? address.id : undefined,
+    addressName: address.addressName || "",
     addressLine1: address.addressLine1,
     addressLine2: address.addressLine2 ?? "",
     addressLine3: address.addressLine3 ?? "",
@@ -161,7 +164,7 @@ function hasAddressBodyContent(address: EditableCompanyAddress) {
 }
 
 function shouldPersistAddress(address: EditableCompanyAddress) {
-  return hasAddressBodyContent(address) || Boolean(address.addressLine1.trim() && address.country.trim());
+  return Boolean(address.addressName.trim()) || hasAddressBodyContent(address) || Boolean(address.addressLine1.trim() && address.country.trim());
 }
 
 function getAddressSummaryLines(address: EditableCompanyAddress) {
@@ -191,7 +194,7 @@ export function CompanyFormPage() {
   const [isMsicModalOpen, setIsMsicModalOpen] = useState(false);
   const [logoRemoved, setLogoRemoved] = useState(false);
   const [factoryResetState, setFactoryResetState] = useState<{ step: "warning" | "final"; confirmationText: string; error: string; isSubmitting: boolean } | null>(null);
-  const [expandedAddressId, setExpandedAddressId] = useState<string | null>(null);
+  const [expandedAddressIds, setExpandedAddressIds] = useState<string[]>(() => editingCompanyId ? [] : addresses.map((address) => address.clientId));
 
   const activeCompany = items.find((item) => item.id === editingCompanyId);
   const selectedMsicEntry = form.msicCode ? msicEntryByCode.get(form.msicCode) ?? null : null;
@@ -207,7 +210,9 @@ export function CompanyFormPage() {
       setUploadPolicy(policy);
 
       if (!editingCompanyId) {
-        setAddresses([createEditableAddress({ isDefaultBilling: true, isDefaultShipping: true })]);
+        const initialAddress = createEditableAddress({ isDefaultBilling: true, isDefaultShipping: true });
+        setAddresses([initialAddress]);
+        setExpandedAddressIds([initialAddress.clientId]);
         setPhoneCountryCode(DEFAULT_PHONE_COUNTRY_CODE);
         setPhoneNumber("");
         return;
@@ -240,6 +245,7 @@ export function CompanyFormPage() {
       setPhoneCountryCode(parsedPhone.countryCode);
       setPhoneNumber(parsedPhone.phoneNumber);
       setAddresses(getInitialAddresses(company));
+      setExpandedAddressIds([]);
     }
 
     void load();
@@ -355,7 +361,7 @@ export function CompanyFormPage() {
       ...current,
       nextAddress,
     ]);
-    setExpandedAddressId(nextAddress.clientId);
+    setExpandedAddressIds((current) => current.includes(nextAddress.clientId) ? current : [...current, nextAddress.clientId]);
   }
 
   function deleteAddress(clientId: string) {
@@ -369,7 +375,7 @@ export function CompanyFormPage() {
       setError("");
       return ensureAddressDefaults(remaining);
     });
-    setExpandedAddressId((current) => current === clientId ? null : current);
+    setExpandedAddressIds((current) => current.filter((addressId) => addressId !== clientId));
   }
 
   function setDefaultAddress(clientId: string, type: "billing" | "shipping") {
@@ -380,14 +386,30 @@ export function CompanyFormPage() {
     }))));
   }
 
+  function toggleAddressExpanded(clientId: string) {
+    setExpandedAddressIds((current) => current.includes(clientId)
+      ? current.filter((addressId) => addressId !== clientId)
+      : [...current, clientId]);
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
 
     const normalizedLegalName = form.legalName.trim();
-    const normalizedAddresses = ensureAddressDefaults(addresses.map((address) => normalizeAddressForCountry(address)));
+    const normalizedAddresses = ensureAddressDefaults(addresses.map((address) => normalizeAddressForCountry({
+      ...address,
+      addressName: address.addressName.trim(),
+      addressLine1: address.addressLine1.trim(),
+      addressLine2: address.addressLine2.trim(),
+      addressLine3: address.addressLine3.trim(),
+      postcode: address.postcode.trim(),
+      city: address.city.trim(),
+      state: address.state.trim(),
+      country: address.country.trim(),
+    })));
     const populatedAddresses = normalizedAddresses.filter(shouldPersistAddress);
-    const invalidAddress = populatedAddresses.find((address) => !address.addressLine1.trim() || !address.country.trim());
+    const invalidAddress = populatedAddresses.find((address) => !address.addressName.trim() || !address.addressLine1.trim() || !address.country.trim());
     const defaultAddress = populatedAddresses.find((address) => address.isDefaultBilling) ?? populatedAddresses[0];
     const normalizedPhone = combinePhoneNumber(phoneCountryCode, phoneNumber);
 
@@ -398,7 +420,7 @@ export function CompanyFormPage() {
 
     if (invalidAddress) {
       const invalidIndex = populatedAddresses.findIndex((address) => address.clientId === invalidAddress.clientId);
-      setError(`Address ${invalidIndex + 1} must include Address Line 1 and Country.`);
+      setError(`Address ${invalidIndex + 1} must include Address Name, Address Line 1, and Country.`);
       return;
     }
 
@@ -418,6 +440,7 @@ export function CompanyFormPage() {
       address: defaultAddress ? formatCompanyAddress(defaultAddress) : "",
       addresses: populatedAddresses.map((address) => ({
         id: address.persistedId ?? null,
+        addressName: address.addressName,
         addressLine1: address.addressLine1,
         addressLine2: address.addressLine2,
         addressLine3: address.addressLine3,
@@ -646,42 +669,40 @@ export function CompanyFormPage() {
               {addresses.map((address, index) => {
                 const isMalaysiaAddress = isMalaysiaCountry(address.country);
                 const summaryLines = getAddressSummaryLines(address);
-                const isExpanded = expandedAddressId === address.clientId;
+                const isExpanded = expandedAddressIds.includes(address.clientId);
 
                 return (
-                  <article key={address.clientId} className="company-profile-address-card">
+                  <article key={address.clientId} className={`company-profile-address-card ${isExpanded ? "company-profile-address-card-expanded" : "company-profile-address-card-collapsed"}`}>
                     <div className="company-profile-address-card-header">
                       <div className="company-profile-address-card-heading">
-                        <h4>{getCompanyAddressTitle(address, index)}</h4>
-                        <div className="company-profile-address-summary">
-                          {summaryLines.length > 0 ? (
-                            summaryLines.map((line) => <p key={line}>{line}</p>)
-                          ) : (
-                            <p className="muted">No address details entered yet.</p>
-                          )}
+                        <div className="company-profile-address-title-row">
+                          <h4>{getCompanyAddressTitle(address, index)}</h4>
+                          {address.isDefaultBilling ? <span className="status-pill status-pill-active status-pill-compact">Billing Default</span> : null}
+                          {address.isDefaultShipping ? <span className="status-pill status-pill-active status-pill-compact">Shipping Default</span> : null}
                         </div>
+                        {!isExpanded ? (
+                          <div className="company-profile-address-summary">
+                            {summaryLines.length > 0 ? (
+                              summaryLines.map((line) => <p key={line}>{line}</p>)
+                            ) : (
+                              <p className="muted">No address details entered yet.</p>
+                            )}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="company-profile-address-card-actions">
                         {!address.isDefaultBilling ? (
                           <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(address.clientId, "billing")}>
-                            Set as Default Billing Address
+                            Set Billing
                           </button>
-                        ) : (
-                          <button type="button" className="button button-small company-profile-address-status-button" disabled>
-                            Default Billing
-                          </button>
-                        )}
+                        ) : null}
                         {!address.isDefaultShipping ? (
                           <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(address.clientId, "shipping")}>
-                            Set as Default Shipping Address
+                            Set Shipping
                           </button>
-                        ) : (
-                          <button type="button" className="button button-small company-profile-address-status-button" disabled>
-                            Default Shipping
-                          </button>
-                        )}
-                        <button type="button" className="button button-secondary button-small" onClick={() => setExpandedAddressId((current) => current === address.clientId ? null : address.clientId)}>
-                          {isExpanded ? "Hide Details" : "Edit Address"}
+                        ) : null}
+                        <button type="button" className="button button-secondary button-small" onClick={() => toggleAddressExpanded(address.clientId)} aria-expanded={isExpanded}>
+                          {isExpanded ? "Collapse ▲" : "Expand ▼"}
                         </button>
                         <button type="button" className="button button-secondary button-small" onClick={() => deleteAddress(address.clientId)} disabled={addresses.length === 1}>
                           Delete
@@ -690,19 +711,11 @@ export function CompanyFormPage() {
                     </div>
                     {isExpanded ? (
                       <div className="company-profile-address-card-grid">
-                        <div className="company-profile-field company-profile-address-card-wide">
-                          <SearchableSelect
-                            value={address.country}
-                            onChange={(value) => updateAddressCountry(address.clientId, value)}
-                            options={countryOptions}
-                            placeholder="Country"
-                            searchPlaceholder="Search countries"
-                            ariaLabel="Address Country"
-                            clearable
-                          />
+                        <div className="company-profile-field">
+                          <input className="text-input" value={address.addressName} onChange={(event) => updateAddress(address.clientId, { addressName: event.target.value })} placeholder="Address Name *" aria-label="Address Name" />
                         </div>
                         <div className="company-profile-field">
-                          <input className="text-input" value={address.addressLine1} onChange={(event) => updateAddress(address.clientId, { addressLine1: event.target.value })} autoComplete="address-line1" placeholder="Address Line 1" aria-label="Address Line 1" />
+                          <input className="text-input" value={address.addressLine1} onChange={(event) => updateAddress(address.clientId, { addressLine1: event.target.value })} autoComplete="address-line1" placeholder="Address Line 1 *" aria-label="Address Line 1" />
                         </div>
                         <div className="company-profile-field">
                           <input className="text-input" value={address.addressLine2} onChange={(event) => updateAddress(address.clientId, { addressLine2: event.target.value })} autoComplete="address-line2" placeholder="Address Line 2" aria-label="Address Line 2" />
@@ -711,21 +724,32 @@ export function CompanyFormPage() {
                           <input className="text-input" value={address.addressLine3} onChange={(event) => updateAddress(address.clientId, { addressLine3: event.target.value })} autoComplete="address-line3" placeholder="Address Line 3" aria-label="Address Line 3" />
                         </div>
                         <div className="company-profile-field">
-                          <input className="text-input" value={address.postcode} onChange={(event) => updateAddress(address.clientId, { postcode: event.target.value })} autoComplete="postal-code" placeholder="Postcode" aria-label="Postcode" />
+                          <input className="text-input" value={address.city} onChange={(event) => updateAddress(address.clientId, { city: event.target.value })} autoComplete="address-level2" placeholder="City *" aria-label="City" />
                         </div>
                         <div className="company-profile-field">
-                          <input className="text-input" value={address.city} onChange={(event) => updateAddress(address.clientId, { city: event.target.value })} autoComplete="address-level2" placeholder="City" aria-label="City" />
+                          <input className="text-input" value={address.postcode} onChange={(event) => updateAddress(address.clientId, { postcode: event.target.value })} autoComplete="postal-code" placeholder="Postal Code *" aria-label="Postal Code" />
+                        </div>
+                        <div className="company-profile-field company-profile-address-card-wide">
+                          <SearchableSelect
+                            value={address.country}
+                            onChange={(value) => updateAddressCountry(address.clientId, value)}
+                            options={countryOptions}
+                            placeholder="Country *"
+                            searchPlaceholder="Search countries"
+                            ariaLabel="Address Country"
+                            clearable
+                          />
                         </div>
                         <div className="company-profile-field">
                           {isMalaysiaAddress ? (
                             <select value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" required aria-label="State">
-                              <option value="">State</option>
+                              <option value="">State *</option>
                               {malaysiaStateOptions.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
                             </select>
                           ) : (
-                            <input className="text-input" value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" placeholder="State" aria-label="State" />
+                            <input className="text-input" value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" placeholder="State *" aria-label="State" />
                           )}
                         </div>
                       </div>

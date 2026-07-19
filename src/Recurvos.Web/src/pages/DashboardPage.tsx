@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { DashboardChartCard } from "../components/dashboard/DashboardChartCard";
@@ -9,6 +10,7 @@ import { HelperText } from "../components/ui/HelperText";
 import { useDashboard } from "../hooks/useDashboard";
 import { fetchProductPlans } from "../hooks/useProductPlans";
 import { fetchProducts } from "../hooks/useProducts";
+import { getAuth } from "../lib/auth";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { BillingReadiness, CompanyLookup, FeatureAccess } from "../types";
@@ -45,6 +47,65 @@ function resolveQuickRange(range: QuickRange) {
   }
 }
 
+const EMPTY_FEATURE_ACCESS: FeatureAccess = {
+  packageCode: "",
+  packageStatus: "",
+  featureKeys: [],
+  featureRequirements: [],
+};
+
+function createEmptyChartRect() {
+  return { width: 0, height: 0 };
+}
+
+function SafeResponsiveChart({
+  className,
+  children,
+}: {
+  className: string;
+  children: ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [rect, setRect] = useState(createEmptyChartRect);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateSize = () => {
+      setRect({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      });
+    };
+
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(() => updateSize());
+    resizeObserver.observe(element);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} className={className}>
+      {rect.width > 0 && rect.height > 0 ? children : null}
+    </div>
+  );
+}
+
+async function loadOptional<T>(request: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await request;
+  } catch {
+    return fallback;
+  }
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
@@ -73,23 +134,30 @@ export function DashboardPage() {
 
   useEffect(() => {
     void (async () => {
-      const companyList = await api.get<CompanyLookup[]>("/companies");
-      const access = await api.get<FeatureAccess>("/settings/feature-access");
+      const auth = getAuth();
+      const companyList = await loadOptional(api.get<CompanyLookup[]>("/companies"), []);
+      const access = await loadOptional(api.get<FeatureAccess>("/settings/feature-access"), EMPTY_FEATURE_ACCESS);
+      const initialCompanyId = companyList.some((company) => company.id === auth?.companyId)
+        ? auth?.companyId ?? ""
+        : companyList[0]?.id ?? "";
+
       setCompanies(companyList);
       setFeatureAccess(access);
-      if (companyList.length === 1) {
-        setSelectedCompanyId(companyList[0].id);
+      if (initialCompanyId) {
+        setSelectedCompanyId(initialCompanyId);
       }
 
       const [products, plans, customers, subscriptions, invoices, payments, readiness] = await Promise.all([
         fetchProducts({ search: "", isActive: "all", page: 1, pageSize: 1 }),
         fetchProductPlans({ billingType: "all", isActive: "all", page: 1, pageSize: 1 }),
-        access.featureKeys.includes("customer_management") ? api.get<unknown[]>("/customers") : Promise.resolve([]),
-        access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/subscriptions") : Promise.resolve([]),
-        access.featureKeys.includes("manual_invoices") || access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/invoices") : Promise.resolve([]),
-        access.featureKeys.includes("payment_tracking") ? api.get<unknown[]>("/payments") : Promise.resolve([]),
-        companyList[0]?.id
-          ? api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyList[0].id}`)
+        access.featureKeys.includes("customer_management") ? loadOptional(api.get<unknown[]>("/customers"), []) : Promise.resolve([]),
+        access.featureKeys.includes("recurring_invoices") ? loadOptional(api.get<unknown[]>("/subscriptions"), []) : Promise.resolve([]),
+        access.featureKeys.includes("manual_invoices") || access.featureKeys.includes("recurring_invoices")
+          ? loadOptional(api.get<unknown[]>("/invoices"), [])
+          : Promise.resolve([]),
+        access.featureKeys.includes("payment_tracking") ? loadOptional(api.get<unknown[]>("/payments"), []) : Promise.resolve([]),
+        initialCompanyId
+          ? loadOptional(api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${initialCompanyId}`), null)
           : Promise.resolve(null),
       ]);
 
@@ -110,7 +178,9 @@ export function DashboardPage() {
       return;
     }
 
-    void api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${selectedCompanyId}`).then(setBillingReadiness);
+    void api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${selectedCompanyId}`)
+      .then(setBillingReadiness)
+      .catch(() => setBillingReadiness(null));
   }, [selectedCompanyId]);
 
   const setupSteps = [
@@ -393,7 +463,7 @@ export function DashboardPage() {
 
           <div className="dashboard-grid-two">
             <DashboardChartCard title="Revenue trend">
-              <div className="dashboard-chart-shell dashboard-chart-shell-lg">
+              <SafeResponsiveChart className="dashboard-chart-shell dashboard-chart-shell-lg">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={revenueTrend} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
                     <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
@@ -408,7 +478,7 @@ export function DashboardPage() {
                     <Line type="monotone" dataKey="collectedRevenue" stroke="#f97316" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </ResponsiveContainer>
-              </div>
+              </SafeResponsiveChart>
             </DashboardChartCard>
             <StatusSummaryCard summary={statusSummary} />
           </div>
@@ -528,7 +598,7 @@ export function DashboardPage() {
 
           <div className="dashboard-grid-mixed">
             <DashboardChartCard title="Subscription growth">
-              <div className="dashboard-chart-shell">
+              <SafeResponsiveChart className="dashboard-chart-shell">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={subscriptionGrowth} margin={{ top: 8, right: 8, left: -14, bottom: 0 }} barGap={8}>
                     <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
@@ -543,7 +613,7 @@ export function DashboardPage() {
                     <Bar dataKey="canceledSubscriptions" fill="#475569" radius={[8, 8, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+              </SafeResponsiveChart>
             </DashboardChartCard>
 
             <DashboardTableCard title="Recent payments">
@@ -605,7 +675,7 @@ export function DashboardPage() {
 
             <DashboardChartCard title="Revenue by company">
               {revenueByCompany.length > 1 || !selectedCompanyId ? (
-                <div className="dashboard-chart-shell">
+                <SafeResponsiveChart className="dashboard-chart-shell">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={revenueByCompany} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
                       <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" vertical={false} />
@@ -620,7 +690,7 @@ export function DashboardPage() {
                       <Bar dataKey="collectedRevenue" fill="#fb7185" radius={[8, 8, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                </div>
+                </SafeResponsiveChart>
               ) : <p className="muted">Revenue by company appears when multiple companies are in scope.</p>}
             </DashboardChartCard>
           </div>

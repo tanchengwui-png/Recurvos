@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
+import { TablePagination } from "../components/TablePagination";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
@@ -15,28 +17,31 @@ export function GoodsReceivedNotesPage() {
   const [search, setSearch] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [status, setStatus] = useState("");
+  const [sort, setSort] = useState<"date-desc" | "date-asc" | "number" | "amount-desc">("date-desc");
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
   async function load() {
+    setLoading(true);
     const query = new URLSearchParams();
     if (search.trim()) query.set("search", search.trim());
     if (companyId) query.set("companyId", companyId);
     if (status) query.set("status", status);
-    const [records, companyList] = await Promise.all([
-      api.get<GoodsReceivedNoteListItem[]>(`/purchases/grns${query.toString() ? `?${query}` : ""}`),
-      api.get<CompanyLookup[]>("/companies"),
-    ]);
-    setItems(records);
-    setCompanies(companyList);
+    try {
+      const [records, companyList] = await Promise.all([api.get<GoodsReceivedNoteListItem[]>(`/purchases/grns${query.toString() ? `?${query}` : ""}`), api.get<CompanyLookup[]>("/companies")]);
+      setItems(records); setCompanies(companyList);
+    } finally { setLoading(false); }
   }
 
   useEffect(() => { void load(); }, [search, companyId, status]);
+  const sortedItems = useMemo(() => [...items].sort((a, b) => sort === "number" ? a.goodsReceivedNoteNumber.localeCompare(b.goodsReceivedNoteNumber, undefined, { numeric: true }) : sort === "amount-desc" ? b.totalAmount - a.totalAmount : (sort === "date-asc" ? 1 : -1) * (new Date(a.documentDateUtc).getTime() - new Date(b.documentDateUtc).getTime())), [items, sort]);
+  const pagination = useClientPagination(sortedItems, [search, companyId, status, sort]);
 
   function getActions(item: GoodsReceivedNoteListItem) {
     return [
       { label: "View", onClick: () => navigate(`/purchases/grns/${item.id}`) },
-      { label: "Edit", onClick: () => navigate(`/purchases/grns/${item.id}/edit`) },
+      ...(item.status === "Draft" ? [{ label: "Edit", onClick: () => navigate(`/purchases/grns/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{
         label: "Mark as Received",
         onClick: () => setConfirmState({
@@ -96,6 +101,7 @@ export function GoodsReceivedNotesPage() {
           <option value="">All companies</option>
           {companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
+        <select aria-label="Sort goods received notes" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="number">GRN number</option><option value="amount-desc">Highest total</option></select>
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
           <option value="Draft">Draft</option>
@@ -110,7 +116,7 @@ export function GoodsReceivedNotesPage() {
           <table className="catalog-table">
             <thead><tr><th>GRN No</th><th>Date</th><th>Supplier</th><th>Source PO</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {items.length === 0 ? <EmptyTableRow colSpan={7} title="No GRNs yet" description="Create a GRN from a purchase order when goods are received." actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/grns/new")}>Create GRN</button>} /> : items.map((item) => (
+              {loading ? <EmptyTableRow colSpan={7} title="Loading goods received notes" description="Fetching the latest goods received notes." /> : sortedItems.length === 0 ? <EmptyTableRow colSpan={7} title="No GRNs yet" description="Create a GRN from a purchase order when goods are received." actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/grns/new")}>Create GRN</button>} /> : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.goodsReceivedNoteNumber}</td>
                   <td>{new Date(item.documentDateUtc).toLocaleDateString()}</td>
@@ -124,6 +130,7 @@ export function GoodsReceivedNotesPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination currentPage={pagination.currentPage} pageSize={pagination.pageSize} totalItems={pagination.totalItems} totalPages={pagination.totalPages} rangeStart={pagination.rangeStart} rangeEnd={pagination.rangeEnd} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

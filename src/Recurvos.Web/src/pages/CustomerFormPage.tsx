@@ -1,11 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { PhoneNumberField } from "../components/ui/PhoneNumberField";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api } from "../lib/api";
-import { countryOptions, currencyOptions, malaysiaStateOptions, registrationNumberTypeOptions } from "../lib/localeOptions";
+import { countryOptions, currencyOptions, malaysiaStateOptions } from "../lib/localeOptions";
+import { combinePhoneNumber, splitStoredPhoneNumber } from "../lib/phoneNumbers";
 import type { SearchableSelectOption } from "../lib/localeOptions";
 import type { ContactAddress, ContactGroup, ContactPerson, Customer, MasterDataSnapshot } from "../types";
 
@@ -13,6 +15,14 @@ const contactTypeOptions = ["Customer", "Supplier", "Employee"] as const;
 const entityTypeOptions = ["Company", "Individual", "General Public", "Foreign Company", "Foreign Individual", "Exempted Person"] as const;
 const statusOptions = ["Active", "Inactive", "Archived"] as const;
 const myInvoisControlOptions = ["Default", "Enabled", "Disabled"] as const;
+const contactRegistrationNumberTypeOptions: SearchableSelectOption[] = [
+  { value: "", label: "None" },
+  { value: "NRIC", label: "NRIC" },
+  { value: "Passport", label: "Passport" },
+  { value: "BRN", label: "BRN" },
+  { value: "Army", label: "Army" },
+  { value: "Other", label: "Other" },
+];
 
 type ContactFormState = {
   legalName: string;
@@ -78,7 +88,7 @@ const emptyForm = (): ContactFormState => ({
   contactPersons: [emptyContactPerson()],
   phoneNumbers: [""],
   emailAddresses: [""],
-  addresses: [{ ...emptyAddress(), addressName: "Primary", isDefaultBilling: true, isDefaultShipping: true }],
+  addresses: [{ ...emptyAddress(), isDefaultBilling: true, isDefaultShipping: true }],
   receivableAccount: "",
   creditLimit: "",
   payableAccount: "",
@@ -103,13 +113,10 @@ function parseContactTypes(value: string) {
 
 function ensureDefaultAddresses(addresses: ContactAddress[]) {
   if (addresses.length === 0) {
-    return [{ ...emptyAddress(), addressName: "Primary", isDefaultBilling: true, isDefaultShipping: true }];
+    return [{ ...emptyAddress(), isDefaultBilling: true, isDefaultShipping: true }];
   }
 
-  const next = addresses.map((address) => ({
-    ...address,
-    addressName: address.addressName || "Address",
-  }));
+  const next = addresses.map((address) => ({ ...address }));
 
   if (!next.some((address) => address.isDefaultBilling)) {
     next[0].isDefaultBilling = true;
@@ -138,40 +145,32 @@ function normalizeUniqueStrings(values: string[]) {
   return values.map((item) => item.trim()).filter(Boolean).filter((item, index, list) => list.findIndex((value) => value.toLowerCase() === item.toLowerCase()) === index);
 }
 
+function normalizePhoneNumbers(values: string[]) {
+  return normalizeUniqueStrings(values.map((value) => {
+    const parsed = splitStoredPhoneNumber(value);
+    return combinePhoneNumber(parsed.countryCode, parsed.phoneNumber);
+  }));
+}
+
 function isCompanyLikeEntity(entityType: Customer["entityType"]) {
   return entityType === "Company" || entityType === "Foreign Company";
 }
 
-function splitPhoneNumber(value: string) {
-  const normalized = value.trim();
-  if (!normalized) {
-    return { countryCode: "", number: "" };
+function getRegistrationNumberPlaceholder(registrationNumberType: string) {
+  switch (registrationNumberType) {
+    case "NRIC":
+      return "NRIC number";
+    case "Passport":
+      return "Passport number";
+    case "BRN":
+      return "Business registration number";
+    case "Army":
+      return "Army number";
+    case "Other":
+      return "Registration number";
+    default:
+      return "No registration number required";
   }
-
-  const match = normalized.match(/^(\+\d{1,4})(?:[\s-]*(.*))?$/);
-  if (!match) {
-    return { countryCode: "", number: normalized };
-  }
-
-  return {
-    countryCode: match[1],
-    number: (match[2] ?? "").trim(),
-  };
-}
-
-function combinePhoneNumber(countryCode: string, number: string) {
-  const normalizedCode = countryCode.trim();
-  const normalizedNumber = number.trim();
-
-  if (!normalizedCode) {
-    return normalizedNumber;
-  }
-
-  if (!normalizedNumber) {
-    return normalizedCode;
-  }
-
-  return `${normalizedCode} ${normalizedNumber}`;
 }
 
 function mergeGroupOptions(groups: ContactGroup[], selectedGroups: string[]) {
@@ -190,6 +189,183 @@ function mergeGroupOptions(groups: ContactGroup[], selectedGroups: string[]) {
   return Array.from(merged.values()).sort((left, right) => left.localeCompare(right));
 }
 
+function mergeLookupOptions(existingValues: string[], selectedValues: string[]) {
+  const merged = new Map<string, string>();
+
+  existingValues.forEach((value) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      merged.set(trimmed.toLowerCase(), trimmed);
+    }
+  });
+
+  selectedValues.forEach((value) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      merged.set(trimmed.toLowerCase(), trimmed);
+    }
+  });
+
+  return Array.from(merged.values()).sort((left, right) => left.localeCompare(right));
+}
+
+type MultiValueLookupProps = {
+  values: string[];
+  options: string[];
+  placeholder: string;
+  searchPlaceholder: string;
+  addLabel: string;
+  emptyText: string;
+  ariaLabel: string;
+  onChange: (values: string[]) => void;
+  onCreate?: (value: string) => Promise<string> | string;
+};
+
+function MultiValueLookup({
+  values,
+  options,
+  placeholder,
+  searchPlaceholder,
+  addLabel,
+  emptyText,
+  ariaLabel,
+  onChange,
+  onCreate,
+}: MultiValueLookupProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedValues = normalizeUniqueStrings(values);
+  const mergedOptions = mergeLookupOptions(options, selectedValues);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredOptions = normalizedQuery
+    ? mergedOptions.filter((option) => option.toLowerCase().includes(normalizedQuery))
+    : mergedOptions;
+  const canCreate = Boolean(query.trim()) && !mergedOptions.some((option) => option.toLowerCase() === query.trim().toLowerCase());
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    searchInputRef.current?.focus();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+        setQuery("");
+        setCreateError("");
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isOpen]);
+
+  function setValueSelected(value: string, selected: boolean) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    onChange(selected
+      ? normalizeUniqueStrings([...selectedValues, trimmed])
+      : selectedValues.filter((item) => item.toLowerCase() !== trimmed.toLowerCase()));
+  }
+
+  async function createValue() {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    setIsCreating(true);
+    setCreateError("");
+
+    try {
+      const createdValue = onCreate ? await onCreate(trimmed) : trimmed;
+      setValueSelected(createdValue, true);
+      setQuery("");
+    } catch (creationError) {
+      setCreateError(creationError instanceof Error ? creationError.message : "Unable to add value.");
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="lookup-multiselect">
+      <button
+        type="button"
+        className={`text-input lookup-multiselect-trigger ${isOpen ? "lookup-multiselect-trigger-open" : ""}`.trim()}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span className={selectedValues.length > 0 ? "lookup-multiselect-value" : "searchable-select-placeholder"}>
+          {selectedValues.length > 0 ? `${selectedValues.length} selected` : placeholder}
+        </span>
+        <span className="searchable-select-chevron" aria-hidden="true">v</span>
+      </button>
+      {selectedValues.length > 0 ? (
+        <div className="lookup-selected-chips" aria-label={`Selected ${ariaLabel}`}>
+          {selectedValues.map((value) => (
+            <button key={value} type="button" className="lookup-chip" onClick={() => setValueSelected(value, false)} aria-label={`Remove ${value}`}>
+              <span>{value}</span>
+              <span aria-hidden="true">x</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {isOpen ? (
+        <div className="lookup-multiselect-popover">
+          <input
+            ref={searchInputRef}
+            className="text-input searchable-select-search"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setCreateError("");
+            }}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+          />
+          <div className="lookup-multiselect-list" role="listbox" aria-label={ariaLabel}>
+            {filteredOptions.length > 0 ? filteredOptions.map((option) => (
+              <label key={option} className="lookup-multiselect-option">
+                <input
+                  type="checkbox"
+                  checked={selectedValues.some((value) => value.toLowerCase() === option.toLowerCase())}
+                  onChange={(event) => setValueSelected(option, event.target.checked)}
+                />
+                <span>{option}</span>
+              </label>
+            )) : (
+              <p className="searchable-select-empty">{emptyText}</p>
+            )}
+          </div>
+          {canCreate ? (
+            <button type="button" className="lookup-add-option" onClick={createValue} disabled={isCreating}>
+              {isCreating ? "Adding..." : `+ ${addLabel} "${query.trim()}"`}
+            </button>
+          ) : null}
+          {createError ? <p className="lookup-create-error">{createError}</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function CustomerFormPage() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -197,21 +373,25 @@ export function CustomerFormPage() {
   const [error, setError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [form, setForm] = useState<ContactFormState>(emptyForm);
-  const [expandedAddressIndex, setExpandedAddressIndex] = useState(0);
+  const [expandedAddressIndexes, setExpandedAddressIndexes] = useState<number[]>(() => editingCustomerId ? [] : [0]);
   const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
+  const [contactTagOptions, setContactTagOptions] = useState<string[]>([]);
   const [masterData, setMasterData] = useState<MasterDataSnapshot | null>(null);
 
   useEffect(() => {
     async function loadReferenceData() {
       try {
-        const [groups, snapshot] = await Promise.all([
+        const [groups, snapshot, contacts] = await Promise.all([
           api.get<ContactGroup[]>("/contact-groups"),
           api.get<MasterDataSnapshot>("/master-data"),
+          api.get<Customer[]>("/customers").catch(() => []),
         ]);
         setContactGroups(groups);
         setMasterData(snapshot);
+        setContactTagOptions(normalizeUniqueStrings(contacts.flatMap((contact) => contact.tags ?? [])));
       } catch {
         setContactGroups([]);
+        setContactTagOptions([]);
         setMasterData(null);
       }
     }
@@ -235,8 +415,8 @@ export function CustomerFormPage() {
       const nextAddresses = ensureDefaultAddresses(customer.addresses.length > 0
         ? customer.addresses
         : customer.billingAddress
-          ? [{ ...emptyAddress(), addressName: "Primary", streetAddress: customer.billingAddress, isDefaultBilling: true, isDefaultShipping: true }]
-          : [{ ...emptyAddress(), addressName: "Primary", isDefaultBilling: true, isDefaultShipping: true }]);
+          ? [{ ...emptyAddress(), addressName: "Billing Address", streetAddress: customer.billingAddress, isDefaultBilling: true, isDefaultShipping: true }]
+          : [{ ...emptyAddress(), isDefaultBilling: true, isDefaultShipping: true }]);
 
       setForm({
         legalName: customer.legalName || customer.name,
@@ -267,6 +447,7 @@ export function CustomerFormPage() {
         myInvoisControl: customer.myInvoisControl || "Default",
         externalReference: customer.externalReference || "",
       });
+      setExpandedAddressIndexes([]);
     }
 
     void load();
@@ -274,16 +455,17 @@ export function CustomerFormPage() {
 
   const isCustomerSelected = form.contactTypes.includes("Customer");
   const isSupplierSelected = form.contactTypes.includes("Supplier");
+  const isEmployeeSelected = form.contactTypes.includes("Employee");
   const showReceivableAccount = isCustomerSelected;
   const showCreditLimit = isCustomerSelected;
-  const showPayableAccount = isSupplierSelected;
-  const showCompanyRegistrationFields = isCompanyLikeEntity(form.entityType);
-  const showRegistrationNumber = form.entityType !== "General Public";
+  const showPayableAccount = isSupplierSelected || isEmployeeSelected;
+  const registrationNumberPlaceholder = getRegistrationNumberPlaceholder(form.registrationNumberType);
+  const showOldRegistrationNumber = form.registrationNumberType === "BRN" || form.registrationNumberType === "Other" || isCompanyLikeEntity(form.entityType);
   const showTin = form.entityType !== "General Public";
 
-  const availableRegistrationNumberTypeOptions = form.registrationNumberType && !registrationNumberTypeOptions.some((option) => option.value === form.registrationNumberType)
-    ? [{ value: form.registrationNumberType, label: form.registrationNumberType }, ...registrationNumberTypeOptions]
-    : registrationNumberTypeOptions;
+  const availableRegistrationNumberTypeOptions = form.registrationNumberType && !contactRegistrationNumberTypeOptions.some((option) => option.value === form.registrationNumberType)
+    ? [{ value: form.registrationNumberType, label: form.registrationNumberType }, ...contactRegistrationNumberTypeOptions]
+    : contactRegistrationNumberTypeOptions;
 
   const availableCurrencyOptions = form.currency && !currencyOptions.some((option) => option.value === form.currency)
     ? [{ value: form.currency, label: form.currency }, ...currencyOptions]
@@ -297,6 +479,8 @@ export function CustomerFormPage() {
   const masterCurrencyOptions = buildCurrencyOptions(masterData?.currencies, form.currency, availableCurrencyOptions);
   const paymentTermOptions = buildPaymentTermOptions(masterData?.paymentTerms, form.paymentTerm);
   const priceLevelOptions = buildPriceLevelOptions(masterData?.priceLevels, form.priceLevel);
+  const availableTagOptions = mergeLookupOptions(contactTagOptions, form.tags);
+  const requiredMark = <span className="form-required-indicator" aria-hidden="true">*</span>;
 
   function updateContactType(type: string, checked: boolean) {
     setForm((current) => {
@@ -311,21 +495,21 @@ export function CustomerFormPage() {
     });
   }
 
-  function updateStringList(key: "phoneNumbers" | "emailAddresses" | "tags", index: number, value: string) {
+  function updateStringList(key: "phoneNumbers" | "emailAddresses", index: number, value: string) {
     setForm((current) => ({
       ...current,
       [key]: current[key].map((item, itemIndex) => itemIndex === index ? value : item),
     }));
   }
 
-  function addStringListItem(key: "phoneNumbers" | "emailAddresses" | "tags") {
+  function addStringListItem(key: "phoneNumbers" | "emailAddresses") {
     setForm((current) => ({
       ...current,
       [key]: [...current[key], ""],
     }));
   }
 
-  function removeStringListItem(key: "phoneNumbers" | "emailAddresses" | "tags", index: number) {
+  function removeStringListItem(key: "phoneNumbers" | "emailAddresses", index: number) {
     setForm((current) => {
       const next = current[key].filter((_, itemIndex) => itemIndex !== index);
       return {
@@ -375,11 +559,12 @@ export function CustomerFormPage() {
   }
 
   function addAddress() {
+    const nextIndex = form.addresses.length;
     setForm((current) => ({
       ...current,
-      addresses: ensureDefaultAddresses([...current.addresses, { ...emptyAddress(), addressName: `Address ${current.addresses.length + 1}` }]),
+      addresses: ensureDefaultAddresses([...current.addresses, emptyAddress()]),
     }));
-    setExpandedAddressIndex(form.addresses.length);
+    setExpandedAddressIndexes((current) => current.includes(nextIndex) ? current : [...current, nextIndex]);
   }
 
   function removeAddress(index: number) {
@@ -387,23 +572,32 @@ export function CustomerFormPage() {
       ...current,
       addresses: ensureDefaultAddresses(current.addresses.filter((_, addressIndex) => addressIndex !== index)),
     }));
-    setExpandedAddressIndex((current) => Math.max(0, Math.min(current, form.addresses.length - 2)));
+    setExpandedAddressIndexes((current) => current
+      .filter((addressIndex) => addressIndex !== index)
+      .map((addressIndex) => addressIndex > index ? addressIndex - 1 : addressIndex));
   }
 
-  function toggleGroup(groupName: string, checked: boolean) {
-    setForm((current) => ({
-      ...current,
-      groups: checked
-        ? [...current.groups, groupName].filter((value, index, values) => values.findIndex((item) => item.toLowerCase() === value.toLowerCase()) === index)
-        : current.groups.filter((group) => group.toLowerCase() !== groupName.toLowerCase()),
-    }));
+  function toggleAddressExpanded(index: number) {
+    setExpandedAddressIndexes((current) => current.includes(index)
+      ? current.filter((addressIndex) => addressIndex !== index)
+      : [...current, index]);
+  }
+
+  async function createContactGroup(name: string) {
+    const created = await api.post<ContactGroup>("/contact-groups", {
+      name,
+      contactIds: [],
+    });
+
+    setContactGroups((current) => [...current.filter((group) => group.id !== created.id), created].sort((left, right) => left.name.localeCompare(right.name)));
+    return created.name;
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
 
-    const normalizedPhoneNumbers = normalizeUniqueStrings(form.phoneNumbers);
+    const normalizedPhoneNumbers = normalizePhoneNumbers(form.phoneNumbers);
     const normalizedEmailAddresses = normalizeUniqueStrings(form.emailAddresses);
     const normalizedGroups = normalizeUniqueStrings(form.groups);
     const normalizedTags = normalizeUniqueStrings(form.tags);
@@ -449,7 +643,7 @@ export function CustomerFormPage() {
       return;
     }
 
-    if (showPayableAccount && !form.payableAccount.trim()) {
+    if (isSupplierSelected && !form.payableAccount.trim()) {
       setError("Payable Account is required when Supplier is selected.");
       return;
     }
@@ -457,6 +651,12 @@ export function CustomerFormPage() {
     const invalidAddress = normalizedAddresses.find((address) => address.streetAddress && !address.country);
     if (invalidAddress) {
       setError(`Address "${invalidAddress.addressName || "Unnamed address"}" must include Country when Street Address is entered.`);
+      return;
+    }
+
+    const unnamedAddress = normalizedAddresses.find((address) => !address.addressName.trim());
+    if (unnamedAddress) {
+      setError("Address Name is required for each saved address.");
       return;
     }
 
@@ -470,11 +670,11 @@ export function CustomerFormPage() {
       legalName: form.legalName.trim(),
       otherName: form.otherName.trim(),
       entityType: form.entityType,
-      registrationNumberType: showCompanyRegistrationFields ? form.registrationNumberType.trim() : "",
-      registrationNumber: showRegistrationNumber ? form.registrationNumber.trim() : "",
-      oldRegistrationNumber: showCompanyRegistrationFields ? form.oldRegistrationNumber.trim() : "",
+      registrationNumberType: form.registrationNumberType.trim(),
+      registrationNumber: form.registrationNumberType.trim() ? form.registrationNumber.trim() : "",
+      oldRegistrationNumber: showOldRegistrationNumber ? form.oldRegistrationNumber.trim() : "",
       tin: showTin ? form.tin.trim() : "",
-      sstRegistrationNumber: showCompanyRegistrationFields ? form.sstRegistrationNumber.trim() : "",
+      sstRegistrationNumber: showTin ? form.sstRegistrationNumber.trim() : "",
       email: normalizedEmailAddresses[0] ?? "",
       phoneNumber: normalizedPhoneNumbers[0] ?? "",
       externalReference: form.externalReference.trim(),
@@ -554,7 +754,7 @@ export function CustomerFormPage() {
               <h3 id="contact-basic-information-title" className="section-title">Basic Information</h3>
             </div>
             <div className="company-profile-fields-grid">
-              <label className="form-label company-profile-field">
+              <label className="form-label company-profile-field company-profile-field-wide">
                 Entity Type
                 <select value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value as Customer["entityType"] }))}>
                   {entityTypeOptions.map((option) => (
@@ -563,46 +763,47 @@ export function CustomerFormPage() {
                 </select>
               </label>
               <label className="form-label company-profile-field">
-                Legal Name
+                <span className="form-label-inline">Legal Name {requiredMark}</span>
                 <input className="text-input" value={form.legalName} onChange={(event) => setForm((current) => ({ ...current, legalName: event.target.value }))} />
               </label>
               <label className="form-label company-profile-field">
                 Other Name
                 <input className="text-input" value={form.otherName} onChange={(event) => setForm((current) => ({ ...current, otherName: event.target.value }))} />
               </label>
-              {showCompanyRegistrationFields ? (
-                <label className="form-label company-profile-field">
-                  Registration No. Type
-                  <select value={form.registrationNumberType} onChange={(event) => setForm((current) => ({ ...current, registrationNumberType: event.target.value }))}>
-                    <option value="">Select registration type</option>
-                    {availableRegistrationNumberTypeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              {showRegistrationNumber ? (
-                <label className="form-label company-profile-field">
-                  Registration No.
-                  <input className="text-input" value={form.registrationNumber} onChange={(event) => setForm((current) => ({ ...current, registrationNumber: event.target.value }))} />
-                </label>
-              ) : null}
-              {showCompanyRegistrationFields ? (
-                <label className="form-label company-profile-field">
-                  Old Registration No.
-                  <input className="text-input" value={form.oldRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, oldRegistrationNumber: event.target.value }))} />
-                </label>
-              ) : null}
+              <label className="form-label company-profile-field">
+                Registration No. Type
+                <select value={form.registrationNumberType} onChange={(event) => setForm((current) => ({ ...current, registrationNumberType: event.target.value, registrationNumber: event.target.value ? current.registrationNumber : "" }))}>
+                  {availableRegistrationNumberTypeOptions.map((option) => (
+                    <option key={option.value || "none"} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-label company-profile-field">
+                Registration No.
+                <input
+                  className="text-input"
+                  value={form.registrationNumber}
+                  onChange={(event) => setForm((current) => ({ ...current, registrationNumber: event.target.value }))}
+                  placeholder={registrationNumberPlaceholder}
+                  disabled={!form.registrationNumberType}
+                />
+              </label>
               {showTin ? (
                 <label className="form-label company-profile-field">
                   TIN
                   <input className="text-input" value={form.tin} onChange={(event) => setForm((current) => ({ ...current, tin: event.target.value }))} />
                 </label>
               ) : null}
-              {showCompanyRegistrationFields ? (
+              {showTin ? (
                 <label className="form-label company-profile-field">
                   SST Registration No.
                   <input className="text-input" value={form.sstRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, sstRegistrationNumber: event.target.value }))} />
+                </label>
+              ) : null}
+              {showOldRegistrationNumber ? (
+                <label className="form-label company-profile-field company-profile-field-wide">
+                  Old Registration No.
+                  <input className="text-input" value={form.oldRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, oldRegistrationNumber: event.target.value }))} />
                 </label>
               ) : null}
             </div>
@@ -617,32 +818,31 @@ export function CustomerFormPage() {
               <div className="form-label company-profile-field company-profile-field-wide">
                 Contact Number(s)
                 <div className="contact-editor-list">
-                  {form.phoneNumbers.map((phoneNumber, index) => (
-                    <div key={`phone-${index}`} className="contact-editor-row">
-                      <div className="contact-phone-input-row">
-                        <input
-                          className="text-input contact-phone-country-code"
-                          value={splitPhoneNumber(phoneNumber).countryCode}
-                          onChange={(event) => updateStringList("phoneNumbers", index, combinePhoneNumber(event.target.value, splitPhoneNumber(phoneNumber).number))}
-                          placeholder="+60"
-                          aria-label={`Contact Number ${index + 1} Country Code`}
+                  {form.phoneNumbers.map((phoneNumber, index) => {
+                    const parsedPhoneNumber = splitStoredPhoneNumber(phoneNumber);
+
+                    return (
+                      <div key={`phone-${index}`} className="contact-editor-row">
+                        <PhoneNumberField
+                          countryCodeId={`contact-phone-country-code-${index}`}
+                          phoneNumberId={`contact-phone-number-${index}`}
+                          countryCodeValue={parsedPhoneNumber.countryCode}
+                          phoneNumberValue={parsedPhoneNumber.phoneNumber}
+                          onCountryCodeChange={(value) => updateStringList("phoneNumbers", index, parsedPhoneNumber.phoneNumber ? combinePhoneNumber(value, parsedPhoneNumber.phoneNumber) : value)}
+                          onPhoneNumberChange={(value) => updateStringList("phoneNumbers", index, combinePhoneNumber(parsedPhoneNumber.countryCode, value))}
+                          countryCodeLabel={`Country Code ${index + 1}`}
+                          phoneNumberLabel={`Contact Number ${index + 1}`}
+                          phoneNumberPlaceholder="123456789"
                         />
-                        <input
-                          className="text-input"
-                          value={splitPhoneNumber(phoneNumber).number}
-                          onChange={(event) => updateStringList("phoneNumbers", index, combinePhoneNumber(splitPhoneNumber(phoneNumber).countryCode, event.target.value))}
-                          placeholder={`Contact Number ${index + 1}`}
-                          aria-label={`Contact Number ${index + 1}`}
-                        />
+                        <button type="button" className="button button-secondary button-small" onClick={() => removeStringListItem("phoneNumbers", index)} disabled={form.phoneNumbers.length === 1}>Delete</button>
                       </div>
-                      <button type="button" className="button button-secondary button-small" onClick={() => removeStringListItem("phoneNumbers", index)} disabled={form.phoneNumbers.length === 1}>Delete</button>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <button type="button" className="button button-secondary" onClick={() => addStringListItem("phoneNumbers")}>+ Add Contact Number</button>
                 </div>
               </div>
               <div className="form-label company-profile-field company-profile-field-wide">
-                Email Address(es)
+                <span className="form-label-inline">Email Address(es) {requiredMark}</span>
                 <div className="contact-editor-list">
                   {form.emailAddresses.map((emailAddress, index) => (
                     <div key={`email-${index}`} className="contact-editor-row">
@@ -664,40 +864,43 @@ export function CustomerFormPage() {
               {form.addresses.map((address, index) => {
                 const isMalaysiaAddress = address.country.trim().toLowerCase() === "malaysia";
                 const summaryLines = getAddressSummary(address);
+                const isExpanded = expandedAddressIndexes.includes(index);
 
                 return (
-                  <article key={`${address.addressName}-${index}`} className="company-profile-address-card">
+                  <article key={`address-${index}`} className={`company-profile-address-card ${isExpanded ? "company-profile-address-card-expanded" : "company-profile-address-card-collapsed"}`}>
                     <div className="company-profile-address-card-header">
                       <div className="company-profile-address-card-heading">
-                        <h4>{address.addressName || `Address ${index + 1}`}</h4>
-                        <div className="company-profile-address-summary">
-                          {summaryLines.length > 0 ? summaryLines.map((line) => <p key={line}>{line}</p>) : <p className="muted">No address details entered yet.</p>}
+                        <div className="company-profile-address-title-row">
+                          <h4>{address.addressName || "Untitled address"}</h4>
+                          {address.isDefaultBilling ? <span className="status-pill status-pill-active status-pill-compact">Billing Default</span> : null}
+                          {address.isDefaultShipping ? <span className="status-pill status-pill-active status-pill-compact">Shipping Default</span> : null}
                         </div>
+                        {!isExpanded ? (
+                          <div className="company-profile-address-summary">
+                            {summaryLines.length > 0 ? summaryLines.map((line) => <p key={line}>{line}</p>) : <p className="muted">No address details entered yet.</p>}
+                          </div>
+                        ) : null}
                       </div>
                       <div className="company-profile-address-card-actions">
-                        {address.isDefaultBilling ? (
-                          <button type="button" className="button button-small company-profile-address-status-button" disabled>Default Billing</button>
-                        ) : (
-                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "billing")}>Set Default Billing</button>
-                        )}
-                        {address.isDefaultShipping ? (
-                          <button type="button" className="button button-small company-profile-address-status-button" disabled>Default Shipping</button>
-                        ) : (
-                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "shipping")}>Set Default Shipping</button>
-                        )}
-                        <button type="button" className="button button-secondary button-small" onClick={() => setExpandedAddressIndex((current) => current === index ? -1 : index)}>
-                          {expandedAddressIndex === index ? "Hide Details" : "Edit Address"}
+                        {!address.isDefaultBilling ? (
+                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "billing")}>Set Billing</button>
+                        ) : null}
+                        {!address.isDefaultShipping ? (
+                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "shipping")}>Set Shipping</button>
+                        ) : null}
+                        <button type="button" className="button button-secondary button-small" onClick={() => toggleAddressExpanded(index)} aria-expanded={isExpanded}>
+                          {isExpanded ? "Collapse ▲" : "Expand ▼"}
                         </button>
                         <button type="button" className="button button-secondary button-small" onClick={() => removeAddress(index)} disabled={form.addresses.length === 1}>Delete</button>
                       </div>
                     </div>
-                    {expandedAddressIndex === index ? (
+                    {isExpanded ? (
                       <div className="company-profile-address-card-grid">
                         <div className="company-profile-field">
-                          <input className="text-input" value={address.addressName} onChange={(event) => updateAddress(index, { addressName: event.target.value })} placeholder="Address Name" />
+                          <input className="text-input" value={address.addressName} onChange={(event) => updateAddress(index, { addressName: event.target.value })} placeholder="Address Name *" aria-label="Address Name" />
                         </div>
                         <div className="company-profile-field">
-                          <input className="text-input" value={address.streetAddress} onChange={(event) => updateAddress(index, { streetAddress: event.target.value })} placeholder="Address Line 1" />
+                          <input className="text-input" value={address.streetAddress} onChange={(event) => updateAddress(index, { streetAddress: event.target.value })} placeholder="Address Line 1 *" />
                         </div>
                         <div className="company-profile-field">
                           <input className="text-input" value={address.addressLine2} onChange={(event) => updateAddress(index, { addressLine2: event.target.value })} placeholder="Address Line 2" />
@@ -706,17 +909,17 @@ export function CustomerFormPage() {
                           <input className="text-input" value={address.addressLine3} onChange={(event) => updateAddress(index, { addressLine3: event.target.value })} placeholder="Address Line 3" />
                         </div>
                         <div className="company-profile-field">
-                          <input className="text-input" value={address.city} onChange={(event) => updateAddress(index, { city: event.target.value })} placeholder="City" />
+                          <input className="text-input" value={address.city} onChange={(event) => updateAddress(index, { city: event.target.value })} placeholder="City *" />
                         </div>
                         <div className="company-profile-field">
-                          <input className="text-input" value={address.postcode} onChange={(event) => updateAddress(index, { postcode: event.target.value })} placeholder="Postcode" />
+                          <input className="text-input" value={address.postcode} onChange={(event) => updateAddress(index, { postcode: event.target.value })} placeholder="Postal Code *" />
                         </div>
                         <div className="company-profile-field company-profile-address-card-wide">
                           <SearchableSelect
                             value={address.country}
                             onChange={(value) => updateAddress(index, { country: value })}
                             options={countryOptions}
-                            placeholder="Country"
+                            placeholder="Country *"
                             searchPlaceholder="Search countries"
                             ariaLabel={`Address ${index + 1} Country`}
                             clearable
@@ -725,13 +928,13 @@ export function CustomerFormPage() {
                         <div className="company-profile-field">
                           {isMalaysiaAddress ? (
                             <select value={address.state} onChange={(event) => updateAddress(index, { state: event.target.value })}>
-                              <option value="">State</option>
+                              <option value="">State *</option>
                               {malaysiaStateOptions.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
                             </select>
                           ) : (
-                            <input className="text-input" value={address.state} onChange={(event) => updateAddress(index, { state: event.target.value })} placeholder="State" />
+                            <input className="text-input" value={address.state} onChange={(event) => updateAddress(index, { state: event.target.value })} placeholder="State *" />
                           )}
                         </div>
                       </div>
@@ -745,7 +948,7 @@ export function CustomerFormPage() {
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="contact-contact-persons-title">
+          <section className="company-profile-section company-profile-separated-section" aria-labelledby="contact-contact-persons-title">
             <div className="company-profile-address-header">
               <h3 id="contact-contact-persons-title" className="section-title">Contact Persons</h3>
             </div>
@@ -782,9 +985,9 @@ export function CustomerFormPage() {
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="contact-financial-settings-title">
+          <section className="company-profile-section" aria-labelledby="contact-type-grouping-title">
             <div className="company-profile-address-header">
-              <h3 id="contact-financial-settings-title" className="section-title">Financial Settings</h3>
+              <h3 id="contact-type-grouping-title" className="section-title">Type & Grouping</h3>
               <p className="muted">Only fields relevant to the selected contact type are shown.</p>
             </div>
             <div className="company-profile-fields-grid">
@@ -801,7 +1004,7 @@ export function CustomerFormPage() {
               </div>
                 {showReceivableAccount ? (
                   <label className="form-label company-profile-field">
-                    Receivable Account
+                    <span className="form-label-inline">Receivable Account {requiredMark}</span>
                     <SearchableSelect
                       value={form.receivableAccount}
                       onChange={(value) => setForm((current) => ({ ...current, receivableAccount: value }))}
@@ -820,7 +1023,7 @@ export function CustomerFormPage() {
                 ) : null}
                 {showPayableAccount ? (
                   <label className="form-label company-profile-field">
-                    Payable Account
+                    <span className="form-label-inline">Payable Account {isSupplierSelected ? requiredMark : null}</span>
                     <SearchableSelect
                       value={form.payableAccount}
                       onChange={(value) => setForm((current) => ({ ...current, payableAccount: value }))}
@@ -831,61 +1034,19 @@ export function CustomerFormPage() {
                     />
                   </label>
                 ) : null}
-                <label className="form-label company-profile-field">
-                  Income Account
-                  <SearchableSelect
-                    value={form.incomeAccount}
-                    onChange={(value) => setForm((current) => ({ ...current, incomeAccount: value }))}
-                    options={incomeAccountOptions}
-                    placeholder="Select income account"
-                    searchPlaceholder="Search revenue accounts"
-                    ariaLabel="Income Account"
-                    clearable
-                  />
-                </label>
-                <label className="form-label company-profile-field">
-                  Expense Account
-                  <SearchableSelect
-                    value={form.expenseAccount}
-                    onChange={(value) => setForm((current) => ({ ...current, expenseAccount: value }))}
-                    options={expenseAccountOptions}
-                    placeholder="Select expense account"
-                    searchPlaceholder="Search expense accounts"
-                    ariaLabel="Expense Account"
-                    clearable
-                  />
-                </label>
-            </div>
-          </section>
-
-          <section className="company-profile-section" aria-labelledby="contact-commercial-settings-title">
-            <div className="company-profile-address-header">
-              <h3 id="contact-commercial-settings-title" className="section-title">Commercial Settings</h3>
-            </div>
-            <div className="company-profile-fields-grid">
               <div className="form-label company-profile-field company-profile-field-wide">
-                Groups
-                <div className="contact-group-selector">
-                  <div className="button-stack contact-group-selector-actions">
-                    <button type="button" className="button button-secondary" onClick={() => navigate("/contact-groups")}>Manage Contact Groups</button>
-                  </div>
-                  {availableGroupOptions.length > 0 ? (
-                    <div className="contact-checkbox-group">
-                      {availableGroupOptions.map((groupName) => (
-                        <label key={groupName} className="contact-checkbox-card">
-                          <input
-                            type="checkbox"
-                            checked={form.groups.some((group) => group.toLowerCase() === groupName.toLowerCase())}
-                            onChange={(event) => toggleGroup(groupName, event.target.checked)}
-                          />
-                          <span>{groupName}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="muted">No contact groups yet. Create groups first, then assign them here.</p>
-                  )}
-                </div>
+                Contact Groups
+                <MultiValueLookup
+                  values={form.groups}
+                  options={availableGroupOptions}
+                  placeholder="Select contact groups"
+                  searchPlaceholder="Search contact groups"
+                  addLabel="Add Contact Group"
+                  emptyText="No matching groups."
+                  ariaLabel="Contact Groups"
+                  onChange={(values) => setForm((current) => ({ ...current, groups: values }))}
+                  onCreate={createContactGroup}
+                />
               </div>
               <label className="form-label company-profile-field">
                 Price Level
@@ -899,6 +1060,12 @@ export function CustomerFormPage() {
                   clearable
                 />
               </label>
+            </div>
+          </section>
+
+          <details className="contact-advanced-section">
+            <summary>Advanced Settings</summary>
+            <div className="company-profile-fields-grid">
               <label className="form-label company-profile-field">
                 Currency
                 <SearchableSelect
@@ -926,12 +1093,30 @@ export function CustomerFormPage() {
                 Location
                 <input className="text-input" value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} />
               </label>
-            </div>
-          </section>
-
-          <details className="contact-advanced-section">
-            <summary>Advanced Settings</summary>
-            <div className="company-profile-fields-grid">
+              <label className="form-label company-profile-field">
+                Income Account
+                <SearchableSelect
+                  value={form.incomeAccount}
+                  onChange={(value) => setForm((current) => ({ ...current, incomeAccount: value }))}
+                  options={incomeAccountOptions}
+                  placeholder="Select income account"
+                  searchPlaceholder="Search revenue accounts"
+                  ariaLabel="Income Account"
+                  clearable
+                />
+              </label>
+              <label className="form-label company-profile-field">
+                Expense Account
+                <SearchableSelect
+                  value={form.expenseAccount}
+                  onChange={(value) => setForm((current) => ({ ...current, expenseAccount: value }))}
+                  options={expenseAccountOptions}
+                  placeholder="Select expense account"
+                  searchPlaceholder="Search expense accounts"
+                  ariaLabel="Expense Account"
+                  clearable
+                />
+              </label>
               <label className="form-label company-profile-field">
                 Status
                 <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as Customer["status"] }))}>
@@ -946,15 +1131,20 @@ export function CustomerFormPage() {
               </label>
               <div className="form-label company-profile-field company-profile-field-wide">
                 Tags
-                <div className="contact-editor-list">
-                  {form.tags.map((tag, index) => (
-                    <div key={`tag-${index}`} className="contact-editor-row">
-                      <input className="text-input" value={tag} onChange={(event) => updateStringList("tags", index, event.target.value)} placeholder={`Tag ${index + 1}`} />
-                      <button type="button" className="button button-secondary button-small" onClick={() => removeStringListItem("tags", index)} disabled={form.tags.length === 1}>Delete</button>
-                    </div>
-                  ))}
-                  <button type="button" className="button button-secondary" onClick={() => addStringListItem("tags")}>+ Add Tag</button>
-                </div>
+                <MultiValueLookup
+                  values={form.tags}
+                  options={availableTagOptions}
+                  placeholder="Select tags"
+                  searchPlaceholder="Search tags"
+                  addLabel="Add Tag"
+                  emptyText="No matching tags."
+                  ariaLabel="Tags"
+                  onChange={(values) => setForm((current) => ({ ...current, tags: values }))}
+                  onCreate={(value) => {
+                    setContactTagOptions((current) => mergeLookupOptions(current, [value]));
+                    return value;
+                  }}
+                />
               </div>
               <label className="form-label company-profile-field">
                 MyInvois Control

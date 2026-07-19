@@ -465,20 +465,11 @@ export function CompaniesPage() {
                           <div className="company-detail-address-card-header">
                             <div className="company-detail-address-card-heading">
                               <strong>{getCompanyAddressTitle(address, index)}</strong>
-                              {address.isDefaultBilling ? <span className="status-pill status-pill-active">Default Billing</span> : null}
-                              {address.isDefaultShipping ? <span className="status-pill status-pill-active">Default Shipping</span> : null}
+                              {address.isDefaultBilling ? <span className="status-pill status-pill-active status-pill-compact">Billing Default</span> : null}
+                              {address.isDefaultShipping ? <span className="status-pill status-pill-active status-pill-compact">Shipping Default</span> : null}
                             </div>
                           </div>
-                          <div className="company-detail-grid">
-                            <div className="company-detail-item company-detail-item-wide"><span>Address Line 1</span><strong>{address.addressLine1 || "-"}</strong></div>
-                            <div className="company-detail-item company-detail-item-wide"><span>Address Line 2</span><strong>{address.addressLine2 || "-"}</strong></div>
-                            <div className="company-detail-item company-detail-item-wide"><span>Address Line 3</span><strong>{address.addressLine3 || "-"}</strong></div>
-                            <div className="company-detail-item"><span>Postcode</span><strong>{address.postcode || "-"}</strong></div>
-                            <div className="company-detail-item"><span>City</span><strong>{address.city || "-"}</strong></div>
-                            <div className="company-detail-item"><span>State</span><strong>{address.state || "-"}</strong></div>
-                            <div className="company-detail-item"><span>Country</span><strong>{address.country || "-"}</strong></div>
-                            <div className="company-detail-item company-detail-item-wide"><strong style={{ whiteSpace: "pre-line" }}>{formatCompanyAddress(address) || "-"}</strong></div>
-                          </div>
+                          <p className="company-detail-address-line">{formatCompanyAddress(address) || "-"}</p>
                         </article>
                       )) : <p className="muted">No addresses saved.</p>}
                     </div>

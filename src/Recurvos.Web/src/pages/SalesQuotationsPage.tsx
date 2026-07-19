@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
+import { TablePagination } from "../components/TablePagination";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
@@ -15,23 +17,26 @@ export function SalesQuotationsPage() {
   const [search, setSearch] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [status, setStatus] = useState("");
+  const [sort, setSort] = useState<"date-desc" | "date-asc" | "number" | "amount-desc">("date-desc");
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
   async function load() {
+    setLoading(true);
     const query = new URLSearchParams();
     if (search.trim()) query.set("search", search.trim());
     if (companyId) query.set("companyId", companyId);
     if (status) query.set("status", status);
-    const [quotations, companyList] = await Promise.all([
-      api.get<SalesQuotationListItem[]>(`/sales/quotations${query.toString() ? `?${query}` : ""}`),
-      api.get<CompanyLookup[]>("/companies"),
-    ]);
-    setItems(quotations);
-    setCompanies(companyList);
+    try {
+      const [quotations, companyList] = await Promise.all([api.get<SalesQuotationListItem[]>(`/sales/quotations${query.toString() ? `?${query}` : ""}`), api.get<CompanyLookup[]>("/companies")]);
+      setItems(quotations); setCompanies(companyList);
+    } finally { setLoading(false); }
   }
 
   useEffect(() => { void load(); }, [search, companyId, status]);
+  const sortedItems = useMemo(() => [...items].sort((a, b) => sort === "number" ? a.quotationNumber.localeCompare(b.quotationNumber, undefined, { numeric: true }) : sort === "amount-desc" ? b.totalAmount - a.totalAmount : (sort === "date-asc" ? 1 : -1) * (new Date(a.documentDateUtc).getTime() - new Date(b.documentDateUtc).getTime())), [items, sort]);
+  const pagination = useClientPagination(sortedItems, [search, companyId, status, sort]);
 
   function getActions(item: SalesQuotationListItem) {
     return [
@@ -80,6 +85,7 @@ export function SalesQuotationsPage() {
           <option value="">All companies</option>
           {companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
+        <select aria-label="Sort quotations" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="number">Quotation number</option><option value="amount-desc">Highest total</option></select>
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
           <option value="Draft">Draft</option>
@@ -95,7 +101,7 @@ export function SalesQuotationsPage() {
           <table className="catalog-table">
             <thead><tr><th>Quotation No</th><th>Date</th><th>Expiry</th><th>Contact</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {items.length === 0 ? <EmptyTableRow colSpan={7} title="No quotations yet" description="Create a sales quotation to begin the sales workflow." actions={<button type="button" className="button button-primary" onClick={() => navigate("/sales/quotations/new")}>Create quotation</button>} /> : items.map((item) => (
+              {loading ? <EmptyTableRow colSpan={7} title="Loading quotations" description="Fetching the latest sales quotations." /> : sortedItems.length === 0 ? <EmptyTableRow colSpan={7} title="No quotations yet" description="Create a sales quotation to begin the sales workflow." actions={<button type="button" className="button button-primary" onClick={() => navigate("/sales/quotations/new")}>Create quotation</button>} /> : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.quotationNumber}</td>
                   <td>{new Date(item.documentDateUtc).toLocaleDateString()}</td>
@@ -109,6 +115,7 @@ export function SalesQuotationsPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination currentPage={pagination.currentPage} pageSize={pagination.pageSize} totalItems={pagination.totalItems} totalPages={pagination.totalPages} rangeStart={pagination.rangeStart} rangeEnd={pagination.rangeEnd} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

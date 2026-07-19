@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
@@ -13,6 +13,29 @@ import { fetchProducts } from "../hooks/useProducts";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { CompanyLookup, FeatureAccess, PlatformPackage, Product } from "../types";
+
+function AddProductMenu({ onManual, onImport, onBatchUpdate }: { onManual: () => void; onImport: () => void; onBatchUpdate: () => void }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
+
+  const select = (action: () => void) => { setOpen(false); action(); };
+  return <div ref={menuRef} className="contact-add-menu">
+    <button type="button" className="button button-primary contact-add-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">Add Product <span aria-hidden="true">▼</span></button>
+    {open ? <div className="contact-add-popover" role="menu" aria-label="Add product actions">
+      <button type="button" role="menuitem" onClick={() => select(onManual)}>Add Manually</button>
+      <button type="button" role="menuitem" onClick={() => select(onImport)}>Import Products</button>
+      <button type="button" role="menuitem" onClick={() => select(onBatchUpdate)}>Batch Update</button>
+    </div> : null}
+  </div>;
+}
 
 export function ProductsPage() {
   const navigate = useNavigate();
@@ -231,7 +254,10 @@ export function ProductsPage() {
               </div>
             </div>
           </div>
-          <button type="button" className="button button-primary" onClick={() => navigate("/products/new")}>Add product</button>
+          <div className="contact-page-actions">
+            <button type="button" className="button button-secondary" onClick={() => navigate("/product-groups")}>Product Groups</button>
+            <AddProductMenu onManual={() => navigate("/products/new")} onImport={() => navigate("/products/import")} onBatchUpdate={() => navigate("/products/batch-update")} />
+          </div>
         </div>
         <div className="subscription-mobile-list">
           {items.map((item) => (

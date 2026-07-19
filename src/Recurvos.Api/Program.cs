@@ -26,7 +26,7 @@ builder.Services.AddControllers()
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddJwtSwagger();
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? ["http://localhost:5173", "http://localhost:4173"];
+var allowedOrigins = GetAllowedCorsOrigins(builder.Configuration);
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Web", policy =>
@@ -257,6 +257,40 @@ if (!app.Environment.IsEnvironment("Testing"))
 app.MapControllers();
 
 app.Run();
+
+static string[] GetAllowedCorsOrigins(IConfiguration configuration)
+{
+    var configuredOrigins = configuration
+        .GetSection("Cors:AllowedOrigins")
+        .GetChildren()
+        .Select(section => section.Value)
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Select(value => value!.Trim().TrimEnd('/'))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    if (configuredOrigins.Length > 0)
+    {
+        return configuredOrigins;
+    }
+
+    var rawOrigins = configuration["Cors:AllowedOrigins"];
+    if (!string.IsNullOrWhiteSpace(rawOrigins))
+    {
+        var parsedOrigins = rawOrigins
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(origin => origin.TrimEnd('/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (parsedOrigins.Length > 0)
+        {
+            return parsedOrigins;
+        }
+    }
+
+    return ["http://localhost:5173", "http://localhost:4173"];
+}
 
 static async Task ResetDemoDataAsync(IServiceProvider services, AppDbContext dbContext, LegacySchemaRepairService legacySchemaRepairService, HangfireBootstrapService? hangfireBootstrapService)
 {

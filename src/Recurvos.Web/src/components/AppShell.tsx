@@ -466,9 +466,13 @@ export function AppShell() {
     }
 
     void (async () => {
+      const shouldLoadCompanySummary = location.pathname === "/app" || location.pathname.startsWith("/companies") || location.pathname.startsWith("/help/quick-start");
       const companies = await api.get<CompanyLookup[]>("/companies").catch(() => null);
-      const readinessPath = companies?.[0]?.id
-        ? `/settings/billing-readiness?companyId=${companies[0].id}`
+      const readinessCompanyId = companies?.find((company) => company.id === auth.companyId)?.id
+        ?? companies?.[0]?.id
+        ?? null;
+      const readinessPath = readinessCompanyId
+        ? `/settings/billing-readiness?companyId=${readinessCompanyId}`
         : null;
 
       const [access, billing, readiness, feedbackSummary] = await Promise.all([
@@ -483,12 +487,14 @@ export function AppShell() {
 
       setFeatureAccess(access);
       setPackageBilling(billing);
-      setCompanyCount(companies?.length ?? null);
+      if (shouldLoadCompanySummary) {
+        setCompanyCount(companies?.length ?? null);
+      }
       setPendingSetupCount(readiness ? readiness.items.filter((item) => !item.done).length : null);
       setFeedbackUnreadCount(feedbackSummary?.unreadReplies ?? 0);
       setPendingPaymentConfirmationCount(paymentConfirmations?.filter((item) => item.status === "Pending").length ?? 0);
     })();
-  }, [auth?.accessToken, auth?.isPlatformOwner, location.pathname]);
+  }, [auth?.accessToken, auth?.companyId, auth?.isPlatformOwner, location.pathname]);
 
   useEffect(() => {
     if (!auth || auth.isPlatformOwner) {
@@ -601,6 +607,12 @@ export function AppShell() {
   const financeLinks: NavEntry[] = auth?.isPlatformOwner
     ? []
     : [
+        { label: "Journal Entries", path: "/finance/journal-entries", icon: "finance", disabled: false, hint: "" },
+        { label: "General Ledger", path: "/finance/general-ledger", icon: "list", disabled: false, hint: "" },
+        { label: "Trial Balance", path: "/finance/trial-balance", icon: "finance", disabled: false, hint: "" },
+        { label: "Profit & Loss", path: "/finance/profit-and-loss", icon: "finance", disabled: false, hint: "" },
+        { label: "Balance Sheet", path: "/finance/balance-sheet", icon: "finance", disabled: false, hint: "" },
+        { label: "Cash Flow", path: "/finance/cash-flow", icon: "finance", disabled: false, hint: "" },
         {
           label: "Statement of Account",
           path: "/customers#statement-of-account",
@@ -611,10 +623,6 @@ export function AppShell() {
         },
         { label: "AR Aging", path: "/finance#ar-aging", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
         { label: "AP Aging", path: "/finance#ap-aging", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
-        { label: "Journal Entries", path: "/finance#journal-entries", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
-        { label: "Trial Balance", path: "/finance#trial-balance", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
-        { label: "Profit & Loss", path: "/finance#profit-and-loss", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
-        { label: "Balance Sheet", path: "/finance#balance-sheet", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
       ];
   const foundationLinks: NavEntry[] = auth?.isPlatformOwner
     ? []
@@ -854,7 +862,6 @@ export function AppShell() {
           {navSections.map((section) => (
             (section.items?.length || section.groups?.length) ? (
               <div key={section.title} className="sidebar-section">
-                <p className="sidebar-section-label">{section.title}</p>
                 {section.items?.length ? (
                   <nav className="nav nav-secondary">
                     {section.items.map((item) => renderNavItem(item))}
@@ -880,7 +887,7 @@ export function AppShell() {
                             </span>
                             <span className={`sidebar-parent-caret ${expanded ? "sidebar-parent-caret-open" : ""}`} aria-hidden="true">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="m6 9 6 6 6-6" />
+                                <path d="m9 6 6 6-6 6" />
                               </svg>
                             </span>
                           </button>

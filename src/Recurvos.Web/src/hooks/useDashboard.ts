@@ -20,6 +20,42 @@ export type DashboardFilters = {
   endDateUtc?: string;
 };
 
+const EMPTY_SUMMARY: DashboardSummary = {
+  mrr: 0,
+  collectedThisMonth: 0,
+  overdueAmount: 0,
+  activeSubscriptions: 0,
+  failedPayments: 0,
+  upcomingRenewals: 0,
+};
+
+const EMPTY_STATUS_SUMMARY: SubscriptionStatusSummary = {
+  active: 0,
+  trialing: 0,
+  paused: 0,
+  cancelingAtPeriodEnd: 0,
+  canceledOrEnded: 0,
+};
+
+function emptyPagedResult<T>(): PagedResult<T> {
+  return {
+    items: [],
+    totalCount: 0,
+  };
+}
+
+function getSettledValue<T>(result: PromiseSettledResult<T>, fallback: T) {
+  return result.status === "fulfilled" ? result.value : fallback;
+}
+
+function getSettledError(result: PromiseSettledResult<unknown>) {
+  return result.status === "rejected" && result.reason instanceof Error
+    ? result.reason.message
+    : result.status === "rejected"
+      ? "Unable to load dashboard."
+      : "";
+}
+
 function toQueryString(filters: DashboardFilters & { page?: number; pageSize?: number }) {
   const params = new URLSearchParams();
   if (filters.companyId) {
@@ -86,7 +122,7 @@ export function useDashboard(filters: DashboardFilters, enabled = true) {
       try {
         const filterQuery = toQueryString(filters);
         const pagedQuery = toQueryString({ ...filters, page: 1, pageSize: 10 });
-        const [summaryResult, renewalsResult, overdueResult, paymentsResult, cancellationsResult, trialResult, revenueTrendResult, growthResult, revenueByCompanyResult, statusSummaryResult] = await Promise.all([
+        const [summaryResult, renewalsResult, overdueResult, paymentsResult, cancellationsResult, trialResult, revenueTrendResult, growthResult, revenueByCompanyResult, statusSummaryResult] = await Promise.allSettled([
           api.get<DashboardSummary>(`/dashboard/summary${filterQuery}`),
           api.get<PagedResult<UpcomingRenewal>>(`/dashboard/upcoming-renewals${pagedQuery}`),
           api.get<PagedResult<OverdueInvoice>>(`/dashboard/overdue-invoices${pagedQuery}`),
@@ -103,16 +139,32 @@ export function useDashboard(filters: DashboardFilters, enabled = true) {
           return;
         }
 
-        setSummary(summaryResult);
-        setUpcomingRenewals(renewalsResult);
-        setOverdueInvoices(overdueResult);
-        setRecentPayments(paymentsResult);
-        setScheduledCancellations(cancellationsResult);
-        setTrialEnding(trialResult);
-        setRevenueTrend(revenueTrendResult);
-        setSubscriptionGrowth(growthResult);
-        setRevenueByCompany(revenueByCompanyResult);
-        setStatusSummary(statusSummaryResult);
+        setSummary(getSettledValue(summaryResult, EMPTY_SUMMARY));
+        setUpcomingRenewals(getSettledValue(renewalsResult, emptyPagedResult<UpcomingRenewal>()));
+        setOverdueInvoices(getSettledValue(overdueResult, emptyPagedResult<OverdueInvoice>()));
+        setRecentPayments(getSettledValue(paymentsResult, emptyPagedResult<DashboardRecentPayment>()));
+        setScheduledCancellations(getSettledValue(cancellationsResult, emptyPagedResult<ScheduledCancellation>()));
+        setTrialEnding(getSettledValue(trialResult, emptyPagedResult<TrialEnding>()));
+        setRevenueTrend(getSettledValue(revenueTrendResult, []));
+        setSubscriptionGrowth(getSettledValue(growthResult, []));
+        setRevenueByCompany(getSettledValue(revenueByCompanyResult, []));
+        setStatusSummary(getSettledValue(statusSummaryResult, EMPTY_STATUS_SUMMARY));
+
+        const firstError =
+          getSettledError(summaryResult)
+          || getSettledError(renewalsResult)
+          || getSettledError(overdueResult)
+          || getSettledError(paymentsResult)
+          || getSettledError(cancellationsResult)
+          || getSettledError(trialResult)
+          || getSettledError(revenueTrendResult)
+          || getSettledError(growthResult)
+          || getSettledError(revenueByCompanyResult)
+          || getSettledError(statusSummaryResult);
+
+        if (firstError) {
+          setError(firstError);
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Unable to load dashboard.");

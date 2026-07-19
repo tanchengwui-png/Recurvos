@@ -3,6 +3,7 @@ import { getAuth, setAuth } from "./auth";
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
 
 let refreshPromise: Promise<boolean> | null = null;
+const ACCESS_TOKEN_REFRESH_WINDOW_MS = 30_000;
 
 export function buildApiUrl(path: string) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
@@ -27,20 +28,27 @@ function clearExpiredAuth() {
 async function refreshAuth(refreshToken: string) {
   if (!refreshPromise) {
     refreshPromise = (async () => {
-      const refreshed = await fetch(buildApiUrl("/auth/refresh"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-      });
+      try {
+        const refreshed = await fetch(buildApiUrl("/auth/refresh"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
 
-      if (!refreshed.ok) {
+        if (!refreshed.ok) {
+          clearExpiredAuth();
+          return false;
+        }
+
+        const refreshedAuth = await refreshed.json();
+        setAuth(refreshedAuth);
+        return true;
+      } catch {
+        // A deployment, reverse-proxy outage, or network interruption must not leave a rejected
+        // refresh promise that cascades into unhandled failures across every page request.
         clearExpiredAuth();
         return false;
       }
-
-      const refreshedAuth = await refreshed.json();
-      setAuth(refreshedAuth);
-      return true;
     })();
 
     refreshPromise.finally(() => {
@@ -49,6 +57,39 @@ async function refreshAuth(refreshToken: string) {
   }
 
   return refreshPromise;
+}
+
+function decodeBase64Url(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
+  return atob(padded);
+}
+
+function getJwtExpiryMs(accessToken: string) {
+  try {
+    const payload = accessToken.split(".")[1];
+    if (!payload) {
+      return null;
+    }
+
+    const claims = JSON.parse(decodeBase64Url(payload)) as { exp?: unknown };
+    return typeof claims.exp === "number" ? claims.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureFreshAuth(auth: ReturnType<typeof getAuth>) {
+  if (!auth?.accessToken || !auth.refreshToken) {
+    return auth;
+  }
+
+  const expiresAtMs = getJwtExpiryMs(auth.accessToken);
+  if (!expiresAtMs || expiresAtMs - Date.now() > ACCESS_TOKEN_REFRESH_WINDOW_MS) {
+    return auth;
+  }
+
+  return await refreshAuth(auth.refreshToken) ? getAuth() : null;
 }
 
 function toFriendlyFieldName(field: string) {
@@ -150,7 +191,7 @@ function getFallbackMessage(status: number) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const auth = getAuth();
+  const auth = await ensureFreshAuth(getAuth());
   const headers = new Headers(init?.headers);
   const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   if (!isFormData) {
@@ -194,7 +235,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestBlob(path: string, init?: RequestInit): Promise<{ blob: Blob; fileName: string | null; contentType: string | null }> {
-  const auth = getAuth();
+  const auth = await ensureFreshAuth(getAuth());
   const headers = new Headers(init?.headers);
   if (auth?.accessToken) {
     headers.set("Authorization", `Bearer ${auth.accessToken}`);

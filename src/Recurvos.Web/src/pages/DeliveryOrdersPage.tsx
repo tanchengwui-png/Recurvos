@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
+import { TablePagination } from "../components/TablePagination";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
@@ -15,23 +17,26 @@ export function DeliveryOrdersPage() {
   const [search, setSearch] = useState("");
   const [companyId, setCompanyId] = useState("");
   const [status, setStatus] = useState("");
+  const [sort, setSort] = useState<"date-desc" | "date-asc" | "number" | "amount-desc">("date-desc");
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
   async function load() {
+    setLoading(true);
     const query = new URLSearchParams();
     if (search.trim()) query.set("search", search.trim());
     if (companyId) query.set("companyId", companyId);
     if (status) query.set("status", status);
-    const [deliveryOrders, companyList] = await Promise.all([
-      api.get<DeliveryOrderListItem[]>(`/sales/delivery-orders${query.toString() ? `?${query}` : ""}`),
-      api.get<CompanyLookup[]>("/companies"),
-    ]);
-    setItems(deliveryOrders);
-    setCompanies(companyList);
+    try {
+      const [deliveryOrders, companyList] = await Promise.all([api.get<DeliveryOrderListItem[]>(`/sales/delivery-orders${query.toString() ? `?${query}` : ""}`), api.get<CompanyLookup[]>("/companies")]);
+      setItems(deliveryOrders); setCompanies(companyList);
+    } finally { setLoading(false); }
   }
 
   useEffect(() => { void load(); }, [search, companyId, status]);
+  const sortedItems = useMemo(() => [...items].sort((a, b) => sort === "number" ? a.deliveryOrderNumber.localeCompare(b.deliveryOrderNumber, undefined, { numeric: true }) : sort === "amount-desc" ? b.totalAmount - a.totalAmount : (sort === "date-asc" ? 1 : -1) * (new Date(a.documentDateUtc).getTime() - new Date(b.documentDateUtc).getTime())), [items, sort]);
+  const pagination = useClientPagination(sortedItems, [search, companyId, status, sort]);
 
   function getActions(item: DeliveryOrderListItem) {
     return [
@@ -93,6 +98,7 @@ export function DeliveryOrdersPage() {
           <option value="">All companies</option>
           {companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
+        <select aria-label="Sort delivery orders" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="number">Delivery order number</option><option value="amount-desc">Highest total</option></select>
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
           <option value="Draft">Draft</option>
@@ -107,7 +113,7 @@ export function DeliveryOrdersPage() {
           <table className="catalog-table">
             <thead><tr><th>Delivery Order No</th><th>Date</th><th>Contact</th><th>Source Sales Order</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {items.length === 0 ? <EmptyTableRow colSpan={7} title="No delivery orders yet" description="Create a delivery order from a confirmed sales order when items are ready for fulfillment." actions={<button type="button" className="button button-primary" onClick={() => navigate("/sales/delivery-orders/new")}>Create delivery order</button>} /> : items.map((item) => (
+              {loading ? <EmptyTableRow colSpan={7} title="Loading delivery orders" description="Fetching the latest delivery orders." /> : sortedItems.length === 0 ? <EmptyTableRow colSpan={7} title="No delivery orders yet" description="Create a delivery order from a confirmed sales order when items are ready for fulfillment." actions={<button type="button" className="button button-primary" onClick={() => navigate("/sales/delivery-orders/new")}>Create delivery order</button>} /> : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>
                   <td>{item.deliveryOrderNumber}</td>
                   <td>{new Date(item.documentDateUtc).toLocaleDateString()}</td>
@@ -121,6 +127,7 @@ export function DeliveryOrdersPage() {
             </tbody>
           </table>
         </div>
+        <TablePagination currentPage={pagination.currentPage} pageSize={pagination.pageSize} totalItems={pagination.totalItems} totalPages={pagination.totalPages} rangeStart={pagination.rangeStart} rangeEnd={pagination.rangeEnd} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

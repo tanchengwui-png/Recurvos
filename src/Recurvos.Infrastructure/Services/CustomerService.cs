@@ -41,6 +41,13 @@ public sealed class CustomerService(
         "Exempted Person",
     };
 
+    private static readonly HashSet<string> AllowedBatchListOperations = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Append",
+        "Replace",
+        "Remove",
+    };
+
     public async Task<IReadOnlyCollection<CustomerDto>> GetAsync(CancellationToken cancellationToken = default)
     {
         await EnsureReadAccessAsync(cancellationToken);
@@ -194,6 +201,519 @@ public sealed class CustomerService(
         return BuildCustomerDto(customer);
     }
 
+    public async Task<CustomerBatchUpdateResult> BatchUpdateAsync(CustomerBatchUpdateRequest request, CancellationToken cancellationToken = default)
+    {
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
+        var selectedIds = request.CustomerIds
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToArray();
+
+        if (selectedIds.Length == 0)
+        {
+            throw new InvalidOperationException("Select at least one contact to update.");
+        }
+
+        var updatedFields = GetSelectedBatchUpdateFields(request.Fields).ToArray();
+        if (updatedFields.Length == 0)
+        {
+            throw new InvalidOperationException("Select at least one field to update.");
+        }
+
+        var subscriberId = GetSubscriberId();
+        var customers = await dbContext.Customers
+            .Where(x => x.SubscriberId == subscriberId && selectedIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+
+        var foundIds = customers.Select(customer => customer.Id).ToHashSet();
+        var failedIds = selectedIds.Where(id => !foundIds.Contains(id)).ToList();
+
+        if (customers.Count == 0)
+        {
+            return new CustomerBatchUpdateResult
+            {
+                RequestedCount = selectedIds.Length,
+                SuccessCount = 0,
+                FailureCount = failedIds.Count,
+                FailedCustomerIds = failedIds,
+                UpdatedFields = updatedFields,
+                Customers = Array.Empty<CustomerDto>(),
+            };
+        }
+
+        var values = request.Values ?? new CustomerBatchUpdateValues();
+        var modes = request.Modes ?? new CustomerBatchUpdateListModes();
+        var targets = request.Targets ?? new CustomerBatchUpdateTargets();
+        var legalName = string.Empty;
+        var email = new List<string>();
+        var phoneNumber = new List<string>();
+        var contactPersons = new List<CustomerContactPersonInput>();
+        var targetContactPersons = new List<CustomerContactPersonInput>();
+        var phoneNumbers = new List<string>();
+        var targetPhoneNumbers = new List<string>();
+        var emailAddresses = new List<string>();
+        var targetEmailAddresses = new List<string>();
+        var addresses = new List<CustomerAddressInput>();
+        var targetAddresses = new List<CustomerAddressInput>();
+        var contactType = string.Empty;
+        var status = string.Empty;
+        var groups = new List<string>();
+        var targetGroups = new List<string>();
+        var tags = new List<string>();
+        var targetTags = new List<string>();
+        var receivableAccount = AccountSelection.Empty;
+        var payableAccount = AccountSelection.Empty;
+        var incomeAccount = AccountSelection.Empty;
+        var expenseAccount = AccountSelection.Empty;
+        var priceLevel = string.Empty;
+        var currency = string.Empty;
+        var paymentTerm = string.Empty;
+        var contactPersonsMode = "Replace";
+        var phoneNumbersMode = "Replace";
+        var emailAddressesMode = "Replace";
+        var addressesMode = "Replace";
+        var groupsMode = "Replace";
+        var tagsMode = "Replace";
+
+        if (request.Fields.LegalName)
+        {
+            legalName = NormalizeLegalName(values.LegalName, values.LegalName);
+        }
+
+        if (request.Fields.Email)
+        {
+            email = NormalizeEmailList(new[] { values.Email });
+        }
+
+        if (request.Fields.PhoneNumber)
+        {
+            phoneNumber = NormalizeStringList(new[] { values.PhoneNumber });
+        }
+
+        if (request.Fields.ContactPersons)
+        {
+            contactPersons = NormalizeContactPersons(values.ContactPersons);
+            contactPersonsMode = NormalizeBatchUpdateListMode(modes.ContactPersons);
+            targetContactPersons = NormalizeContactPersons(targets.ContactPersons);
+            ValidateTargetedBatchOperation(contactPersonsMode, targetContactPersons, "Contact Persons");
+        }
+
+        if (request.Fields.PhoneNumbers)
+        {
+            phoneNumbers = NormalizeStringList(values.PhoneNumbers);
+            phoneNumbersMode = NormalizeBatchUpdateListMode(modes.PhoneNumbers);
+            targetPhoneNumbers = NormalizeStringList(targets.PhoneNumbers);
+            ValidateTargetedBatchOperation(phoneNumbersMode, targetPhoneNumbers, "Phone Numbers");
+        }
+
+        if (request.Fields.EmailAddresses)
+        {
+            emailAddresses = NormalizeStringList(values.EmailAddresses);
+            emailAddressesMode = NormalizeBatchUpdateListMode(modes.EmailAddresses);
+            targetEmailAddresses = NormalizeStringList(targets.EmailAddresses);
+            ValidateTargetedBatchOperation(emailAddressesMode, targetEmailAddresses, "Email Addresses");
+        }
+
+        if (request.Fields.Addresses)
+        {
+            addresses = NormalizeAddresses(values.Addresses, string.Empty);
+            addressesMode = NormalizeBatchUpdateListMode(modes.Addresses);
+            targetAddresses = NormalizeAddresses(targets.Addresses, string.Empty);
+            ValidateTargetedBatchOperation(addressesMode, targetAddresses, "Addresses");
+        }
+
+        if (request.Fields.ContactType)
+        {
+            contactType = NormalizeContactType(values.ContactType);
+        }
+
+        if (request.Fields.Status)
+        {
+            status = NormalizeStatus(values.Status);
+        }
+
+        if (request.Fields.Groups)
+        {
+            groups = NormalizeStringList(values.Groups);
+            groupsMode = NormalizeBatchUpdateListMode(modes.Groups);
+            targetGroups = NormalizeStringList(targets.Groups);
+            ValidateTargetedBatchOperation(groupsMode, targetGroups, "Contact Groups");
+        }
+
+        if (request.Fields.Tags)
+        {
+            tags = NormalizeStringList(values.Tags);
+            tagsMode = NormalizeBatchUpdateListMode(modes.Tags);
+            targetTags = NormalizeStringList(targets.Tags);
+            ValidateTargetedBatchOperation(tagsMode, targetTags, "Tags");
+        }
+
+        if (request.Fields.ReceivableAccount)
+        {
+            receivableAccount = await ResolveAccountSelectionAsync(values.ReceivableAccountId, values.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
+        }
+
+        if (request.Fields.PayableAccount)
+        {
+            payableAccount = await ResolveAccountSelectionAsync(values.PayableAccountId, values.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
+        }
+
+        if (request.Fields.IncomeAccount)
+        {
+            incomeAccount = await ResolveAccountSelectionAsync(values.IncomeAccountId, values.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken);
+        }
+
+        if (request.Fields.ExpenseAccount)
+        {
+            expenseAccount = await ResolveAccountSelectionAsync(values.ExpenseAccountId, values.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken);
+        }
+
+        if (request.Fields.PriceLevel)
+        {
+            priceLevel = await ValidatePriceLevelAsync(values.PriceLevel, cancellationToken);
+        }
+
+        if (request.Fields.Currency)
+        {
+            currency = await ValidateCurrencyAsync(values.Currency, cancellationToken);
+        }
+
+        if (request.Fields.PaymentTerm)
+        {
+            paymentTerm = await ValidatePaymentTermAsync(values.PaymentTerm, cancellationToken);
+        }
+
+        if (request.Fields.ContactType || request.Fields.ReceivableAccount || request.Fields.PayableAccount)
+        {
+            foreach (var customer in customers)
+            {
+                var effectiveContactType = request.Fields.ContactType ? contactType : customer.ContactType;
+                var types = effectiveContactType.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var isCustomer = types.Any(item => item.Equals("Customer", StringComparison.OrdinalIgnoreCase));
+                var isSupplier = types.Any(item => item.Equals("Supplier", StringComparison.OrdinalIgnoreCase));
+                var effectiveReceivableAccount = request.Fields.ReceivableAccount ? receivableAccount.AccountCode : customer.ReceivableAccount;
+                var effectivePayableAccount = request.Fields.PayableAccount ? payableAccount.AccountCode : customer.PayableAccount;
+
+                if ((request.Fields.ContactType || request.Fields.ReceivableAccount) && isCustomer && string.IsNullOrWhiteSpace(effectiveReceivableAccount))
+                {
+                    throw new InvalidOperationException("Receivable account is required when Customer is selected.");
+                }
+
+                if ((request.Fields.ContactType || request.Fields.PayableAccount) && isSupplier && string.IsNullOrWhiteSpace(effectivePayableAccount))
+                {
+                    throw new InvalidOperationException("Payable account is required when Supplier is selected.");
+                }
+            }
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var updatedAtUtc = DateTime.UtcNow;
+        foreach (var customer in customers)
+        {
+            if (request.Fields.LegalName)
+            {
+                customer.LegalName = legalName;
+                customer.Name = legalName;
+            }
+
+            if (request.Fields.Email)
+            {
+                customer.Email = email.FirstOrDefault() ?? string.Empty;
+                customer.EmailAddressesJson = SerializeList(email);
+            }
+
+            if (request.Fields.PhoneNumber)
+            {
+                customer.PhoneNumber = phoneNumber.FirstOrDefault() ?? string.Empty;
+                customer.PhoneNumbersJson = SerializeList(phoneNumber);
+            }
+
+            if (request.Fields.ContactPersons)
+            {
+                var nextContactPersons = ApplyContactPersonOperation(GetStoredContactPersons(customer), contactPersons, targetContactPersons, contactPersonsMode);
+                customer.ContactPersonsJson = SerializeList(nextContactPersons);
+            }
+
+            if (request.Fields.PhoneNumbers)
+            {
+                var nextPhoneNumbers = ApplyStringListOperation(GetStoredPhoneNumbers(customer), phoneNumbers, targetPhoneNumbers, phoneNumbersMode);
+                customer.PhoneNumbersJson = SerializeList(nextPhoneNumbers);
+                customer.PhoneNumber = nextPhoneNumbers.FirstOrDefault() ?? string.Empty;
+            }
+
+            if (request.Fields.EmailAddresses)
+            {
+                var nextEmailAddresses = ApplyStringListOperation(GetStoredEmailAddresses(customer), emailAddresses, targetEmailAddresses, emailAddressesMode);
+                customer.EmailAddressesJson = SerializeList(nextEmailAddresses);
+                customer.Email = nextEmailAddresses.FirstOrDefault() ?? string.Empty;
+            }
+
+            if (request.Fields.Addresses)
+            {
+                var nextAddresses = ApplyAddressOperation(GetStoredAddresses(customer), addresses, targetAddresses, addressesMode);
+                customer.AddressesJson = SerializeList(nextAddresses);
+                customer.BillingAddress = BuildBillingAddress(nextAddresses, string.Empty);
+            }
+
+            if (request.Fields.ContactType)
+            {
+                customer.ContactType = contactType;
+            }
+
+            if (request.Fields.Status)
+            {
+                customer.Status = status;
+            }
+
+            if (request.Fields.ReceivableAccount)
+            {
+                customer.ReceivableAccountId = receivableAccount.AccountId;
+                customer.ReceivableAccount = receivableAccount.AccountCode;
+            }
+
+            if (request.Fields.CreditLimit)
+            {
+                customer.CreditLimit = values.CreditLimit;
+            }
+
+            if (request.Fields.PayableAccount)
+            {
+                customer.PayableAccountId = payableAccount.AccountId;
+                customer.PayableAccount = payableAccount.AccountCode;
+            }
+
+            if (request.Fields.Groups)
+            {
+                customer.GroupsJson = SerializeList(ApplyStringListOperation(DeserializeList<string>(customer.GroupsJson), groups, targetGroups, groupsMode));
+            }
+
+            if (request.Fields.PriceLevel)
+            {
+                customer.PriceLevel = priceLevel;
+            }
+
+            if (request.Fields.Currency)
+            {
+                customer.Currency = currency;
+            }
+
+            if (request.Fields.PaymentTerm)
+            {
+                customer.PaymentTerm = paymentTerm;
+            }
+
+            if (request.Fields.IncomeAccount)
+            {
+                customer.IncomeAccountId = incomeAccount.AccountId;
+                customer.IncomeAccount = incomeAccount.AccountCode;
+            }
+
+            if (request.Fields.ExpenseAccount)
+            {
+                customer.ExpenseAccountId = expenseAccount.AccountId;
+                customer.ExpenseAccount = expenseAccount.AccountCode;
+            }
+
+            if (request.Fields.Location)
+            {
+                customer.Location = values.Location.Trim();
+            }
+
+            if (request.Fields.Tags)
+            {
+                customer.TagsJson = SerializeList(ApplyStringListOperation(DeserializeList<string>(customer.TagsJson), tags, targetTags, tagsMode));
+            }
+
+            if (request.Fields.MyInvoisControl)
+            {
+                customer.MyInvoisControl = values.MyInvoisControl.Trim();
+            }
+
+            customer.UpdatedAtUtc = updatedAtUtc;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        await auditService.WriteAsync(
+            "customer.batch_updated",
+            nameof(Customer),
+            string.Join(",", customers.Select(customer => customer.Id)),
+            $"{customers.Count} contacts updated: {string.Join(", ", updatedFields)}",
+            cancellationToken);
+
+        return new CustomerBatchUpdateResult
+        {
+            RequestedCount = selectedIds.Length,
+            SuccessCount = customers.Count,
+            FailureCount = failedIds.Count,
+            FailedCustomerIds = failedIds,
+            UpdatedFields = updatedFields,
+            Customers = customers.Select(BuildCustomerDto).ToArray(),
+        };
+    }
+
+    public async Task<CustomerBatchUpdateResult> BatchUpdateGridAsync(CustomerGridBatchUpdateRequest request, CancellationToken cancellationToken = default)
+    {
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
+        var records = request.Records
+            .Where(record => record.CustomerId != Guid.Empty)
+            .GroupBy(record => record.CustomerId)
+            .Select(group => group.Last())
+            .ToArray();
+
+        if (records.Length == 0)
+        {
+            throw new InvalidOperationException("There are no contact changes to save.");
+        }
+
+        var selectedIds = records.Select(record => record.CustomerId).ToArray();
+        var subscriberId = GetSubscriberId();
+        var customers = await dbContext.Customers
+            .Where(x => x.SubscriberId == subscriberId && selectedIds.Contains(x.Id))
+            .ToListAsync(cancellationToken);
+
+        var customersById = customers.ToDictionary(customer => customer.Id);
+        var failedIds = selectedIds.Where(id => !customersById.ContainsKey(id)).ToList();
+        var updatedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var updatedAtUtc = DateTime.UtcNow;
+
+        foreach (var record in records)
+        {
+            if (!customersById.TryGetValue(record.CustomerId, out var customer))
+            {
+                continue;
+            }
+
+            var fields = record.Fields;
+            ValidateGridFieldSelection(fields);
+            var values = record.Values ?? new CustomerBatchUpdateValues();
+            var selectedFields = GetSelectedBatchUpdateFields(fields).ToArray();
+            if (selectedFields.Length == 0)
+            {
+                continue;
+            }
+
+            foreach (var field in selectedFields)
+            {
+                updatedFields.Add(field);
+            }
+
+            var contactType = fields.ContactType ? NormalizeContactType(values.ContactType) : customer.ContactType;
+            var status = fields.Status ? NormalizeStatus(values.Status) : customer.Status;
+            var groups = fields.Groups ? NormalizeStringList(values.Groups) : DeserializeList<string>(customer.GroupsJson);
+            var tags = fields.Tags ? NormalizeStringList(values.Tags) : DeserializeList<string>(customer.TagsJson);
+            var receivableAccount = fields.ReceivableAccount
+                ? await ResolveAccountSelectionAsync(values.ReceivableAccountId, values.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken)
+                : AccountSelection.Empty;
+            var payableAccount = fields.PayableAccount
+                ? await ResolveAccountSelectionAsync(values.PayableAccountId, values.PayableAccount, AccountType.Liability, "Payable account", cancellationToken)
+                : AccountSelection.Empty;
+            var incomeAccount = fields.IncomeAccount
+                ? await ResolveAccountSelectionAsync(values.IncomeAccountId, values.IncomeAccount, AccountType.Revenue, "Income account", cancellationToken)
+                : AccountSelection.Empty;
+            var expenseAccount = fields.ExpenseAccount
+                ? await ResolveAccountSelectionAsync(values.ExpenseAccountId, values.ExpenseAccount, AccountType.Expense, "Expense account", cancellationToken)
+                : AccountSelection.Empty;
+            var priceLevel = fields.PriceLevel ? await ValidatePriceLevelAsync(values.PriceLevel, cancellationToken) : customer.PriceLevel;
+            var currency = fields.Currency ? await ValidateCurrencyAsync(values.Currency, cancellationToken) : customer.Currency;
+            var paymentTerm = fields.PaymentTerm ? await ValidatePaymentTermAsync(values.PaymentTerm, cancellationToken) : customer.PaymentTerm;
+
+            if (fields.ContactType || fields.ReceivableAccount || fields.PayableAccount)
+            {
+                var types = contactType.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var isCustomer = types.Any(item => item.Equals("Customer", StringComparison.OrdinalIgnoreCase));
+                var isSupplier = types.Any(item => item.Equals("Supplier", StringComparison.OrdinalIgnoreCase));
+                var effectiveReceivableAccount = fields.ReceivableAccount ? receivableAccount.AccountCode : customer.ReceivableAccount;
+                var effectivePayableAccount = fields.PayableAccount ? payableAccount.AccountCode : customer.PayableAccount;
+
+                if ((fields.ContactType || fields.ReceivableAccount) && isCustomer && string.IsNullOrWhiteSpace(effectiveReceivableAccount))
+                {
+                    throw new InvalidOperationException("Receivable account is required when Customer is selected.");
+                }
+
+                if ((fields.ContactType || fields.PayableAccount) && isSupplier && string.IsNullOrWhiteSpace(effectivePayableAccount))
+                {
+                    throw new InvalidOperationException("Payable account is required when Supplier is selected.");
+                }
+            }
+
+            if (fields.LegalName)
+            {
+                var legalName = NormalizeLegalName(values.LegalName, customer.Name);
+                customer.LegalName = legalName;
+                customer.Name = legalName;
+            }
+
+            if (fields.Email)
+            {
+                var emails = NormalizeEmailList(new[] { values.Email });
+                customer.Email = emails[0];
+                customer.EmailAddressesJson = SerializeList(emails);
+            }
+
+            if (fields.PhoneNumber)
+            {
+                var phoneNumbers = NormalizeStringList(new[] { values.PhoneNumber });
+                customer.PhoneNumber = phoneNumbers.FirstOrDefault() ?? string.Empty;
+                customer.PhoneNumbersJson = SerializeList(phoneNumbers);
+            }
+
+            if (fields.ContactType) customer.ContactType = contactType;
+            if (fields.Status) customer.Status = status;
+            if (fields.ReceivableAccount)
+            {
+                customer.ReceivableAccountId = receivableAccount.AccountId;
+                customer.ReceivableAccount = receivableAccount.AccountCode;
+            }
+            if (fields.CreditLimit) customer.CreditLimit = values.CreditLimit;
+            if (fields.PayableAccount)
+            {
+                customer.PayableAccountId = payableAccount.AccountId;
+                customer.PayableAccount = payableAccount.AccountCode;
+            }
+            if (fields.Groups) customer.GroupsJson = SerializeList(groups);
+            if (fields.PriceLevel) customer.PriceLevel = priceLevel;
+            if (fields.Currency) customer.Currency = currency;
+            if (fields.PaymentTerm) customer.PaymentTerm = paymentTerm;
+            if (fields.IncomeAccount)
+            {
+                customer.IncomeAccountId = incomeAccount.AccountId;
+                customer.IncomeAccount = incomeAccount.AccountCode;
+            }
+            if (fields.ExpenseAccount)
+            {
+                customer.ExpenseAccountId = expenseAccount.AccountId;
+                customer.ExpenseAccount = expenseAccount.AccountCode;
+            }
+            if (fields.Location) customer.Location = values.Location.Trim();
+            if (fields.Tags) customer.TagsJson = SerializeList(tags);
+            if (fields.MyInvoisControl) customer.MyInvoisControl = values.MyInvoisControl.Trim();
+
+            customer.UpdatedAtUtc = updatedAtUtc;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        await auditService.WriteAsync(
+            "customer.batch_grid_updated",
+            nameof(Customer),
+            string.Join(",", customers.Select(customer => customer.Id)),
+            $"{customers.Count} contacts grid-updated: {string.Join(", ", updatedFields)}",
+            cancellationToken);
+
+        return new CustomerBatchUpdateResult
+        {
+            RequestedCount = records.Length,
+            SuccessCount = customers.Count,
+            FailureCount = failedIds.Count,
+            FailedCustomerIds = failedIds,
+            UpdatedFields = updatedFields.ToArray(),
+            Customers = customers.Select(BuildCustomerDto).ToArray(),
+        };
+    }
+
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
@@ -305,12 +825,27 @@ public sealed class CustomerService(
     private static List<string> NormalizeEmailList(IEnumerable<string>? values, string? fallbackValue = null)
     {
         var normalized = NormalizeStringList(values, fallbackValue);
-        if (normalized.Count == 0)
+        if (normalized.Count == 0 && !string.IsNullOrWhiteSpace(fallbackValue))
         {
             throw new InvalidOperationException("At least one email address is required.");
         }
 
         return normalized;
+    }
+
+    private static List<CustomerContactPersonInput> NormalizeContactPersons(IEnumerable<CustomerContactPersonInput>? values)
+    {
+        return (values ?? Array.Empty<CustomerContactPersonInput>())
+            .Select(person => new CustomerContactPersonInput
+            {
+                Name = person.Name.Trim(),
+                Role = person.Role.Trim(),
+                Email = person.Email.Trim(),
+                PhoneNumber = person.PhoneNumber.Trim(),
+            })
+            .Where(HasAnyContactPersonValue)
+            .DistinctBy(GetContactPersonKey)
+            .ToList();
     }
 
     private static List<CustomerAddressInput> NormalizeAddresses(IEnumerable<CustomerAddressInput>? values, string? fallbackBillingAddress)
@@ -365,7 +900,24 @@ public sealed class CustomerService(
             normalized[0].IsDefaultShipping = true;
         }
 
-        return normalized;
+        var defaultBillingIndex = normalized.FindIndex(address => address.IsDefaultBilling);
+        var defaultShippingIndex = normalized.FindIndex(address => address.IsDefaultShipping);
+
+        return normalized
+            .Select((address, index) => new CustomerAddressInput
+            {
+                AddressName = address.AddressName,
+                StreetAddress = address.StreetAddress,
+                AddressLine2 = address.AddressLine2,
+                AddressLine3 = address.AddressLine3,
+                City = address.City,
+                Postcode = address.Postcode,
+                Country = address.Country,
+                State = address.State,
+                IsDefaultBilling = index == defaultBillingIndex,
+                IsDefaultShipping = index == defaultShippingIndex,
+            })
+            .ToList();
     }
 
     private static string BuildBillingAddress(IReadOnlyCollection<CustomerAddressInput> addresses, string? fallbackBillingAddress)
@@ -386,6 +938,101 @@ public sealed class CustomerService(
         return string.Join(", ", segments);
     }
 
+    private static string NormalizeBatchUpdateListMode(string? value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? "Replace" : value.Trim();
+        if (!AllowedBatchListOperations.Contains(normalized))
+        {
+            throw new InvalidOperationException("Batch list mode must be Append, Replace, or Remove.");
+        }
+
+        return AllowedBatchListOperations.First(item => item.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static List<string> ApplyStringListOperation(
+        IEnumerable<string> currentValues,
+        IEnumerable<string> incomingValues,
+        IEnumerable<string> targetValues,
+        string mode)
+    {
+        var current = NormalizeStringList(currentValues);
+        var incoming = NormalizeStringList(incomingValues);
+        var targets = NormalizeStringList(targetValues);
+
+        return mode switch
+        {
+            "Append" => NormalizeStringList(current.Concat(incoming)),
+            "Remove" => current.Where(value => !targets.Contains(value, StringComparer.OrdinalIgnoreCase)).ToList(),
+            "Replace" when targets.Count > 0 => NormalizeStringList(current.Where(value => !targets.Contains(value, StringComparer.OrdinalIgnoreCase)).Concat(incoming)),
+            _ => incoming,
+        };
+    }
+
+    private static List<CustomerContactPersonInput> ApplyContactPersonOperation(
+        IEnumerable<CustomerContactPersonInput> currentValues,
+        IEnumerable<CustomerContactPersonInput> incomingValues,
+        IEnumerable<CustomerContactPersonInput> targetValues,
+        string mode)
+    {
+        var current = NormalizeContactPersons(currentValues);
+        var incoming = NormalizeContactPersons(incomingValues);
+        var targets = NormalizeContactPersons(targetValues);
+        var targetKeys = targets.Select(GetContactPersonKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return mode switch
+        {
+            "Append" => current
+                .Concat(incoming)
+                .DistinctBy(GetContactPersonKey)
+                .ToList(),
+            "Remove" => current.Where(person => !targetKeys.Contains(GetContactPersonKey(person))).ToList(),
+            "Replace" when targetKeys.Count > 0 => current
+                .Where(person => !targetKeys.Contains(GetContactPersonKey(person)))
+                .Concat(incoming)
+                .DistinctBy(GetContactPersonKey)
+                .ToList(),
+            _ => incoming,
+        };
+    }
+
+    private static List<CustomerAddressInput> ApplyAddressOperation(
+        IEnumerable<CustomerAddressInput> currentValues,
+        IEnumerable<CustomerAddressInput> incomingValues,
+        IEnumerable<CustomerAddressInput> targetValues,
+        string mode)
+    {
+        var current = NormalizeAddresses(currentValues, string.Empty);
+        var incoming = NormalizeAddresses(incomingValues, string.Empty);
+        var targets = NormalizeAddresses(targetValues, string.Empty);
+        var targetKeys = targets.Select(GetAddressKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var result = mode switch
+        {
+            "Append" => current
+                .Concat(incoming)
+                .DistinctBy(GetAddressKey)
+                .ToList(),
+            "Remove" => current.Where(address => !targetKeys.Contains(GetAddressKey(address))).ToList(),
+            "Replace" when targetKeys.Count > 0 => current
+                .Where(address => !targetKeys.Contains(GetAddressKey(address)))
+                .Concat(incoming)
+                .DistinctBy(GetAddressKey)
+                .ToList(),
+            _ => incoming,
+        };
+
+        return NormalizeAddresses(result, string.Empty);
+    }
+
+    private static void ValidateTargetedBatchOperation<T>(string mode, IReadOnlyCollection<T> targets, string fieldName)
+    {
+        if ((mode.Equals("Replace", StringComparison.OrdinalIgnoreCase) || mode.Equals("Remove", StringComparison.OrdinalIgnoreCase))
+            && targets.Count == 0)
+        {
+            throw new InvalidOperationException($"Select at least one existing {fieldName} value to {mode.ToLowerInvariant()}.");
+        }
+    }
+
     private static void ValidateConditionalFields(string contactType, string? receivableAccount, string? payableAccount)
     {
         var types = contactType.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -401,6 +1048,101 @@ public sealed class CustomerService(
         {
             throw new InvalidOperationException("Payable account is required when Supplier is selected.");
         }
+    }
+
+    private static IEnumerable<string> GetSelectedBatchUpdateFields(CustomerBatchUpdateFieldSelection fields)
+    {
+        if (fields.LegalName) yield return "Legal Name";
+        if (fields.Email) yield return "Email";
+        if (fields.PhoneNumber) yield return "Phone Number";
+        if (fields.ContactPersons) yield return "Contact Persons";
+        if (fields.PhoneNumbers) yield return "Phone Numbers";
+        if (fields.EmailAddresses) yield return "Email Addresses";
+        if (fields.Addresses) yield return "Addresses";
+        if (fields.ContactType) yield return "Contact Type";
+        if (fields.Status) yield return "Status";
+        if (fields.ReceivableAccount) yield return "Receivable Account";
+        if (fields.CreditLimit) yield return "Credit Limit";
+        if (fields.PayableAccount) yield return "Payable Account";
+        if (fields.Groups) yield return "Contact Groups";
+        if (fields.PriceLevel) yield return "Price Level";
+        if (fields.Currency) yield return "Currency";
+        if (fields.PaymentTerm) yield return "Payment Term";
+        if (fields.IncomeAccount) yield return "Income Account";
+        if (fields.ExpenseAccount) yield return "Expense Account";
+        if (fields.Location) yield return "Location";
+        if (fields.Tags) yield return "Tags";
+        if (fields.MyInvoisControl) yield return "MyInvois Control";
+    }
+
+    private static void ValidateGridFieldSelection(CustomerBatchUpdateFieldSelection fields)
+    {
+        if (fields.ContactPersons
+            || fields.PhoneNumbers
+            || fields.EmailAddresses
+            || fields.Addresses
+            || fields.Groups
+            || fields.Tags)
+        {
+            throw new InvalidOperationException("Columns only support single-value fields. Use Bulk Actions for multi-value fields.");
+        }
+    }
+
+    private static string GetContactPersonKey(CustomerContactPersonInput person) =>
+        string.Join("\u001f", person.Name, person.Role, person.Email, person.PhoneNumber).ToLowerInvariant();
+
+    private static string GetAddressKey(CustomerAddressInput address) =>
+        string.Join(
+            "\u001f",
+            address.AddressName,
+            address.StreetAddress,
+            address.AddressLine2,
+            address.AddressLine3,
+            address.City,
+            address.Postcode,
+            address.Country,
+            address.State,
+            address.IsDefaultBilling,
+            address.IsDefaultShipping).ToLowerInvariant();
+
+    private static List<CustomerContactPersonInput> GetStoredContactPersons(Customer customer) =>
+        NormalizeContactPersons(DeserializeList<CustomerContactPersonInput>(customer.ContactPersonsJson));
+
+    private static List<string> GetStoredPhoneNumbers(Customer customer) =>
+        DeserializeList<string>(customer.PhoneNumbersJson)
+            .DefaultIfEmpty(customer.PhoneNumber)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToList();
+
+    private static List<string> GetStoredEmailAddresses(Customer customer) =>
+        DeserializeList<string>(customer.EmailAddressesJson)
+            .DefaultIfEmpty(customer.Email)
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .ToList();
+
+    private static List<CustomerAddressInput> GetStoredAddresses(Customer customer)
+    {
+        var addresses = DeserializeList<CustomerAddressInput>(customer.AddressesJson);
+        if (addresses.Count > 0)
+        {
+            return NormalizeAddresses(addresses, string.Empty);
+        }
+
+        if (string.IsNullOrWhiteSpace(customer.BillingAddress))
+        {
+            return new List<CustomerAddressInput>();
+        }
+
+        return NormalizeAddresses(new[]
+        {
+            new CustomerAddressInput
+            {
+                AddressName = "Primary",
+                StreetAddress = customer.BillingAddress,
+                IsDefaultBilling = true,
+                IsDefaultShipping = true,
+            },
+        }, string.Empty);
     }
 
     private async Task<AccountSelection> ResolveAccountSelectionAsync(

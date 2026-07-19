@@ -31,6 +31,16 @@ public sealed class CustomersController(ICustomerService customerService) : Cont
         return customer is null ? NotFound() : Ok(customer);
     }
 
+    [HttpPost("batch-update")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<CustomerBatchUpdateResult>> BatchUpdate(CustomerBatchUpdateRequest request, CancellationToken cancellationToken) =>
+        Ok(await customerService.BatchUpdateAsync(request, cancellationToken));
+
+    [HttpPost("batch-grid-update")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<CustomerBatchUpdateResult>> BatchGridUpdate(CustomerGridBatchUpdateRequest request, CancellationToken cancellationToken) =>
+        Ok(await customerService.BatchUpdateGridAsync(request, cancellationToken));
+
     [HttpDelete("{id:guid}")]
     [Authorize(Policy = "ManageBilling")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken) => await customerService.DeleteAsync(id, cancellationToken) ? NoContent() : NotFound();

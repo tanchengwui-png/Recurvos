@@ -43,6 +43,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
     public DbSet<PriceLevel> PriceLevels => Set<PriceLevel>();
     public DbSet<ContactGroup> ContactGroups => Set<ContactGroup>();
+    public DbSet<ProductGroup> ProductGroups => Set<ProductGroup>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductPlan> ProductPlans => Set<ProductPlan>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
@@ -61,6 +62,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<SettlementLine> SettlementLines => Set<SettlementLine>();
     public DbSet<ReconciliationResult> ReconciliationResults => Set<ReconciliationResult>();
     public DbSet<LedgerPosting> LedgerPostings => Set<LedgerPosting>();
+    public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
+    public DbSet<JournalEntryLine> JournalEntryLines => Set<JournalEntryLine>();
     public DbSet<PlatformPackage> PlatformPackages => Set<PlatformPackage>();
     public DbSet<PlatformPackageFeature> PlatformPackageFeatures => Set<PlatformPackageFeature>();
     public DbSet<PlatformPackageTrustPoint> PlatformPackageTrustPoints => Set<PlatformPackageTrustPoint>();
@@ -282,6 +285,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(150)
             .IsRequired();
 
+        modelBuilder.Entity<ProductGroup>()
+            .HasIndex(x => x.SubscriberId);
+
+        modelBuilder.Entity<ProductGroup>()
+            .HasIndex(x => new { x.SubscriberId, x.Name })
+            .IsUnique();
+
+        modelBuilder.Entity<ProductGroup>()
+            .Property(x => x.Name)
+            .HasMaxLength(150)
+            .IsRequired();
+
+        modelBuilder.Entity<ProductGroup>()
+            .Property(x => x.Description)
+            .HasMaxLength(1000)
+            .IsRequired();
+
         modelBuilder.Entity<Warehouse>()
             .HasIndex(x => new { x.CompanyId, x.Code })
             .IsUnique();
@@ -359,6 +379,34 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Account>()
             .Property(x => x.Description)
             .HasMaxLength(500);
+
+        modelBuilder.Entity<JournalEntry>()
+            .HasIndex(x => new { x.CompanyId, x.JournalNumber })
+            .IsUnique();
+        modelBuilder.Entity<JournalEntry>()
+            .HasIndex(x => new { x.CompanyId, x.JournalDateUtc, x.Status });
+        modelBuilder.Entity<JournalEntry>().Property(x => x.JournalNumber).HasMaxLength(50).IsRequired();
+        modelBuilder.Entity<JournalEntry>().Property(x => x.Currency).HasMaxLength(3).IsRequired();
+        modelBuilder.Entity<JournalEntry>().Property(x => x.ReferenceNo).HasMaxLength(100);
+        modelBuilder.Entity<JournalEntry>().Property(x => x.Description).HasMaxLength(1000);
+        modelBuilder.Entity<JournalEntry>().Property(x => x.ExchangeRate).HasPrecision(18, 8);
+        modelBuilder.Entity<JournalEntry>()
+            .HasOne(x => x.Company).WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<JournalEntry>()
+            .HasOne(x => x.ReversesJournalEntry).WithOne(x => x.ReversedByJournalEntry)
+            .HasForeignKey<JournalEntry>(x => x.ReversesJournalEntryId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<JournalEntryLine>().HasIndex(x => new { x.JournalEntryId, x.SortOrder }).IsUnique();
+        modelBuilder.Entity<JournalEntryLine>().Property(x => x.AccountCodeSnapshot).HasMaxLength(50).IsRequired();
+        modelBuilder.Entity<JournalEntryLine>().Property(x => x.AccountNameSnapshot).HasMaxLength(200).IsRequired();
+        modelBuilder.Entity<JournalEntryLine>().Property(x => x.Description).HasMaxLength(1000);
+        modelBuilder.Entity<JournalEntryLine>().Property(x => x.DebitAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<JournalEntryLine>().Property(x => x.CreditAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<JournalEntryLine>().Property(x => x.BaseDebitAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<JournalEntryLine>().Property(x => x.BaseCreditAmount).HasPrecision(18, 2);
+        modelBuilder.Entity<JournalEntryLine>()
+            .HasOne(x => x.JournalEntry).WithMany(x => x.Lines).HasForeignKey(x => x.JournalEntryId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<JournalEntryLine>()
+            .HasOne(x => x.Account).WithMany().HasForeignKey(x => x.AccountId).OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<TaxCode>()
             .HasIndex(x => new { x.CompanyId, x.Code })
@@ -1381,6 +1429,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<CompanyAddress>()
             .HasIndex(x => x.CompanyId);
+
+        modelBuilder.Entity<CompanyAddress>()
+            .Property(x => x.AddressName)
+            .HasMaxLength(120)
+            .IsRequired();
 
         modelBuilder.Entity<CompanyAddress>()
             .Property(x => x.AddressLine1)

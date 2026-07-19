@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Recurvos.Application.Abstractions;
+using Recurvos.Application.Accounting;
 using Recurvos.Application.Auth;
 using Recurvos.Application.Customers;
 using Recurvos.Application.Dashboard;
@@ -86,6 +87,9 @@ public static class DependencyInjection
         services.AddScoped<IFeatureEntitlementService, FeatureEntitlementService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<IMasterDataService, MasterDataService>();
+        services.AddScoped<IJournalEntryService, JournalEntryService>();
+        services.AddScoped<IAccountingReportService, AccountingReportService>();
+        services.AddScoped<IFinancialStatementService, FinancialStatementService>();
         services.AddScoped<ISalesQuotationService, SalesQuotationService>();
         services.AddScoped<ISalesOrderService, SalesOrderService>();
         services.AddScoped<IDeliveryOrderService, DeliveryOrderService>();
@@ -96,6 +100,7 @@ public static class DependencyInjection
         services.AddScoped<IPurchaseCreditNoteService, PurchaseCreditNoteService>();
         services.AddScoped<IPurchaseRefundService, PurchaseRefundService>();
         services.AddScoped<IContactGroupService, ContactGroupService>();
+        services.AddScoped<IProductGroupService, ProductGroupService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductPlanService, ProductPlanService>();
         services.AddScoped<ISubscriptionService, SubscriptionService>();
