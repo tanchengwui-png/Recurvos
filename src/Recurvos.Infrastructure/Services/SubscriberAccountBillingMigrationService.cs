@@ -79,6 +79,8 @@ public sealed class SubscriberAccountBillingMigrationService(
     {
         var states = account.Companies.Where(x => !x.IsPlatformAccount)
             .Select(CompanyBillingState.FromCompany).Distinct().ToList();
+        if (states.Count == 0)
+            return new AccountBillingHealth("Warning", "No legacy company billing state is available for this subscriber account.", null);
         if (states.Count != 1)
             return new AccountBillingHealth("Warning", "Legacy companies have conflicting billing states. Manual resolution is required before account-billing opt-in.", null);
 
