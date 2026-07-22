@@ -65,6 +65,7 @@ public interface IPaymentConfirmationService
 {
     Task<PaymentConfirmationLinkDto?> GetOrCreateLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<PendingPaymentConfirmationDto>> GetPendingAsync(CancellationToken cancellationToken = default);
+    Task<int> GetPendingCountAsync(CancellationToken cancellationToken = default);
     Task<PendingPaymentConfirmationDto?> ApproveAsync(Guid id, ReviewPaymentConfirmationRequest request, CancellationToken cancellationToken = default);
     Task<PendingPaymentConfirmationDto?> RejectAsync(Guid id, ReviewPaymentConfirmationRequest request, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadProofAsync(Guid id, CancellationToken cancellationToken = default);

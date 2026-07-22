@@ -1,9 +1,12 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace Recurvos.Infrastructure.Persistence.Migrations;
 
+[DbContext(typeof(AppDbContext))]
+[Migration("20260716153000_ExpandProductCatalogFields")]
 public partial class ExpandProductCatalogFields : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

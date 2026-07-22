@@ -29,6 +29,7 @@ public sealed class CompanyService(
         var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
 
         var companies = await dbContext.Companies
+            .AsNoTracking()
             .Include(x => x.Addresses)
             .Where(x => x.SubscriberId == subscriberId && !x.IsPlatformAccount)
             .OrderBy(x => x.Name)

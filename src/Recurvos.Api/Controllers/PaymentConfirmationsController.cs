@@ -34,6 +34,19 @@ public sealed class PaymentConfirmationsController(IPaymentConfirmationService p
         }
     }
 
+    [HttpGet("pending-count")]
+    public async Task<ActionResult<object>> GetPendingCount(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(new { count = await paymentConfirmationService.GetPendingCountAsync(cancellationToken) });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status403Forbidden, title: exception.Message);
+        }
+    }
+
     [HttpPost("invoices/{invoiceId:guid}/link")]
     [Authorize(Policy = "ManageBilling")]
     public async Task<ActionResult<PaymentConfirmationLinkDto>> CreateLink(Guid invoiceId, CancellationToken cancellationToken)

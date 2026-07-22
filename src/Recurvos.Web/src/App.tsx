@@ -2,6 +2,7 @@ import { Suspense, lazy, type ReactElement } from "react";
 import type { Location } from "react-router-dom";
 import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
+import { ChunkLoadErrorBoundary } from "./components/ChunkLoadErrorBoundary";
 import { getAuth } from "./lib/auth";
 import { isAppSiteHost } from "./lib/siteUrls";
 
@@ -191,8 +192,9 @@ function AppRoutes() {
   const backgroundLocation = state?.backgroundLocation;
 
   return (
-    <Suspense fallback={<RouteFallback />}>
-      <>
+    <ChunkLoadErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>
+        <>
         <Routes location={backgroundLocation ?? location}>
           <Route path="/" element={<RootRoute />} />
           <Route path="/login" element={<LoginPage />} />
@@ -329,8 +331,9 @@ function AppRoutes() {
             {renderInfoRoute("/support", true)}
           </Routes>
         ) : null}
-      </>
-    </Suspense>
+        </>
+      </Suspense>
+    </ChunkLoadErrorBoundary>
   );
 }
 

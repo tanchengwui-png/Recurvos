@@ -5,6 +5,22 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localho
 let refreshPromise: Promise<boolean> | null = null;
 const ACCESS_TOKEN_REFRESH_WINDOW_MS = 30_000;
 
+// These endpoints are requested by both the shell and individual pages.  Keep
+// the result only briefly, but share an in-flight request immediately so a
+// route transition cannot fan one request out into several identical calls.
+const readCache = new Map<string, { expiresAt: number; value: unknown }>();
+const inFlightReads = new Map<string, Promise<unknown>>();
+const cacheTtlByPath: Record<string, number> = {
+  "/companies": 30_000,
+  "/settings/feature-access": 60_000,
+  "/package-billing": 30_000,
+  "/master-data": 30_000,
+};
+
+function invalidateReadCache() {
+  readCache.clear();
+}
+
 export function buildApiUrl(path: string) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE_URL}${normalizedPath}`;
@@ -272,17 +288,44 @@ async function requestBlob(path: string, init?: RequestInit): Promise<{ blob: Bl
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string) => {
+    const ttl = cacheTtlByPath[path];
+    if (!ttl) {
+      return request<T>(path);
+    }
+
+    // Keep cached responses scoped to the active session. A logout followed by
+    // a different login in the same tab must never reuse the prior tenant's data.
+    const cacheKey = `${getAuth()?.accessToken ?? "anonymous"}:${path}`;
+    const cached = readCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve(cached.value as T);
+    }
+
+    const activeRequest = inFlightReads.get(cacheKey);
+    if (activeRequest) {
+      return activeRequest as Promise<T>;
+    }
+
+    const pending = request<T>(path)
+      .then((value) => {
+        readCache.set(cacheKey, { value, expiresAt: Date.now() + ttl });
+        return value;
+      })
+      .finally(() => inFlightReads.delete(cacheKey));
+    inFlightReads.set(cacheKey, pending);
+    return pending;
+  },
   post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
+    request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }).finally(invalidateReadCache),
   postDownload: (path: string, body?: unknown) =>
     requestBlob(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) }),
   postForm: <T>(path: string, body: FormData) =>
-    request<T>(path, { method: "POST", body }),
+    request<T>(path, { method: "POST", body }).finally(invalidateReadCache),
   put: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+    request<T>(path, { method: "PUT", body: JSON.stringify(body) }).finally(invalidateReadCache),
   patch: <T>(path: string, body: unknown) =>
-    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
-  delete: (path: string) => request<void>(path, { method: "DELETE" }),
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }).finally(invalidateReadCache),
+  delete: (path: string) => request<void>(path, { method: "DELETE" }).finally(invalidateReadCache),
   download: (path: string) => requestBlob(path),
 };

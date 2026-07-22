@@ -7,7 +7,7 @@ import { api } from "../lib/api";
 import { getAuth, setAuth } from "../lib/auth";
 import { useInstallPromptState } from "../hooks/useInstallPromptState";
 import { isStandalonePwa } from "../lib/pwa";
-import type { BillingReadiness, CompanyLookup, FeatureAccess, FeedbackNotificationSummary, PaymentConfirmation, SubscriberPackageBillingSummary } from "../types";
+import type { BillingReadiness, CompanyLookup, FeatureAccess, FeedbackNotificationSummary, SubscriberPackageBillingSummary } from "../types";
 
 type NavEntry = {
   label: string;
@@ -367,6 +367,7 @@ export function AppShell() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
+  const [featureAccessLoading, setFeatureAccessLoading] = useState(!auth?.isPlatformOwner);
   const [packageBilling, setPackageBilling] = useState<SubscriberPackageBillingSummary | null>(null);
   const [companyCount, setCompanyCount] = useState<number | null>(null);
   const [pendingSetupCount, setPendingSetupCount] = useState<number | null>(null);
@@ -465,36 +466,52 @@ export function AppShell() {
       return;
     }
 
-    void (async () => {
-      const shouldLoadCompanySummary = location.pathname === "/app" || location.pathname.startsWith("/companies") || location.pathname.startsWith("/help/quick-start");
-      const companies = await api.get<CompanyLookup[]>("/companies").catch(() => null);
-      const readinessCompanyId = companies?.find((company) => company.id === auth.companyId)?.id
-        ?? companies?.[0]?.id
-        ?? null;
-      const readinessPath = readinessCompanyId
-        ? `/settings/billing-readiness?companyId=${readinessCompanyId}`
-        : null;
+    let cancelled = false;
+    setFeatureAccessLoading(true);
 
-      const [access, billing, readiness, feedbackSummary] = await Promise.all([
-        api.get<FeatureAccess>("/settings/feature-access").catch(() => null),
-        api.get<SubscriberPackageBillingSummary>("/package-billing").catch(() => null),
-        readinessPath ? api.get<BillingReadiness>(readinessPath).catch(() => null) : Promise.resolve(null),
-        api.get<FeedbackNotificationSummary>("/feedback/notifications").catch(() => null),
-      ]);
-      const paymentConfirmations = access?.featureKeys.includes("public_payment_confirmation")
-        ? await api.get<PaymentConfirmation[]>("/payment-confirmations").catch(() => null)
-        : null;
+    // The navigation shell only needs entitlements immediately.  Everything
+    // else is independent and deliberately loads in the background.
+    void api.get<FeatureAccess>("/settings/feature-access")
+      .then((access) => {
+        if (cancelled) return;
+        setFeatureAccess(access);
+        if (access.featureKeys.some((key) => key.toLowerCase() === "public_payment_confirmation")) {
+          void api.get<{ count: number }>("/payment-confirmations/pending-count")
+            .then((result) => !cancelled && setPendingPaymentConfirmationCount(result.count))
+            .catch(() => !cancelled && setPendingPaymentConfirmationCount(0));
+        }
+      })
+      .catch(() => !cancelled && setFeatureAccess(null))
+      .finally(() => !cancelled && setFeatureAccessLoading(false));
 
-      setFeatureAccess(access);
+    void Promise.all([
+      api.get<SubscriberPackageBillingSummary>("/package-billing").catch(() => null),
+      api.get<FeedbackNotificationSummary>("/feedback/notifications").catch(() => null),
+    ]).then(([billing, feedbackSummary]) => {
+      if (cancelled) return;
       setPackageBilling(billing);
-      if (shouldLoadCompanySummary) {
-        setCompanyCount(companies?.length ?? null);
-      }
-      setPendingSetupCount(readiness ? readiness.items.filter((item) => !item.done).length : null);
       setFeedbackUnreadCount(feedbackSummary?.unreadReplies ?? 0);
-      setPendingPaymentConfirmationCount(paymentConfirmations?.filter((item) => item.status === "Pending").length ?? 0);
-    })();
-  }, [auth?.accessToken, auth?.companyId, auth?.isPlatformOwner, location.pathname]);
+    });
+
+    return () => { cancelled = true; };
+  }, [auth?.accessToken, auth?.isPlatformOwner]);
+
+  useEffect(() => {
+    if (!auth || auth.isPlatformOwner) return;
+    const shouldLoadCompanySummary = location.pathname === "/app" || location.pathname.startsWith("/companies") || location.pathname.startsWith("/help/quick-start");
+    if (!shouldLoadCompanySummary) return;
+
+    let cancelled = false;
+    void api.get<CompanyLookup[]>("/companies").then(async (companies) => {
+      if (cancelled) return;
+      setCompanyCount(companies.length);
+      const companyId = companies.find((company) => company.id === auth.companyId)?.id ?? companies[0]?.id;
+      if (!companyId) return;
+      const readiness = await api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyId}`).catch(() => null);
+      if (!cancelled) setPendingSetupCount(readiness ? readiness.items.filter((item) => !item.done).length : null);
+    }).catch(() => !cancelled && setCompanyCount(null));
+    return () => { cancelled = true; };
+  }, [auth?.companyId, auth?.isPlatformOwner, location.pathname]);
 
   useEffect(() => {
     if (!auth || auth.isPlatformOwner) {
@@ -509,8 +526,8 @@ export function AppShell() {
         return;
       }
 
-      void api.get<PaymentConfirmation[]>("/payment-confirmations")
-        .then((items) => setPendingPaymentConfirmationCount(items.filter((item) => item.status === "Pending").length))
+      void api.get<{ count: number }>("/payment-confirmations/pending-count")
+        .then((result) => setPendingPaymentConfirmationCount(result.count))
         .catch(() => setPendingPaymentConfirmationCount(0));
     };
 
@@ -554,8 +571,8 @@ export function AppShell() {
           label: "Contacts",
           path: "/customers",
           icon: "users",
-          disabled: !featureKeys.has("customer_management"),
-          hint: getFeatureRequirementLabel(featureAccess, "customer_management"),
+          disabled: !featureAccessLoading && !featureKeys.has("customer_management"),
+          hint: featureAccessLoading ? "Checking access…" : getFeatureRequirementLabel(featureAccess, "customer_management"),
           isActive: (pathname) => matchesPrefix(pathname, "/customers") && !/^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname),
         },
         { label: "Products", path: "/products", icon: "box", disabled: false, hint: "" },
@@ -674,10 +691,12 @@ export function AppShell() {
       return;
     }
 
-    const activeGroupKeys = navSections
-      .flatMap((section) => section.groups ?? [])
-      .filter((group) => isNavGroupActive(group, location.pathname, location.hash))
-      .map((group) => group.key);
+    const activeGroupKeys = [
+      (location.pathname.startsWith("/sales") || location.pathname.startsWith("/invoices") || location.pathname.startsWith("/payments") || location.pathname.startsWith("/subscriptions")) && "sales",
+      location.pathname.startsWith("/purchases") && "purchases",
+      (location.pathname.startsWith("/finance") || /^\/customers\/[^/]+\/statement(?:\/|$)/.test(location.pathname) || (location.pathname === "/customers" && location.hash === "#statement-of-account")) && "finance",
+      location.pathname.startsWith("/foundation") && "foundation",
+    ].filter((key): key is string => Boolean(key));
 
     setExpandedGroups((current) => {
       const next = { ...current };
@@ -700,7 +719,7 @@ export function AppShell() {
 
       return next;
     });
-  }, [auth?.isPlatformOwner, location.hash, location.pathname, navSections]);
+  }, [auth?.isPlatformOwner, location.hash, location.pathname]);
 
   function toggleGroup(groupKey: string) {
     setExpandedGroups((current) => ({

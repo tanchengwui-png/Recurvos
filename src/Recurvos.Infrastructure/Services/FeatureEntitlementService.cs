@@ -110,6 +110,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
     private async Task<FeatureAccessDto> GetAccessForCompanyAsync(Guid companyId, CancellationToken cancellationToken)
     {
         var company = await dbContext.Companies
+            .AsNoTracking()
             .Where(x => x.Id == companyId)
             .Select(x => new { x.SelectedPackage, x.PackageStatus, x.PackageGracePeriodEndsAtUtc, x.TrialEndsAtUtc })
             .FirstOrDefaultAsync(cancellationToken)
@@ -184,6 +185,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
         }
 
         var package = await dbContext.PlatformPackages
+            .AsNoTracking()
             .Include(x => x.Features)
             .FirstOrDefaultAsync(x => x.Code == packageCode, cancellationToken);
 
@@ -199,6 +201,7 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
     private async Task<IReadOnlyCollection<FeatureRequirementDto>> ResolveFeatureRequirementsAsync(CancellationToken cancellationToken)
     {
         var packages = await dbContext.PlatformPackages
+            .AsNoTracking()
             .Include(x => x.Features)
             .Where(x => x.IsActive)
             .OrderBy(x => x.DisplayOrder)

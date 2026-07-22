@@ -88,8 +88,17 @@ public sealed class AuthService(
             Role = UserRole.Owner
         };
 
+        // The account is created with the subscriber, but its billing fields stay
+        // empty until Release 1 reconciliation mirrors the legacy Company state.
+        var subscriberAccount = new SubscriberAccount
+        {
+            OwnerUserId = user.Id
+        };
+        company.SubscriberAccountId = subscriberAccount.Id;
+
         dbContext.Companies.Add(company);
         dbContext.Users.Add(user);
+        dbContext.SubscriberAccounts.Add(subscriberAccount);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         company.SubscriberId = user.Id;

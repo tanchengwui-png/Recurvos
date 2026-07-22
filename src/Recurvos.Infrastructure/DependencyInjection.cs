@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
         services.Configure<AppUrlOptions>(configuration.GetSection(AppUrlOptions.SectionName));
         services.Configure<WhatsAppWebJsOptions>(configuration.GetSection(WhatsAppWebJsOptions.SectionName));
+        services.Configure<SubscriberAccountBillingOptions>(configuration.GetSection(SubscriberAccountBillingOptions.SectionName));
 
         var connectionString = configuration.GetConnectionString("DefaultConnection")
             ?? "Host=localhost;Port=5432;Database=recurvos;Username=postgres;Password=postgres";
@@ -84,6 +85,7 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IRegistrationGuardService, RegistrationGuardService>();
         services.AddScoped<ICompanyService, CompanyService>();
+        services.AddScoped<SubscriberAccountBillingMigrationService>();
         services.AddScoped<IFeatureEntitlementService, FeatureEntitlementService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<IMasterDataService, MasterDataService>();

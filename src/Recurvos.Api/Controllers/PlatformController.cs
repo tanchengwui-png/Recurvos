@@ -8,6 +8,7 @@ using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
 using Recurvos.Infrastructure.Jobs;
 using Recurvos.Infrastructure.Persistence;
+using Recurvos.Infrastructure.Services;
 
 namespace Recurvos.Api.Controllers;
 
@@ -20,13 +21,15 @@ public sealed class PlatformController(
     IBackgroundJobClient backgroundJobClient,
     JobStorage jobStorage,
     IAuditService auditService,
-    AppDbContext dbContext) : ControllerBase
+    AppDbContext dbContext,
+    SubscriberAccountBillingMigrationService subscriberAccountBillingMigrationService) : ControllerBase
 {
     private static readonly (string Key, string Name)[] SupportedPlatformJobs =
     [
         ("generate-invoices", "Generate invoices"),
         ("generate-subscriber-package-invoices", "Generate subscriber package invoices"),
         ("reconcile-subscriber-package-statuses", "Reconcile subscriber package statuses"),
+        ("reconcile-subscriber-account-billing", "Reconcile subscriber account billing"),
         ("send-invoice-reminders", "Send invoice reminders"),
         ("process-whatsapp-queue", "Process WhatsApp queue"),
         ("retry-failed-payments", "Retry failed payments"),
@@ -37,6 +40,59 @@ public sealed class PlatformController(
     [HttpGet("summary")]
     public async Task<ActionResult<PlatformDashboardSummaryDto>> GetSummary(CancellationToken cancellationToken) =>
         Ok(await platformService.GetDashboardSummaryAsync(cancellationToken));
+
+    [HttpGet("subscriber-account-billing/rollout")]
+    public async Task<ActionResult<object>> GetSubscriberAccountBillingRollout(CancellationToken cancellationToken)
+    {
+        var accounts = dbContext.SubscriberAccounts.AsNoTracking();
+        return Ok(new
+        {
+            totalAccounts = await accounts.CountAsync(cancellationToken),
+            accountBillingEnabled = await accounts.CountAsync(x => x.AccountBillingEnabled, cancellationToken),
+            legacyBilling = await accounts.CountAsync(x => !x.AccountBillingEnabled, cancellationToken),
+            reconciled = await accounts.CountAsync(x => x.ReconciledAtUtc != null && x.ReconciliationWarning == null, cancellationToken),
+            unresolvedWarnings = await accounts.CountAsync(x => x.ReconciliationWarning != null, cancellationToken),
+            events = await dbContext.SubscriberAccountBillingEvents.AsNoTracking()
+                .GroupBy(x => new { x.EventType, x.Severity })
+                .Select(x => new { eventType = x.Key.EventType, severity = x.Key.Severity, count = x.Count() })
+                .OrderBy(x => x.eventType)
+                .ToListAsync(cancellationToken)
+        });
+    }
+
+    [HttpGet("subscriber-account-billing/accounts/{accountId:guid}/health")]
+    public async Task<ActionResult<object>> GetSubscriberAccountBillingHealth(Guid accountId, CancellationToken cancellationToken)
+    {
+        var account = await dbContext.SubscriberAccounts.AsNoTracking()
+            .Include(x => x.Companies)
+            .FirstOrDefaultAsync(x => x.Id == accountId, cancellationToken);
+        if (account is null)
+        {
+            return NotFound();
+        }
+
+        // Observational only: all production billing reads remain on Company.
+        var health = subscriberAccountBillingMigrationService.GetHealth(account);
+        return Ok(new
+        {
+            accountId = account.Id,
+            accountBillingEnabled = account.AccountBillingEnabled,
+            health = health.Status,
+            warning = health.Warning,
+            lastValidatedAtUtc = account.BillingValidatedAtUtc,
+            shadowUpdatedAtUtc = account.BillingProjectionUpdatedAtUtc,
+            legacy = health.LegacyState,
+            shadow = new
+            {
+                packageCode = account.BillingPackageCode,
+                pendingPackageCode = account.BillingPendingPackageCode,
+                status = account.BillingStatus,
+                gracePeriodEndsAtUtc = account.BillingGracePeriodEndsAtUtc,
+                cycleStartUtc = account.BillingCycleStartUtc,
+                trialEndsAtUtc = account.BillingTrialEndsAtUtc
+            }
+        });
+    }
 
     [HttpGet("subscribers")]
     public async Task<ActionResult<IReadOnlyCollection<SubscriberCompanyDto>>> GetSubscribers(CancellationToken cancellationToken) =>
@@ -236,6 +292,10 @@ public sealed class PlatformController(
                     "reconcile-subscriber-package-statuses",
                     "Reconcile subscriber package statuses",
                     backgroundJobClient.Enqueue<ReconcileSubscriberPackageStatusesJob>(job => job.ExecuteAsync())),
+                "reconcile-subscriber-account-billing" => (
+                    "reconcile-subscriber-account-billing",
+                    "Reconcile subscriber account billing",
+                    backgroundJobClient.Enqueue<ReconcileSubscriberAccountBillingJob>(job => job.ExecuteAsync())),
                 "send-invoice-reminders" => (
                     "send-invoice-reminders",
                     "Send invoice reminders",

@@ -4,6 +4,7 @@ namespace Recurvos.Domain.Entities;
 
 public sealed class Company : BaseEntity
 {
+    public Guid? SubscriberAccountId { get; set; }
     public Guid? SubscriberId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? LegalName { get; set; }
@@ -32,6 +33,7 @@ public sealed class Company : BaseEntity
     public DateTime? PackageBillingCycleStartUtc { get; set; }
     public DateTime? TrialEndsAtUtc { get; set; }
     public User? Subscriber { get; set; }
+    public SubscriberAccount? SubscriberAccount { get; set; }
     public CompanyInvoiceSettings? InvoiceSettings { get; set; }
     public ICollection<CompanyAddress> Addresses { get; set; } = new List<CompanyAddress>();
     public ICollection<User> Users { get; set; } = new List<User>();

@@ -10,6 +10,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<CompanyAddress> CompanyAddresses => Set<CompanyAddress>();
     public DbSet<CompanyInvoiceSettings> CompanyInvoiceSettings => Set<CompanyInvoiceSettings>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<SubscriberAccount> SubscriberAccounts => Set<SubscriberAccount>();
+    public DbSet<SubscriberAccountBillingEvent> SubscriberAccountBillingEvents => Set<SubscriberAccountBillingEvent>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
     public DbSet<EmailDispatchLog> EmailDispatchLogs => Set<EmailDispatchLog>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
@@ -105,6 +107,70 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .WithMany(x => x.Users)
             .HasForeignKey(x => x.CompanyId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .HasIndex(x => x.OwnerUserId)
+            .IsUnique();
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.ReconciliationWarning)
+            .HasMaxLength(1000);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingHealthStatus)
+            .HasMaxLength(40);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingHealthWarning)
+            .HasMaxLength(1000);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingPackageCode)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingPendingPackageCode)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingStatus)
+            .HasMaxLength(40);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .HasOne(x => x.OwnerUser)
+            .WithMany()
+            .HasForeignKey(x => x.OwnerUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Company>()
+            .HasOne(x => x.SubscriberAccount)
+            .WithMany(x => x.Companies)
+            .HasForeignKey(x => x.SubscriberAccountId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<SubscriberAccountBillingEvent>()
+            .Property(x => x.EventType)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        modelBuilder.Entity<SubscriberAccountBillingEvent>()
+            .Property(x => x.Severity)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<SubscriberAccountBillingEvent>()
+            .Property(x => x.Details)
+            .HasMaxLength(4000);
+
+        modelBuilder.Entity<SubscriberAccountBillingEvent>()
+            .HasIndex(x => new { x.SubscriberAccountId, x.CreatedAtUtc });
+
+        modelBuilder.Entity<SubscriberAccountBillingEvent>()
+            .HasOne(x => x.SubscriberAccount)
+            .WithMany(x => x.BillingEvents)
+            .HasForeignKey(x => x.SubscriberAccountId)
+            .OnDelete(DeleteBehavior.Cascade);
+
 
         modelBuilder.Entity<EmailVerificationToken>()
             .HasIndex(x => x.TokenHash)

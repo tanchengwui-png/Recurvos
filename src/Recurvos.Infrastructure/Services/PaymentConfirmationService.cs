@@ -84,6 +84,7 @@ public sealed class PaymentConfirmationService(
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PublicPaymentConfirmation, cancellationToken);
         var items = await dbContext.PaymentConfirmationSubmissions
+            .AsNoTracking()
             .Include(x => x.Invoice).ThenInclude(x => x!.Customer)
             .Where(x => x.CompanyId == GetCompanyId())
             .OrderBy(x => x.Status)
@@ -91,6 +92,14 @@ public sealed class PaymentConfirmationService(
             .ToListAsync(cancellationToken);
 
         return items.Select(Map).ToList();
+    }
+
+    public async Task<int> GetPendingCountAsync(CancellationToken cancellationToken = default)
+    {
+        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.PublicPaymentConfirmation, cancellationToken);
+        return await dbContext.PaymentConfirmationSubmissions
+            .AsNoTracking()
+            .CountAsync(x => x.CompanyId == GetCompanyId() && x.Status == PaymentConfirmationStatus.Pending, cancellationToken);
     }
 
     public async Task<PendingPaymentConfirmationDto?> ApproveAsync(Guid id, ReviewPaymentConfirmationRequest request, CancellationToken cancellationToken = default)
