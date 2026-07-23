@@ -5,6 +5,7 @@ using Recurvos.Application.Abstractions;
 using Recurvos.Application.Companies;
 using Recurvos.Application.Platform;
 using Recurvos.Application.ProductPlans;
+using Recurvos.Application.SubscriberAccounts;
 using Recurvos.Domain.Enums;
 using Recurvos.Infrastructure.Configuration;
 using Recurvos.Infrastructure.Persistence;
@@ -17,7 +18,8 @@ public sealed class CompanyService(
     ICurrentUserService currentUserService,
     IPackageLimitService packageLimitService,
     IOptions<StorageOptions> storageOptions,
-    IHostEnvironment environment) : ICompanyService
+    IHostEnvironment environment,
+    ISubscriberAccountBillingReadService subscriberAccountBillingReadService) : ICompanyService
 {
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
     private const string FactoryResetConfirmationText = "RESET COMPANY DATA";
@@ -42,10 +44,7 @@ public sealed class CompanyService(
     {
         var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
         await packageLimitService.EnsureCanCreateCompanyAsync(cancellationToken);
-        var subscriberPackage = await dbContext.Companies
-            .Where(x => x.Id == (currentUserService.CompanyId ?? Guid.Empty))
-            .Select(x => new { x.SelectedPackage, x.PackageStatus, x.PackageGracePeriodEndsAtUtc, x.TrialEndsAtUtc })
-            .FirstOrDefaultAsync(cancellationToken);
+        var subscriberPackage = await subscriberAccountBillingReadService.GetCurrentUserStateAsync(cancellationToken);
         var company = new Domain.Entities.Company
         {
             SubscriberId = subscriberId,
@@ -66,9 +65,9 @@ public sealed class CompanyService(
             IsActive = request.IsActive,
             IsPlatformAccount = false,
             Currency = NormalizeCurrency(request.HomeCurrency),
-            SelectedPackage = subscriberPackage?.SelectedPackage,
-            PackageStatus = subscriberPackage?.PackageStatus,
-            PackageGracePeriodEndsAtUtc = subscriberPackage?.PackageGracePeriodEndsAtUtc,
+            SelectedPackage = subscriberPackage?.PackageCode,
+            PackageStatus = subscriberPackage?.Status,
+            PackageGracePeriodEndsAtUtc = subscriberPackage?.GracePeriodEndsAtUtc,
             TrialEndsAtUtc = subscriberPackage?.TrialEndsAtUtc
         };
 

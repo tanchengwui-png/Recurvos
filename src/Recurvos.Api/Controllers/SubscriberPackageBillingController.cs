@@ -9,6 +9,24 @@ namespace Recurvos.Api.Controllers;
 [Route("api/package-billing")]
 public sealed class SubscriberPackageBillingController(ISubscriberPackageBillingService billingService) : ControllerBase
 {
+    [HttpGet("account-billing")]
+    public async Task<ActionResult<AccountBillingProfileDto>> GetAccountBilling(CancellationToken cancellationToken) =>
+        Ok(await billingService.GetAccountBillingProfileAsync(cancellationToken));
+
+    [HttpPut("account-billing")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<AccountBillingProfileDto>> UpdateAccountBilling([FromBody] AccountBillingProfileRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await billingService.UpdateAccountBillingProfileAsync(request, cancellationToken));
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message);
+        }
+    }
+
     [HttpGet]
     public async Task<ActionResult<SubscriberPackageBillingSummaryDto>> GetCurrent(CancellationToken cancellationToken) =>
         Ok(await billingService.GetCurrentAsync(cancellationToken));
@@ -99,6 +117,14 @@ public sealed class SubscriberPackageBillingController(ISubscriberPackageBilling
         {
             return Problem(statusCode: StatusCodes.Status500InternalServerError, title: exception.Message);
         }
+    }
+
+    [HttpPost("reactivate/cancel")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<SubscriberPackageBillingSummaryDto>> CancelReactivation(CancellationToken cancellationToken)
+    {
+        try { return Ok(await billingService.CancelPendingReactivationAsync(cancellationToken)); }
+        catch (InvalidOperationException exception) { return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message); }
     }
 
     [HttpPost("invoices/{invoiceId:guid}/payment-link")]

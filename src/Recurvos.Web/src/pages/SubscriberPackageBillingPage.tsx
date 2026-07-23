@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { TablePagination } from "../components/TablePagination";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
+import { PhoneNumberField } from "../components/ui/PhoneNumberField";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { API_BASE_URL, api } from "../lib/api";
-import type { PlatformPackage, SubscriberPackageBillingInvoice, SubscriberPackageBillingSummary, SubscriberPackageReactivationPreview, SubscriberPackageUpgradePreview } from "../types";
+import { combinePhoneNumber, splitStoredPhoneNumber } from "../lib/phoneNumbers";
+import type { AccountBillingProfile, PlatformPackage, SubscriberPackageBillingInvoice, SubscriberPackageBillingSummary, SubscriberPackageReactivationPreview, SubscriberPackageUpgradePreview } from "../types";
+
+const taxIdTypeOptions = ["SST", "VAT", "GST", "TIN", "Other"];
 
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat("en-MY", {
@@ -62,12 +67,18 @@ function getGracePeriodCountdown(value?: string | null) {
 
 export function SubscriberPackageBillingPage() {
   const [summary, setSummary] = useState<SubscriberPackageBillingSummary | null>(null);
+  const [billingProfile, setBillingProfile] = useState<AccountBillingProfile | null>(null);
+  const [savingBillingProfile, setSavingBillingProfile] = useState(false);
   const [busyInvoiceId, setBusyInvoiceId] = useState<string | null>(null);
   const [busyUpgradeCode, setBusyUpgradeCode] = useState<string | null>(null);
   const [cancellingUpgrade, setCancellingUpgrade] = useState(false);
   const [upgradePreview, setUpgradePreview] = useState<SubscriberPackageUpgradePreview | null>(null);
   const [reactivationPackages, setReactivationPackages] = useState<PlatformPackage[]>([]);
   const [reactivationPreview, setReactivationPreview] = useState<SubscriberPackageReactivationPreview | null>(null);
+  const [selectedReactivationCode, setSelectedReactivationCode] = useState<string | null>(null);
+  const [reactivationConfirmationOpen, setReactivationConfirmationOpen] = useState(false);
+  const [reactivationCancellationOpen, setReactivationCancellationOpen] = useState(false);
+  const [choosingAnotherReactivationPlan, setChoosingAnotherReactivationPlan] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [documentSearch, setDocumentSearch] = useState("");
@@ -75,12 +86,17 @@ export function SubscriberPackageBillingPage() {
   const openInvoices = summary?.invoices.filter((invoice) => invoice.amountDue > 0).length ?? 0;
   const outstandingBalance = summary?.invoices.reduce((total, invoice) => total + invoice.amountDue, 0) ?? 0;
   const readyReceipts = summary?.invoices.filter((invoice) => invoice.hasReceipt).length ?? 0;
-  const hasBillingAddress = summary?.isCompanyBillingAddressConfigured ?? true;
+  const hasBillingAddress = billingProfile?.isComplete ?? false;
   const gracePeriodCountdown = getGracePeriodCountdown(summary?.gracePeriodEndsAtUtc);
   const packageStatus = (summary?.packageStatus ?? "").toLowerCase();
   const isActivePackage = packageStatus === "active";
   const hasPendingUpgrade = !!summary?.pendingUpgradePackageCode || !!summary?.pendingUpgradePackageName;
   const currentPackageName = summary?.packageName ?? summary?.packageCode ?? "your current package";
+  const parsedBillingPhone = splitStoredPhoneNumber(billingProfile?.billingPhone ?? "");
+  const billingTaxIdType = billingProfile?.billingTaxIdType ?? "";
+  const availableTaxIdTypeOptions = billingTaxIdType && !taxIdTypeOptions.includes(billingTaxIdType)
+    ? [billingTaxIdType, ...taxIdTypeOptions]
+    : taxIdTypeOptions;
   const normalizedDocumentSearch = documentSearch.trim().toLowerCase();
   const filteredInvoices = (summary?.invoices ?? []).filter((invoice) => {
     const matchesSearch = !normalizedDocumentSearch
@@ -108,6 +124,9 @@ export function SubscriberPackageBillingPage() {
 
     return true;
   });
+  const selectedReactivationPackage = reactivationPackages.find((item) => item.code === selectedReactivationCode) ?? null;
+  const pendingReactivationInvoice = packageStatus === "reactivation_pending_payment" ? summary?.invoices.find((invoice) => invoice.amountDue > 0 && !invoice.hasPendingPaymentConfirmation) ?? null : null;
+  const hasPendingReactivation = packageStatus === "reactivation_pending_payment";
   const pagination = useClientPagination(filteredInvoices, [filteredInvoices.length, documentSearch, documentStatusFilter]);
 
   useEffect(() => {
@@ -180,9 +199,13 @@ export function SubscriberPackageBillingPage() {
   async function load() {
     try {
       setError("");
-      const currentSummary = await api.get<SubscriberPackageBillingSummary>("/package-billing");
+      const [currentSummary, accountBilling] = await Promise.all([
+        api.get<SubscriberPackageBillingSummary>("/package-billing"),
+        api.get<AccountBillingProfile>("/package-billing/account-billing"),
+      ]);
       setSummary(currentSummary);
-      if ((currentSummary.packageStatus ?? "").toLowerCase() === "past_due") {
+      setBillingProfile(accountBilling);
+      if (["past_due", "reactivation_pending_payment"].includes((currentSummary.packageStatus ?? "").toLowerCase())) {
         setReactivationPackages(await api.get<PlatformPackage[]>("/public/packages"));
       } else {
         setReactivationPackages([]);
@@ -190,6 +213,33 @@ export function SubscriberPackageBillingPage() {
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load package billing.");
+    }
+  }
+
+  async function saveBillingProfile() {
+    if (!billingProfile) return;
+    try {
+      setSavingBillingProfile(true);
+      setError("");
+      setMessage("");
+      // `isComplete` is calculated by the API and is not part of its update
+      // contract. Send only editable fields so validation remains compatible
+      // with strict request binding.
+      const request = {
+        billingContactName: billingProfile.billingContactName,
+        billingEmail: billingProfile.billingEmail,
+        billingPhone: billingProfile.billingPhone,
+        billingAddress: billingProfile.billingAddress,
+        billingTaxIdType: billingProfile.billingTaxIdType,
+        billingTaxIdNumber: billingProfile.billingTaxIdNumber,
+      };
+      const updated = await api.put<AccountBillingProfile>("/package-billing/account-billing", request);
+      setBillingProfile(updated);
+      setMessage("Account billing details saved. They will be used for future subscription invoices.");
+    } catch (billingError) {
+      setError(billingError instanceof Error ? billingError.message : "Unable to save account billing details.");
+    } finally {
+      setSavingBillingProfile(false);
     }
   }
 
@@ -270,9 +320,9 @@ export function SubscriberPackageBillingPage() {
     }
   }
 
-  async function previewReactivation(packageCode: string) {
+  async function selectReactivation(packageCode: string) {
     try {
-      setBusyUpgradeCode(packageCode);
+      setSelectedReactivationCode(packageCode);
       setError("");
       setMessage("");
       setReactivationPreview(await api.post<SubscriberPackageReactivationPreview>("/package-billing/reactivation-preview", { packageCode }));
@@ -280,11 +330,12 @@ export function SubscriberPackageBillingPage() {
       setReactivationPreview(null);
       setError(previewError instanceof Error ? previewError.message : "Unable to preview reactivation.");
     } finally {
-      setBusyUpgradeCode(null);
     }
   }
 
-  async function createReactivationInvoice(packageCode: string) {
+  async function continueReactivation() {
+    const packageCode = reactivationPreview?.packageCode;
+    if (!packageCode || !reactivationPreview) return;
     if (!hasBillingAddress) {
       setError("Please update your company billing address in Companies before creating or paying package invoices.");
       return;
@@ -294,15 +345,26 @@ export function SubscriberPackageBillingPage() {
       setBusyUpgradeCode(packageCode);
       setError("");
       setMessage("");
-      const createdInvoice = await api.post<SubscriberPackageBillingInvoice>("/package-billing/reactivate", { packageCode });
+      const existingInvoice = summary?.invoices.find((invoice) => invoice.packageName === reactivationPreview.packageName && invoice.amountDue > 0 && !invoice.hasPendingPaymentConfirmation);
+      const createdInvoice = existingInvoice ?? await api.post<SubscriberPackageBillingInvoice>("/package-billing/reactivate", { packageCode });
       setReactivationPreview(null);
-      setMessage(`Reactivation invoice ${createdInvoice.invoiceNumber} is ready. Pay it to restore full access.`);
-      await load();
+      setReactivationConfirmationOpen(false);
+      await createPaymentLink(createdInvoice.id);
     } catch (reactivationError) {
       setError(reactivationError instanceof Error ? reactivationError.message : "Unable to create reactivation invoice.");
     } finally {
       setBusyUpgradeCode(null);
     }
+  }
+
+  async function cancelPendingReactivation() {
+    try {
+      setBusyUpgradeCode("reactivation-cancel");
+      const updated = await api.post<SubscriberPackageBillingSummary>("/package-billing/reactivate/cancel", {});
+      setSummary(updated); setReactivationCancellationOpen(false); setChoosingAnotherReactivationPlan(true);
+      setMessage("Pending reactivation cancelled. Choose another plan when ready.");
+    } catch (cancelError) { setError(cancelError instanceof Error ? cancelError.message : "Unable to cancel the pending reactivation."); }
+    finally { setBusyUpgradeCode(null); }
   }
 
   async function cancelPendingUpgrade() {
@@ -410,22 +472,55 @@ export function SubscriberPackageBillingPage() {
           ) : null}
         </section>
       ) : null}
-      {summary && !summary.isCompanyBillingAddressConfigured ? (
-        <section className="subscriber-billing-alert subscriber-billing-alert-warning">
-          <div>
-            <p className="eyebrow">Billing profile required</p>
-            <strong>Add your company billing address before payment</strong>
-            <p className="muted">
-              Go to <Link className="inline-link" to="/companies">Companies</Link>, edit your company, and add at least one company address.
-            </p>
+      {billingProfile ? (
+        <section className="card">
+          <div className="dashboard-widget-header">
+            <div>
+              <p className="eyebrow">Account Billing</p>
+              <h3 className="section-title">Subscription billing profile</h3>
+              <p className="muted">Used for subscription invoices only. It does not change any company profile.</p>
+            </div>
+          </div>
+          <div className="master-data-form-grid master-data-form-grid-wide">
+            <label className="form-label">Billing contact name<input className="text-input" value={billingProfile.billingContactName ?? ""} onChange={(event) => setBillingProfile({ ...billingProfile, billingContactName: event.target.value })} /></label>
+            <label className="form-label">Billing email<input className="text-input" type="email" value={billingProfile.billingEmail ?? ""} onChange={(event) => setBillingProfile({ ...billingProfile, billingEmail: event.target.value })} /></label>
+            <div className="master-data-form-wide">
+              <PhoneNumberField
+                countryCodeId="subscription-billing-phone-country-code"
+                phoneNumberId="subscription-billing-phone-number"
+                countryCodeValue={parsedBillingPhone.countryCode}
+                phoneNumberValue={parsedBillingPhone.phoneNumber}
+                countryCodeLabel="Country code"
+                phoneNumberLabel="Phone (optional)"
+                onCountryCodeChange={(countryCode) => setBillingProfile({ ...billingProfile, billingPhone: combinePhoneNumber(countryCode, parsedBillingPhone.phoneNumber) })}
+                onPhoneNumberChange={(phoneNumber) => setBillingProfile({ ...billingProfile, billingPhone: combinePhoneNumber(parsedBillingPhone.countryCode, phoneNumber) })}
+              />
+            </div>
+            <label className="form-label">Tax ID type (optional)<select value={billingTaxIdType} onChange={(event) => setBillingProfile({ ...billingProfile, billingTaxIdType: event.target.value })}><option value="">Select tax ID type</option>{availableTaxIdTypeOptions.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+            <label className="form-label">Tax ID number (optional)<input className="text-input" value={billingProfile.billingTaxIdNumber ?? ""} onChange={(event) => setBillingProfile({ ...billingProfile, billingTaxIdNumber: event.target.value })} /></label>
+            <label className="form-label master-data-form-wide">Billing address<textarea className="text-input" rows={3} value={billingProfile.billingAddress ?? ""} onChange={(event) => setBillingProfile({ ...billingProfile, billingAddress: event.target.value })} /></label>
+          </div>
+          <div className="subscriber-billing-profile-actions">
+            <button type="button" className="button button-primary" disabled={savingBillingProfile} onClick={() => void saveBillingProfile()}>{savingBillingProfile ? "Saving..." : "Save billing details"}</button>
           </div>
         </section>
       ) : null}
 
-      {message ? <HelperText>{message}</HelperText> : null}
-      {error ? <HelperText tone="error">{error}</HelperText> : null}
+      {billingProfile && !billingProfile.isComplete ? (
+        <section className="subscriber-billing-alert subscriber-billing-alert-warning">
+          <div>
+            <p className="eyebrow">Billing profile required</p>
+            <strong>Complete Account Billing before payment</strong>
+            <p className="muted">Add a billing contact, email, and address above. Company addresses are not used for subscription billing.</p>
+          </div>
+        </section>
+      ) : null}
 
-      {packageStatus === "past_due" && reactivationPackages.length > 0 ? (
+      <ResponseToast message={message} tone="success" />
+      <ResponseToast message={error} tone="error" />
+
+      {hasPendingReactivation ? <section className="subscriber-billing-alert subscriber-billing-alert-warning"><div><p className="eyebrow">Pending reactivation</p><strong>{pendingReactivationInvoice ? `You have a pending ${pendingReactivationInvoice.packageName} reactivation for ${formatMoney(pendingReactivationInvoice.amountDue, pendingReactivationInvoice.currency)}.` : "You have a pending reactivation awaiting payment."}</strong></div><div className="button-stack">{pendingReactivationInvoice ? <button type="button" className="button button-primary" onClick={() => void createPaymentLink(pendingReactivationInvoice.id)}>Continue payment</button> : null}<button type="button" className="button button-secondary" onClick={() => setReactivationCancellationOpen(true)}>Choose another plan</button></div></section> : null}
+      {(packageStatus === "past_due" || choosingAnotherReactivationPlan) && reactivationPackages.length > 0 ? (
         <section className="card">
           <div className="dashboard-widget-header">
             <div>
@@ -433,51 +528,27 @@ export function SubscriberPackageBillingPage() {
               <h3 className="section-title">Choose a package to come back</h3>
             </div>
           </div>
-          <p className="muted form-intro">Your previous unpaid package invoice will be replaced with a fresh invoice for the package you choose now.</p>
+          <p className="muted form-intro">Select the package you would like to reactivate.</p>
           <div className="stack">
             {reactivationPackages.map((item) => (
-              <div key={item.id} className="dashboard-list-item">
+              <button key={item.id} type="button" className={`dashboard-list-item package-reactivation-option${selectedReactivationCode === item.code ? " package-reactivation-option-selected" : ""}`} onClick={() => void selectReactivation(item.code)} aria-pressed={selectedReactivationCode === item.code}>
                 <div>
                   <strong>{item.name}</strong>
                   <p className="muted">{`${formatMoney(item.amount, item.currency)} | ${item.intervalCount <= 1 ? item.intervalUnit : `${item.intervalCount} ${item.intervalUnit}`}`}</p>
                   <p className="muted">{item.description}</p>
                 </div>
-                <button
-                  type="button"
-                  className="button button-secondary"
-                  disabled={busyUpgradeCode === item.code}
-                  onClick={() => void previewReactivation(item.code)}
-                >
-                  {busyUpgradeCode === item.code ? "Checking..." : "See reactivation invoice"}
-                </button>
-              </div>
+                <span className="package-reactivation-radio" aria-hidden="true" />
+              </button>
             ))}
           </div>
-          {reactivationPreview ? (
-            <div className="subscriber-billing-alert subscriber-billing-alert-warning">
-              <div>
-                <p className="eyebrow">Reactivation quote</p>
-                <strong>{reactivationPreview.packageName}</strong>
-                <p className="muted">{`${reactivationPreview.billingIntervalLabel} | Package amount: ${formatMoney(reactivationPreview.packageAmount, reactivationPreview.currency)}`}</p>
-                <p className="muted">{`Tax: ${formatMoney(reactivationPreview.taxAmount, reactivationPreview.currency)} | Total due now: ${formatMoney(reactivationPreview.totalAmount, reactivationPreview.currency)}`}</p>
-              </div>
-              <div className="button-stack">
-                <button
-                  type="button"
-                  className="button button-primary"
-                  disabled={busyUpgradeCode === reactivationPreview.packageCode || !hasBillingAddress}
-                  onClick={() => void createReactivationInvoice(reactivationPreview.packageCode)}
-                >
-                  {busyUpgradeCode === reactivationPreview.packageCode ? "Creating..." : "Create reactivation invoice"}
-                </button>
-                <button type="button" className="button button-secondary" onClick={() => setReactivationPreview(null)}>
-                  Close
-                </button>
-              </div>
-            </div>
-          ) : null}
+          <div className="subscriber-billing-alert subscriber-billing-alert-warning package-reactivation-summary">
+            <div><p className="eyebrow">Selected package</p><strong>{selectedReactivationPackage?.name ?? "Choose a package"}</strong><p className="muted">Monthly price: {selectedReactivationPackage ? formatMoney(selectedReactivationPackage.amount, selectedReactivationPackage.currency) : "—"}</p><p className="muted">Amount due today: {reactivationPreview ? formatMoney(reactivationPreview.totalAmount, reactivationPreview.currency) : "—"}</p></div>
+            <button type="button" className="button button-primary" disabled={!reactivationPreview || !hasBillingAddress || busyUpgradeCode !== null} onClick={() => setReactivationConfirmationOpen(true)}>Continue to payment</button>
+          </div>
         </section>
       ) : null}
+      <ConfirmModal open={reactivationConfirmationOpen} title="Continue to payment" description={reactivationPreview ? `${reactivationPreview.packageName} · Monthly price ${formatMoney(reactivationPreview.packageAmount, reactivationPreview.currency)} · Amount due today ${formatMoney(reactivationPreview.totalAmount, reactivationPreview.currency)}${summary?.currentCycleEndUtc ? ` · Next billing date ${formatDate(summary.currentCycleEndUtc)}` : ""}` : ""} confirmLabel="Confirm" onConfirm={continueReactivation} onCancel={() => setReactivationConfirmationOpen(false)} />
+      <ConfirmModal open={reactivationCancellationOpen} title="Cancel pending reactivation" description="Changing plan will cancel your current pending reactivation invoice. Continue?" confirmLabel="Cancel reactivation" onConfirm={cancelPendingReactivation} onCancel={() => setReactivationCancellationOpen(false)} />
 
       {summary && isActivePackage && summary.availableUpgrades.length > 0 ? (
         <section className="card">
@@ -633,7 +704,7 @@ export function SubscriberPackageBillingPage() {
                     </div>
                   </div>
                   <div className="subscription-mobile-card-topline">
-                    <span className={`subscription-mobile-status ${invoice.amountDue <= 0 ? "subscription-mobile-status-active" : "subscription-mobile-status-inactive"}`}>
+                    <span className={`subscription-mobile-status ${invoice.status === "Voided" ? "subscription-mobile-status-danger" : invoice.amountDue <= 0 ? "subscription-mobile-status-active" : "subscription-mobile-status-inactive"}`}>
                       {formatStatusLabel(invoice.status)}
                     </span>
                     <span className="subscription-mobile-inline-note">{formatDate(invoice.issueDateUtc)}</span>
@@ -661,7 +732,7 @@ export function SubscriberPackageBillingPage() {
                     </div>
                   </div>
                   <div className="button-stack package-billing-mobile-actions">
-                    {invoice.amountDue > 0 ? (
+                    {invoice.status !== "Voided" && invoice.amountDue > 0 ? (
                       <button
                         type="button"
                         className="button button-secondary"
@@ -675,7 +746,7 @@ export function SubscriberPackageBillingPage() {
                             : "Pay now"}
                       </button>
                     ) : null}
-                    <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
+                    <button type="button" className="button button-secondary" disabled={invoice.status === "Voided"} title={invoice.status === "Voided" ? "Voided invoices cannot be downloaded." : undefined} onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
                       Download invoice
                     </button>
                     <button
@@ -725,7 +796,7 @@ export function SubscriberPackageBillingPage() {
                       </td>
                       <td>{invoice.packageName}</td>
                       <td>
-                        <span className={`status-pill ${invoice.amountDue <= 0 ? "status-pill-active" : "status-pill-inactive"}`}>
+                        <span className={`status-pill ${invoice.status === "Voided" ? "status-pill-danger" : invoice.amountDue <= 0 ? "status-pill-active" : "status-pill-inactive"}`}>
                           {formatStatusLabel(invoice.status)}
                         </span>
                       </td>
@@ -734,7 +805,7 @@ export function SubscriberPackageBillingPage() {
                       <td>{formatMoney(invoice.total, invoice.currency)}</td>
                       <td><strong>{formatMoney(invoice.amountDue, invoice.currency)}</strong></td>
                       <td className="actions-cell">
-                        {invoice.amountDue > 0 ? (
+                        {invoice.status !== "Voided" && invoice.amountDue > 0 ? (
                           <button
                             type="button"
                             className="button button-secondary"
@@ -748,7 +819,7 @@ export function SubscriberPackageBillingPage() {
                                 : "Pay now"}
                           </button>
                         ) : null}
-                        <button type="button" className="button button-secondary" onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
+                        <button type="button" className="button button-secondary" disabled={invoice.status === "Voided"} title={invoice.status === "Voided" ? "Voided invoices cannot be downloaded." : undefined} onClick={() => void download(`/package-billing/invoices/${invoice.id}/download`, `${invoice.invoiceNumber}.pdf`)}>
                           Download invoice
                         </button>
                         <button

@@ -22,7 +22,8 @@ public sealed class AuthService(
     IRegistrationGuardService registrationGuardService,
     IEmailSender emailSender,
     PlatformOwnerNotificationService platformOwnerNotificationService,
-    IOptions<AppUrlOptions> appUrlOptions) : IAuthService
+    IOptions<AppUrlOptions> appUrlOptions,
+    SubscriberAccountBillingMigrationService subscriberAccountBillingMigrationService) : IAuthService
 {
     private readonly JwtOptions _jwtOptions = jwtOptions.Value;
     private readonly AppUrlOptions _appUrlOptions = appUrlOptions.Value;
@@ -88,11 +89,17 @@ public sealed class AuthService(
             Role = UserRole.Owner
         };
 
-        // The account is created with the subscriber, but its billing fields stay
-        // empty until Release 1 reconciliation mirrors the legacy Company state.
+        // Subscription ownership and subscription billing belong to the account,
+        // not to the initial company created during registration.
         var subscriberAccount = new SubscriberAccount
         {
-            OwnerUserId = user.Id
+            OwnerUserId = user.Id,
+            BillingContactName = user.FullName,
+            BillingEmail = normalizedCompanyEmail,
+            BillingPhone = normalizedCompanyPhone,
+            BillingAddress = string.IsNullOrWhiteSpace(request.BillingAddress) ? null : request.BillingAddress.Trim(),
+            BillingPackageCode = normalizedPackageCode,
+            BillingStatus = "pending_verification"
         };
         company.SubscriberAccountId = subscriberAccount.Id;
 
@@ -100,6 +107,8 @@ public sealed class AuthService(
         dbContext.Users.Add(user);
         dbContext.SubscriberAccounts.Add(subscriberAccount);
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([company.Id], cancellationToken);
 
         company.SubscriberId = user.Id;
         await platformOwnerNotificationService.TryNotifyNewSignupAsync(user, company, cancellationToken);
@@ -187,6 +196,7 @@ public sealed class AuthService(
 
         dbContext.RefreshTokens.Add(refreshToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([company.Id], cancellationToken);
 
         registrationGuardService.MarkSuccessfulRegistration();
         await subscriberPackageBillingService.ProvisionForSubscriberCompanyAsync(company.Id, cancellationToken);

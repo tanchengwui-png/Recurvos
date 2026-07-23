@@ -1,13 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using Recurvos.Application.Abstractions;
 using Recurvos.Application.Platform;
+using Recurvos.Application.SubscriberAccounts;
 using Recurvos.Infrastructure.Persistence;
 
 namespace Recurvos.Infrastructure.Services;
 
 public sealed class PackageLimitService(
     AppDbContext dbContext,
-    ICurrentUserService currentUserService) : IPackageLimitService
+    ICurrentUserService currentUserService,
+    ISubscriberAccountBillingReadService subscriberAccountBillingReadService) : IPackageLimitService
 {
     public Task EnsureCanCreateCompanyAsync(CancellationToken cancellationToken = default) =>
         EnsureWithinLimitAsync(
@@ -39,10 +41,7 @@ public sealed class PackageLimitService(
 
     public async Task<int> GetWhatsAppReminderMonthlyLimitAsync(Guid companyId, CancellationToken cancellationToken = default)
     {
-        var packageCode = await dbContext.Companies
-            .Where(x => x.Id == companyId)
-            .Select(x => x.SelectedPackage)
-            .FirstOrDefaultAsync(cancellationToken);
+        var packageCode = (await subscriberAccountBillingReadService.GetEffectiveStateAsync(companyId, cancellationToken)).PackageCode;
 
         if (string.IsNullOrWhiteSpace(packageCode))
         {
@@ -90,12 +89,7 @@ public sealed class PackageLimitService(
         CancellationToken cancellationToken)
     {
         var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        var currentCompanyId = currentUserService.CompanyId ?? Guid.Empty;
-
-        var packageCode = await dbContext.Companies
-            .Where(x => x.Id == currentCompanyId)
-            .Select(x => x.SelectedPackage)
-            .FirstOrDefaultAsync(cancellationToken);
+        var packageCode = (await subscriberAccountBillingReadService.GetCurrentUserStateAsync(cancellationToken)).PackageCode;
 
         if (string.IsNullOrWhiteSpace(packageCode))
         {

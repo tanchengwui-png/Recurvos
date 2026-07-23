@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ResponseToast } from "../components/ui/Toast";
 import type { FormEvent } from "react";
 import { api } from "../lib/api";
 import { getPackageDisplayName, packageFeatureDefinitions } from "../lib/packages";
@@ -335,8 +336,8 @@ export function PlatformPackagesPage() {
                 })}
               </div>
 
-              {message ? <p className="helper-text">{message}</p> : null}
-              {error ? <p className="helper-text helper-text-error">{error}</p> : null}
+              <ResponseToast message={message} tone="success" />
+              <ResponseToast message={error} tone="error" />
 
               <button type="submit" className="button button-primary">Save package</button>
             </form>

@@ -5,7 +5,7 @@ import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { PurchaseRefund, PurchaseRefundListItem } from "../types";
@@ -62,7 +62,7 @@ export function PurchaseRefundsPage() {
         <div className="page-header-copy"><h2>Purchase Refunds</h2></div>
         <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/refunds/new")}>Create from purchase payment</button>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
       <div className="catalog-toolbar card subtle-card">
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search refund number, payment, or supplier" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>

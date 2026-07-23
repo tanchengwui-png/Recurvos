@@ -23,7 +23,8 @@ public sealed class PaymentService(
     IEmailSender emailSender,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
-    IHostEnvironment environment) : IPaymentService
+    IHostEnvironment environment,
+    SubscriberAccountBillingMigrationService subscriberAccountBillingMigrationService) : IPaymentService
 {
     private readonly IReadOnlyDictionary<string, IPaymentGateway> _gateways = gateways.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
     private readonly AppUrlOptions _appUrlOptions = appUrlOptions.Value;
@@ -515,6 +516,10 @@ public sealed class PaymentService(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (succeeded && payment.Invoice?.SourceType == InvoiceSourceType.PlatformSubscription && payment.Invoice.SubscriberCompanyId.HasValue)
+        {
+            await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([payment.Invoice.SubscriberCompanyId.Value], cancellationToken);
+        }
         if (succeeded)
         {
             await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);

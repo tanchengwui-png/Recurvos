@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import type { PlatformBillplzSettings, PlatformBillplzTestResult, PlatformDocumentNumberingSettings, PlatformFeedbackSettings, PlatformIssuerSettings, PlatformJobStatus, PlatformJobTriggerResult, PlatformRuntimeProfile, PlatformSmtpSettings, PlatformSmtpTestResult, PlatformStripeSettings, PlatformStripeTestResult, PlatformUploadPolicy, PlatformWhatsAppQueueItem, PlatformWhatsAppSettings } from "../types";
 
@@ -316,8 +317,8 @@ export function PlatformSettingsPage() {
         </div>
       </header>
 
-      {message ? <HelperText>{message}</HelperText> : null}
-      {error ? <HelperText>{error}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
+      <ResponseToast message={error} tone="error" />
 
       <div className="platform-settings-layout">
       {runtimeProfile ? (

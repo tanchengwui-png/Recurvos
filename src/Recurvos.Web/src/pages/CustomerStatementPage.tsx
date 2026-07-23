@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { useClipboardWithFallback } from "../hooks/useClipboardWithFallback";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
@@ -718,8 +719,8 @@ export function CustomerStatementPage() {
           </div>
         </div>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
-      {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
+      <ResponseToast message={error} tone="error" />
 
       <section className="card">
         <div className="card-section-header">

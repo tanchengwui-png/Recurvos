@@ -5,7 +5,7 @@ import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { PurchaseBill, PurchaseBillListItem } from "../types";
@@ -63,7 +63,7 @@ export function PurchaseBillsPage() {
         <div className="page-header-copy"><h2>Purchase Bills</h2></div>
         <button type="button" className="button button-primary" onClick={() => navigate("/purchases/bills/new")}>Create purchase bill</button>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
       <div className="catalog-toolbar card subtle-card">
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search bill number or supplier" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>

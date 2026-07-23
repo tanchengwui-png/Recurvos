@@ -6,7 +6,10 @@ using Recurvos.Infrastructure.Persistence;
 
 namespace Recurvos.Infrastructure.Services;
 
-/// <summary>Idempotent Release 1 reconciliation. It observes legacy state only.</summary>
+/// <summary>
+/// Release 2 shadow synchronizer. Company remains the authoritative billing
+/// record; this service only mirrors and validates account-owned shadow state.
+/// </summary>
 public sealed class SubscriberAccountBillingMigrationService(
     AppDbContext dbContext,
     IOptions<SubscriberAccountBillingOptions> options)
@@ -40,6 +43,40 @@ public sealed class SubscriberAccountBillingMigrationService(
         {
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+        return changed;
+    }
+
+    /// <summary>
+    /// Performs the Release 2 dual-write immediately after a legacy Company
+    /// billing mutation. This must be called only after the Company save has
+    /// completed, so a failed shadow update can never replace the legacy state.
+    /// </summary>
+    public async Task<int> ReconcileForCompaniesAsync(IEnumerable<Guid> companyIds, CancellationToken cancellationToken = default)
+    {
+        var ids = companyIds.Where(x => x != Guid.Empty).Distinct().ToArray();
+        if (ids.Length == 0)
+        {
+            return 0;
+        }
+
+        var accounts = await dbContext.SubscriberAccounts
+            .Include(x => x.Companies)
+            .Where(x => x.Companies.Any(company => ids.Contains(company.Id)))
+            .ToListAsync(cancellationToken);
+        var changed = 0;
+        foreach (var account in accounts)
+        {
+            if (ReconcileAccount(account, options.Value).Changed)
+            {
+                changed++;
+            }
+        }
+
+        if (changed > 0)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
         return changed;
     }
 

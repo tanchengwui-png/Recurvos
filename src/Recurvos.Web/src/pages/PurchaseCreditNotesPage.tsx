@@ -5,7 +5,7 @@ import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { PurchaseCreditNote, PurchaseCreditNoteListItem } from "../types";
@@ -62,7 +62,7 @@ export function PurchaseCreditNotesPage() {
         <div className="page-header-copy"><h2>Purchase Credit Notes</h2></div>
         <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/bills")}>Create from purchase bill</button>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
       <div className="catalog-toolbar card subtle-card">
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search credit note, bill, or supplier" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>

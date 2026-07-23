@@ -7,7 +7,7 @@ import { RowActionMenu } from "../components/RowActionMenu";
 import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { Button } from "../components/ui/Button";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { TextInput } from "../components/ui/TextInput";
 import { fetchProducts } from "../hooks/useProducts";
 import { api } from "../lib/api";
@@ -218,7 +218,7 @@ export function ProductsPage() {
           <h2>Products</h2>
         </div>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
 
       <div className="catalog-toolbar card subtle-card products-filter-bar">
         <TextInput aria-label="Search products" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product name or code" />

@@ -137,6 +137,26 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasMaxLength(40);
 
         modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingContactName)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingEmail)
+            .HasMaxLength(200);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingPhone)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingTaxIdType)
+            .HasMaxLength(50);
+
+        modelBuilder.Entity<SubscriberAccount>()
+            .Property(x => x.BillingTaxIdNumber)
+            .HasMaxLength(100);
+
+        modelBuilder.Entity<SubscriberAccount>()
             .HasOne(x => x.OwnerUser)
             .WithMany()
             .HasForeignKey(x => x.OwnerUserId)
@@ -1877,6 +1897,13 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Invoice>()
             .Property(x => x.CompanyAddressSnapshot)
             .HasMaxLength(2000);
+
+        modelBuilder.Entity<Invoice>().Property(x => x.BillingContactNameSnapshot).HasMaxLength(200);
+        modelBuilder.Entity<Invoice>().Property(x => x.BillingEmailSnapshot).HasMaxLength(200);
+        modelBuilder.Entity<Invoice>().Property(x => x.BillingPhoneSnapshot).HasMaxLength(50);
+        modelBuilder.Entity<Invoice>().Property(x => x.BillingAddressSnapshot).HasMaxLength(2000);
+        modelBuilder.Entity<Invoice>().Property(x => x.BillingTaxIdTypeSnapshot).HasMaxLength(50);
+        modelBuilder.Entity<Invoice>().Property(x => x.BillingTaxIdNumberSnapshot).HasMaxLength(100);
 
         modelBuilder.Entity<Invoice>()
             .HasIndex(x => x.PaymentConfirmationTokenHash)

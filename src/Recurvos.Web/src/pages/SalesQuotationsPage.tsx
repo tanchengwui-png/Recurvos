@@ -5,7 +5,7 @@ import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { CompanyLookup, SalesOrder, SalesQuotationListItem } from "../types";
@@ -78,7 +78,7 @@ export function SalesQuotationsPage() {
         <div className="page-header-copy"><h2>Sales Quotations</h2></div>
         <button type="button" className="button button-primary" onClick={() => navigate("/sales/quotations/new")}>Create quotation</button>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
       <div className="catalog-toolbar card subtle-card">
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search quotation number, contact, or reference" />
         <select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>

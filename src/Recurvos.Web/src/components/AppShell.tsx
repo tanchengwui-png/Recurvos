@@ -361,13 +361,13 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const contentRef = useRef<HTMLElement | null>(null);
+  const appbarRef = useRef<HTMLDivElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
-  const [featureAccessLoading, setFeatureAccessLoading] = useState(!auth?.isPlatformOwner);
   const [packageBilling, setPackageBilling] = useState<SubscriberPackageBillingSummary | null>(null);
   const [companyCount, setCompanyCount] = useState<number | null>(null);
   const [pendingSetupCount, setPendingSetupCount] = useState<number | null>(null);
@@ -384,6 +384,17 @@ export function AppShell() {
     contentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
+
+  useEffect(() => {
+    const appbar = appbarRef.current;
+    const content = contentRef.current;
+    if (!appbar || !content) return;
+    const updateHeight = () => content.style.setProperty("--appbar-height", `${appbar.getBoundingClientRect().height}px`);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(appbar);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -467,7 +478,6 @@ export function AppShell() {
     }
 
     let cancelled = false;
-    setFeatureAccessLoading(true);
 
     // The navigation shell only needs entitlements immediately.  Everything
     // else is independent and deliberately loads in the background.
@@ -481,8 +491,7 @@ export function AppShell() {
             .catch(() => !cancelled && setPendingPaymentConfirmationCount(0));
         }
       })
-      .catch(() => !cancelled && setFeatureAccess(null))
-      .finally(() => !cancelled && setFeatureAccessLoading(false));
+      .catch(() => !cancelled && setFeatureAccess(null));
 
     void Promise.all([
       api.get<SubscriberPackageBillingSummary>("/package-billing").catch(() => null),
@@ -556,6 +565,7 @@ export function AppShell() {
         { label: "Feedback", path: "/platform/feedback", icon: "message" },
         { label: "Email Logs", path: "/platform/email-logs", icon: "mail" },
         { label: "Audit Logs", path: "/platform/audit-logs", icon: "list" },
+        { label: "Billing Rollout", path: "/platform/account-billing-rollout", icon: "plan" },
         { label: "Packages", path: "/platform/packages", icon: "plan" },
         { label: "Document Preview", path: "/platform/documents", icon: "document" },
         { label: "WhatsApp Sessions", path: "/platform/whatsapp-sessions", icon: "phone" },
@@ -571,8 +581,8 @@ export function AppShell() {
           label: "Contacts",
           path: "/customers",
           icon: "users",
-          disabled: !featureAccessLoading && !featureKeys.has("customer_management"),
-          hint: featureAccessLoading ? "Checking access…" : getFeatureRequirementLabel(featureAccess, "customer_management"),
+          disabled: false,
+          hint: "",
           isActive: (pathname) => matchesPrefix(pathname, "/customers") && !/^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname),
         },
         { label: "Products", path: "/products", icon: "box", disabled: false, hint: "" },
@@ -939,6 +949,7 @@ export function AppShell() {
         </div>
       </aside>
       <main ref={contentRef} className="content">
+        <div ref={appbarRef} className="appbar-stack">
         <header className="mobile-appbar">
           <button
             type="button"
@@ -1035,6 +1046,7 @@ export function AppShell() {
             </div>
           </div>
         </header>
+        </div>
         <div className="content-body">
           {billingReminder ? (
             <section className={`billing-reminder-banner billing-reminder-banner-${billingReminder.tone}`}>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import type { PlatformUser } from "../types";
 
@@ -303,8 +304,8 @@ export function PlatformUsersPage() {
         </div>
       </header>
 
-      {message ? <HelperText>{message}</HelperText> : null}
-      {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
+      <ResponseToast message={error} tone="error" />
 
       <section className="grid-two">
         <article className="card">

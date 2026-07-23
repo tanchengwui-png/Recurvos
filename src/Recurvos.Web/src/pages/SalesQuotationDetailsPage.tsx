@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { SalesDocumentDetails, mapQuotationDetails } from "./SalesDocumentDetails";
 import { ConfirmModal } from "../components/ConfirmModal";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import type { SalesOrder, SalesQuotation } from "../types";
 
@@ -29,7 +29,7 @@ export function SalesQuotationDetailsPage() {
 
   return (
     <>
-      {message ? <div className="page"><HelperText>{message}</HelperText></div> : null}
+      <ResponseToast message={message} tone="success" />
       <SalesDocumentDetails
         {...mapQuotationDetails(document)}
         actionButtons={(

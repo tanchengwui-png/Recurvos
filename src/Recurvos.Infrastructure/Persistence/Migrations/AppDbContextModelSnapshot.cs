@@ -1083,6 +1083,33 @@ namespace Recurvos.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("IssueDateUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("BillingAddressSnapshot")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("BillingContactNameSnapshot")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("BillingEmailSnapshot")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("BillingPhoneSnapshot")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("BillingProfileSnapshotAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("BillingTaxIdNumberSnapshot")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("BillingTaxIdTypeSnapshot")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("PaymentConfirmationTokenHash")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");

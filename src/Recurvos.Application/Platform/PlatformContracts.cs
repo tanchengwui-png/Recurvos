@@ -225,10 +225,27 @@ public sealed record SubscriberPackageBillingSummaryDto(
     string? PendingUpgradePackageCode,
     string? PendingUpgradePackageName,
     DateTime? CurrentCycleEndUtc,
-    bool IsCompanyBillingAddressConfigured,
+    bool IsAccountBillingProfileConfigured,
     bool CanCancelPendingUpgrade,
     IReadOnlyCollection<SubscriberPackageUpgradeOptionDto> AvailableUpgrades,
     IReadOnlyCollection<SubscriberPackageBillingInvoiceDto> Invoices);
+
+public sealed record AccountBillingProfileDto(
+    string? BillingContactName,
+    string? BillingEmail,
+    string? BillingPhone,
+    string? BillingAddress,
+    string? BillingTaxIdType,
+    string? BillingTaxIdNumber,
+    bool IsComplete);
+
+public sealed record AccountBillingProfileRequest(
+    string? BillingContactName,
+    string? BillingEmail,
+    string? BillingPhone,
+    string? BillingAddress,
+    string? BillingTaxIdType,
+    string? BillingTaxIdNumber);
 
 public interface IPlatformService
 {
@@ -253,6 +270,8 @@ public interface IPlatformService
 
 public interface ISubscriberPackageBillingService
 {
+    Task<AccountBillingProfileDto> GetAccountBillingProfileAsync(CancellationToken cancellationToken = default);
+    Task<AccountBillingProfileDto> UpdateAccountBillingProfileAsync(AccountBillingProfileRequest request, CancellationToken cancellationToken = default);
     Task ProvisionForSubscriberCompanyAsync(Guid subscriberCompanyId, CancellationToken cancellationToken = default);
     Task<SubscriberPackageBillingSummaryDto> GetCurrentAsync(CancellationToken cancellationToken = default);
     Task<SubscriberPackageUpgradePreviewDto> PreviewUpgradeAsync(string packageCode, CancellationToken cancellationToken = default);
@@ -262,6 +281,7 @@ public interface ISubscriberPackageBillingService
     Task<int> ReconcileExpiredPackageStatusesAsync(CancellationToken cancellationToken = default);
     Task<SubscriberPackageReactivationPreviewDto> PreviewReactivationAsync(string packageCode, CancellationToken cancellationToken = default);
     Task<SubscriberPackageBillingInvoiceDto> CreateReactivationInvoiceAsync(string packageCode, CancellationToken cancellationToken = default);
+    Task<SubscriberPackageBillingSummaryDto> CancelPendingReactivationAsync(CancellationToken cancellationToken = default);
     Task<SubscriberPackageBillingInvoiceDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default);
     Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid invoiceId, CancellationToken cancellationToken = default);

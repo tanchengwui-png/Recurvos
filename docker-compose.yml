@@ -13,8 +13,8 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: src/Recurvos.Api/Dockerfile
+      context: ./src
+      dockerfile: Recurvos.Api/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -38,8 +38,8 @@ services:
 
   web:
     build:
-      context: .
-      dockerfile: src/Recurvos.Web/Dockerfile
+      context: ./src/Recurvos.Web
+      dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:7001/api}
         VITE_PUBLIC_SITE_URL: ${VITE_PUBLIC_SITE_URL:-http://localhost:4173}
@@ -49,8 +49,8 @@ services:
 
   worker:
     build:
-      context: .
-      dockerfile: src/Recurvos.WhatsAppWorker/Dockerfile
+      context: ./src/Recurvos.WhatsAppWorker
+      dockerfile: Dockerfile
     environment:
       NODE_ENV: ${WORKER_NODE_ENV:-production}
       WHATSAPP_SESSION_DIR: ${WHATSAPP_SESSION_DIR:-/app/storage/whatsapp-webjs}

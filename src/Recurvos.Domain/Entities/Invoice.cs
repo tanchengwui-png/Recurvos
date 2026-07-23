@@ -28,6 +28,13 @@ public sealed class Invoice : CompanyOwnedEntity
     public string Currency { get; set; } = "MYR";
     public InvoiceSourceType SourceType { get; set; } = InvoiceSourceType.Manual;
     public string? CompanyAddressSnapshot { get; set; }
+    public string? BillingContactNameSnapshot { get; set; }
+    public string? BillingEmailSnapshot { get; set; }
+    public string? BillingPhoneSnapshot { get; set; }
+    public string? BillingAddressSnapshot { get; set; }
+    public string? BillingTaxIdTypeSnapshot { get; set; }
+    public string? BillingTaxIdNumberSnapshot { get; set; }
+    public DateTime? BillingProfileSnapshotAtUtc { get; set; }
     public string? PdfPath { get; set; }
     public string? PaymentConfirmationTokenHash { get; set; }
     public DateTime? PaymentConfirmationTokenIssuedAtUtc { get; set; }

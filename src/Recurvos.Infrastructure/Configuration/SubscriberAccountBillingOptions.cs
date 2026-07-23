@@ -2,8 +2,9 @@ namespace Recurvos.Infrastructure.Configuration;
 
 /// <summary>
 /// Rollout controls for the account-owned billing migration. Both switches must
-/// be enabled before a reconciled account may use account billing. Release 1
-/// never reads account state for billing decisions.
+/// be enabled before a reconciled account may use account billing. Release 3
+/// permits only healthy, explicitly opted-in accounts to use the shadow read
+/// boundary; the default remains legacy Company billing.
 /// </summary>
 public sealed class SubscriberAccountBillingOptions
 {

@@ -1,11 +1,13 @@
 using Microsoft.EntityFrameworkCore;
-using Recurvos.Application.Abstractions;
 using Recurvos.Application.Features;
+using Recurvos.Application.SubscriberAccounts;
 using Recurvos.Infrastructure.Persistence;
 
 namespace Recurvos.Infrastructure.Services;
 
-public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUserService currentUserService) : IFeatureEntitlementService
+public sealed class FeatureEntitlementService(
+    AppDbContext dbContext,
+    ISubscriberAccountBillingReadService subscriberAccountBillingReadService) : IFeatureEntitlementService
 {
     private static readonly string[] AllFeatureKeys =
     [
@@ -76,20 +78,22 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
 
     public async Task<FeatureAccessDto> GetCurrentAccessAsync(CancellationToken cancellationToken = default)
     {
-        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
-        return await GetAccessForCompanyAsync(companyId, cancellationToken);
+        return await GetCurrentUserAccessAsync(cancellationToken);
     }
 
     public async Task EnsureCurrentUserHasFeatureAsync(string featureKey, CancellationToken cancellationToken = default)
     {
-        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
-        await EnsureCompanyHasFeatureAsync(companyId, featureKey, cancellationToken);
+        if (!await CurrentUserHasFeatureAsync(featureKey, cancellationToken))
+        {
+            var featureLabel = FeatureLabels.TryGetValue(featureKey, out var label) ? label : "this feature";
+            throw new InvalidOperationException($"Your current package does not include {featureLabel}.");
+        }
     }
 
     public async Task<bool> CurrentUserHasFeatureAsync(string featureKey, CancellationToken cancellationToken = default)
     {
-        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
-        return await CompanyHasFeatureAsync(companyId, featureKey, cancellationToken);
+        var access = await GetCurrentUserAccessAsync(cancellationToken);
+        return access.FeatureKeys.Contains(featureKey, StringComparer.OrdinalIgnoreCase);
     }
 
     public async Task<bool> CompanyHasFeatureAsync(Guid companyId, string featureKey, CancellationToken cancellationToken = default)
@@ -109,19 +113,30 @@ public sealed class FeatureEntitlementService(AppDbContext dbContext, ICurrentUs
 
     private async Task<FeatureAccessDto> GetAccessForCompanyAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        var company = await dbContext.Companies
-            .AsNoTracking()
-            .Where(x => x.Id == companyId)
-            .Select(x => new { x.SelectedPackage, x.PackageStatus, x.PackageGracePeriodEndsAtUtc, x.TrialEndsAtUtc })
-            .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new UnauthorizedAccessException();
+        var billing = await subscriberAccountBillingReadService.GetEffectiveStateAsync(companyId, cancellationToken);
+        return await BuildAccessAsync(billing, cancellationToken);
+    }
 
-        var packageCode = company.SelectedPackage?.Trim().ToLowerInvariant() ?? string.Empty;
-        var packageStatus = ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc);
+    private async Task<FeatureAccessDto> GetCurrentUserAccessAsync(CancellationToken cancellationToken)
+    {
+        var billing = await subscriberAccountBillingReadService.GetCurrentUserStateAsync(cancellationToken);
+        return await BuildAccessAsync(billing, cancellationToken);
+    }
+
+    private async Task<FeatureAccessDto> BuildAccessAsync(EffectiveBillingState billing, CancellationToken cancellationToken)
+    {
+        var packageCode = billing.PackageCode?.Trim().ToLowerInvariant() ?? string.Empty;
+        var packageStatus = ResolvePackageStatus(billing.Status, billing.GracePeriodEndsAtUtc);
         var allowBillingFeatures = packageStatus is "active" or "pending_payment" or "grace_period" or "upgrade_pending_payment";
         var featureKeys = allowBillingFeatures
             ? await ResolvePackageFeatureKeysAsync(packageCode, cancellationToken)
             : Array.Empty<string>();
+        // Contacts are foundational account data and must remain available even when
+        // the subscriber has no active package (for example, while payment is due).
+        featureKeys = featureKeys
+            .Append(PlatformFeatureKeys.CustomerManagement)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         var featureRequirements = await ResolveFeatureRequirementsAsync(cancellationToken);
         return new FeatureAccessDto(packageCode, packageStatus, featureKeys, featureRequirements);
     }

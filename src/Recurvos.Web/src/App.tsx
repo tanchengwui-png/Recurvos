@@ -5,6 +5,7 @@ import { AppShell } from "./components/AppShell";
 import { ChunkLoadErrorBoundary } from "./components/ChunkLoadErrorBoundary";
 import { getAuth } from "./lib/auth";
 import { isAppSiteHost } from "./lib/siteUrls";
+import { ToastProvider } from "./components/ui/Toast";
 
 const CompaniesPage = lazy(() => import("./pages/CompaniesPage").then((module) => ({ default: module.CompaniesPage })));
 const CompanyFormPage = lazy(() => import("./pages/CompanyFormPage").then((module) => ({ default: module.CompanyFormPage })));
@@ -38,6 +39,7 @@ const NewSubscriptionPage = lazy(() => import("./pages/NewSubscriptionPage").the
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage").then((module) => ({ default: module.OnboardingPage })));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage").then((module) => ({ default: module.PaymentsPage })));
 const PlatformAuditLogsPage = lazy(() => import("./pages/PlatformAuditLogsPage").then((module) => ({ default: module.PlatformAuditLogsPage })));
+const PlatformAccountBillingRolloutPage = lazy(() => import("./pages/PlatformAccountBillingRolloutPage").then((module) => ({ default: module.PlatformAccountBillingRolloutPage })));
 const PlatformDashboardPage = lazy(() => import("./pages/PlatformDashboardPage").then((module) => ({ default: module.PlatformDashboardPage })));
 const PlatformDocumentPreviewPage = lazy(() => import("./pages/PlatformDocumentPreviewPage").then((module) => ({ default: module.PlatformDocumentPreviewPage })));
 const PlatformEmailLogsPage = lazy(() => import("./pages/PlatformEmailLogsPage").then((module) => ({ default: module.PlatformEmailLogsPage })));
@@ -216,6 +218,7 @@ function AppRoutes() {
             <Route path="/platform/documents" element={<PlatformRoute><PlatformDocumentPreviewPage /></PlatformRoute>} />
             <Route path="/platform/email-logs" element={<PlatformRoute><PlatformEmailLogsPage /></PlatformRoute>} />
             <Route path="/platform/audit-logs" element={<PlatformRoute><PlatformAuditLogsPage /></PlatformRoute>} />
+            <Route path="/platform/account-billing-rollout" element={<PlatformRoute><PlatformAccountBillingRolloutPage /></PlatformRoute>} />
             <Route path="/platform/feedback" element={<PlatformRoute><PlatformFeedbackPage /></PlatformRoute>} />
             <Route path="/platform/packages" element={<PlatformRoute><PlatformPackagesPage /></PlatformRoute>} />
             <Route path="/platform/settings" element={<PlatformRoute><PlatformSettingsPage /></PlatformRoute>} />
@@ -340,7 +343,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <Router>
-      <AppRoutes />
+      <ToastProvider><AppRoutes /></ToastProvider>
     </Router>
   );
 }

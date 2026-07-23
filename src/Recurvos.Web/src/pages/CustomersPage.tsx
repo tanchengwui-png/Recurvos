@@ -9,6 +9,7 @@ import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
@@ -1818,7 +1819,7 @@ export function CustomersPage() {
           <h2>Contacts</h2>
         </div>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
       <div className="catalog-toolbar card subtle-card customer-filter-bar">
         <input
           aria-label="Search contacts"

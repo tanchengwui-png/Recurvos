@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { AuthLayout } from "../components/AuthLayout";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { API_BASE_URL, buildApiUrl } from "../lib/api";
 import type { PublicPaymentStatus } from "../types";
 
@@ -202,8 +202,8 @@ export function PublicPaymentSuccessPage() {
       subtitle={subtitle}
       compactTrust
     >
-      {message ? <HelperText>{message}</HelperText> : null}
-      {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
+      <ResponseToast message={error} tone="error" />
       {tips.length > 0 ? (
         <div className="public-payment-guidance">
           {tips.map((tip) => (

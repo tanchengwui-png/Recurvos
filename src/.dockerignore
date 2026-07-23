@@ -1,0 +1,6 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+Recurvos.Web/playwright-report
+Recurvos.Web/test-results

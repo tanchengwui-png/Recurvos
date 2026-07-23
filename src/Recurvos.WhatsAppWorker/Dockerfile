@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM node:20-bookworm-slim
 
 WORKDIR /app
@@ -44,9 +45,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-COPY src/Recurvos.WhatsAppWorker/package*.json ./
-RUN npm install
+COPY package*.json ./
+RUN --mount=type=cache,id=recurvos-worker-npm,target=/root/.npm npm ci
 
-COPY src/Recurvos.WhatsAppWorker ./
+COPY . .
 
 CMD ["node", "server.js"]

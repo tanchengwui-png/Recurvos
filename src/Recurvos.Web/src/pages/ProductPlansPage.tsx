@@ -6,6 +6,7 @@ import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { Button } from "../components/ui/Button";
 import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { useDragToScroll } from "../hooks/useDragToScroll";
 import { fetchProductPlans } from "../hooks/useProductPlans";
 import { fetchProducts } from "../hooks/useProducts";
@@ -240,7 +241,7 @@ export function ProductPlansPage() {
           <h2>Plans</h2>
         </div>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
 
       <div className="catalog-toolbar card subtle-card pwa-filter-bar">
         <select aria-label="Filter plans by product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>

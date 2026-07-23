@@ -5,7 +5,7 @@ import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { CompanyLookup, GoodsReceivedNote, GoodsReceivedNoteListItem } from "../types";
@@ -94,7 +94,7 @@ export function GoodsReceivedNotesPage() {
         <div className="page-header-copy"><h2>Goods Received Notes</h2></div>
         <button type="button" className="button button-primary" onClick={() => navigate("/purchases/grns/new")}>Create GRN</button>
       </header>
-      {message ? <HelperText>{message}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
       <div className="catalog-toolbar card subtle-card">
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search GRN, purchase order, supplier, or reference" />
         <select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>

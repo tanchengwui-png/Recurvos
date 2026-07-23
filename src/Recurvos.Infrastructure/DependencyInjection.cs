@@ -22,6 +22,7 @@ using Recurvos.Application.Finance;
 using Recurvos.Application.Feedback;
 using Recurvos.Application.Refunds;
 using Recurvos.Application.Subscriptions;
+using Recurvos.Application.SubscriberAccounts;
 using Recurvos.Application.Webhooks;
 using Recurvos.Application.Settings;
 using Recurvos.Application.Sales;
@@ -86,6 +87,7 @@ public static class DependencyInjection
         services.AddScoped<IRegistrationGuardService, RegistrationGuardService>();
         services.AddScoped<ICompanyService, CompanyService>();
         services.AddScoped<SubscriberAccountBillingMigrationService>();
+        services.AddScoped<ISubscriberAccountBillingReadService, SubscriberAccountBillingReadService>();
         services.AddScoped<IFeatureEntitlementService, FeatureEntitlementService>();
         services.AddScoped<ICustomerService, CustomerService>();
         services.AddScoped<IMasterDataService, MasterDataService>();

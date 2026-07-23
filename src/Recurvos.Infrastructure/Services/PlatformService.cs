@@ -20,7 +20,8 @@ public sealed class PlatformService(
     IAuthService authService,
     DbSeeder dbSeeder,
     LegacySchemaRepairService legacySchemaRepairService,
-    StorageResetService storageResetService) : IPlatformService
+    StorageResetService storageResetService,
+    SubscriberAccountBillingMigrationService subscriberAccountBillingMigrationService) : IPlatformService
 {
     public async Task<PlatformDashboardSummaryDto> GetDashboardSummaryAsync(CancellationToken cancellationToken = default)
     {
@@ -132,6 +133,7 @@ public sealed class PlatformService(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync(subscriberCompanies.Select(x => x.Id), cancellationToken);
         await subscriberPackageBillingService.ProvisionForSubscriberCompanyAsync(companyId, cancellationToken);
 
         var refreshed = await dbContext.Companies

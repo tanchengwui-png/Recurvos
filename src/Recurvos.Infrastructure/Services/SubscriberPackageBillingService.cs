@@ -20,7 +20,8 @@ public sealed class SubscriberPackageBillingService(
     IEmailSender emailSender,
     IOptions<AppUrlOptions> appUrlOptions,
     IOptions<StorageOptions> storageOptions,
-    IHostEnvironment environment) : ISubscriberPackageBillingService
+    IHostEnvironment environment,
+    SubscriberAccountBillingMigrationService subscriberAccountBillingMigrationService) : ISubscriberPackageBillingService
 {
     private const string PlatformInvoicePrefix = "SUB";
     private readonly IReadOnlyDictionary<string, IPaymentGateway> _gateways = gateways.ToDictionary(x => x.Name, StringComparer.OrdinalIgnoreCase);
@@ -28,10 +29,56 @@ public sealed class SubscriberPackageBillingService(
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
 
+    public async Task<AccountBillingProfileDto> GetAccountBillingProfileAsync(CancellationToken cancellationToken = default) =>
+        MapAccountBillingProfile(await GetCurrentSubscriberAccountAsync(cancellationToken));
+
+    public async Task<AccountBillingProfileDto> UpdateAccountBillingProfileAsync(AccountBillingProfileRequest request, CancellationToken cancellationToken = default)
+    {
+        var account = await GetCurrentSubscriberAccountAsync(cancellationToken);
+        var email = NormalizeOptional(request.BillingEmail);
+        if (email is not null && !System.Net.Mail.MailAddress.TryCreate(email, out _))
+        {
+            throw new InvalidOperationException("Enter a valid billing email address.");
+        }
+
+        account.BillingContactName = NormalizeOptional(request.BillingContactName);
+        account.BillingEmail = email;
+        account.BillingPhone = NormalizeOptional(request.BillingPhone);
+        account.BillingAddress = NormalizeOptional(request.BillingAddress);
+        account.BillingTaxIdType = NormalizeOptional(request.BillingTaxIdType);
+        account.BillingTaxIdNumber = NormalizeOptional(request.BillingTaxIdNumber);
+        account.UpdatedAtUtc = DateTime.UtcNow;
+
+        var subscriberCompanyIds = await dbContext.Companies
+            .Where(x => x.SubscriberAccountId == account.Id && !x.IsPlatformAccount)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
+        var openInvoices = await dbContext.Invoices
+            .Where(x => x.SubscriberCompanyId.HasValue
+                && subscriberCompanyIds.Contains(x.SubscriberCompanyId.Value)
+                && x.SourceType == InvoiceSourceType.PlatformSubscription
+                && x.Status != InvoiceStatus.Paid
+                && x.Status != InvoiceStatus.Voided
+                && x.AmountDue > 0)
+            .ToListAsync(cancellationToken);
+        foreach (var invoice in openInvoices)
+        {
+            ApplyBillingProfileSnapshot(invoice, account);
+            // The next download regenerates this unpaid invoice from its updated
+            // billing snapshot. Paid and voided documents are never touched.
+            invoice.PdfPath = null;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await TryWriteAuditAsync("subscriber-account.billing-profile.updated", nameof(SubscriberAccount), account.Id.ToString(), account.BillingEmail ?? account.BillingContactName ?? "Billing profile", cancellationToken);
+        return MapAccountBillingProfile(account);
+    }
+
     public async Task ProvisionForSubscriberCompanyAsync(Guid subscriberCompanyId, CancellationToken cancellationToken = default)
     {
         var company = await dbContext.Companies.FirstOrDefaultAsync(x => x.Id == subscriberCompanyId && !x.IsPlatformAccount, cancellationToken)
             ?? throw new KeyNotFoundException("Subscriber company not found.");
+        var billingAccount = await GetSubscriberAccountAsync(company, cancellationToken);
 
         var packageCode = company.SelectedPackage?.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(packageCode))
@@ -62,7 +109,7 @@ public sealed class SubscriberPackageBillingService(
 
         var platformCompany = await dbContext.Companies.FirstAsync(x => x.IsPlatformAccount, cancellationToken);
         var platformOwner = await dbContext.Users.FirstAsync(x => x.IsPlatformOwner && x.CompanyId == platformCompany.Id, cancellationToken);
-        var billingCustomer = await EnsureBillingCustomerAsync(platformOwner.Id, company, cancellationToken);
+        var billingCustomer = await EnsureBillingCustomerAsync(platformOwner.Id, billingAccount, cancellationToken);
         var invoiceNumber = await GenerateInvoiceNumberAsync(platformCompany.Id, cancellationToken);
         var issueDateUtc = DateTime.UtcNow;
         var platformTaxSettings = await EnsurePlatformInvoiceSettingsAsync(platformCompany.Id, cancellationToken)
@@ -115,6 +162,7 @@ public sealed class SubscriberPackageBillingService(
                 }
             ]
         };
+        ApplyBillingProfileSnapshot(invoice, billingAccount);
 
         var issuerProfile = PlatformIssuerProfileResolver.Resolve(platformCompany, platformTaxSettings);
         var pdf = LocalInvoiceStorage.CreatePdf(
@@ -134,9 +182,9 @@ public sealed class SubscriberPackageBillingService(
             taxProfile.Name,
             taxProfile.Rate,
             taxProfile.RegistrationNo,
-            company.Name,
-            company.Email,
-            company.Address,
+            GetBillingContactName(invoice),
+            GetBillingEmail(invoice),
+            GetBillingAddress(invoice),
             invoice.InvoiceNumber,
             issueDateUtc,
             dueDateUtc,
@@ -149,6 +197,7 @@ public sealed class SubscriberPackageBillingService(
 
         dbContext.Invoices.Add(invoice);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([company.Id], cancellationToken);
         await TryWriteAuditAsync("subscriber-package.invoice.created", nameof(Invoice), invoice.Id.ToString(), platformCompany.Id, invoice.InvoiceNumber, cancellationToken);
 
         await TryAutoSendPlatformInvoiceEmailAsync(platformCompany, billingCustomer, invoice, platformTaxSettings, cancellationToken);
@@ -159,15 +208,21 @@ public sealed class SubscriberPackageBillingService(
         var subscriberCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
         var company = await dbContext.Companies.FirstOrDefaultAsync(x => x.Id == subscriberCompanyId && !x.IsPlatformAccount, cancellationToken)
             ?? throw new UnauthorizedAccessException();
-        var package = await dbContext.PlatformPackages.FirstOrDefaultAsync(x => x.Code == company.SelectedPackage, cancellationToken);
-        var pendingUpgrade = string.IsNullOrWhiteSpace(company.PendingPackageCode)
+        var billingAccount = await GetSubscriberAccountAsync(company, cancellationToken);
+        var package = await dbContext.PlatformPackages.FirstOrDefaultAsync(x => x.Code == billingAccount.BillingPackageCode, cancellationToken);
+        var pendingUpgrade = string.IsNullOrWhiteSpace(billingAccount.BillingPendingPackageCode)
             ? null
-            : await dbContext.PlatformPackages.FirstOrDefaultAsync(x => x.Code == company.PendingPackageCode, cancellationToken);
+            : await dbContext.PlatformPackages.FirstOrDefaultAsync(x => x.Code == billingAccount.BillingPendingPackageCode, cancellationToken);
+
+        var accountCompanyIds = await dbContext.Companies
+            .Where(x => x.SubscriberAccountId == billingAccount.Id && !x.IsPlatformAccount)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
 
         var invoices = await dbContext.Invoices
             .Include(x => x.Payments)
             .Include(x => x.PaymentConfirmations)
-            .Where(x => x.SubscriberCompanyId == subscriberCompanyId && x.SourceType == InvoiceSourceType.PlatformSubscription)
+            .Where(x => x.SubscriberCompanyId.HasValue && accountCompanyIds.Contains(x.SubscriberCompanyId.Value) && x.SourceType == InvoiceSourceType.PlatformSubscription)
             .OrderByDescending(x => x.IssueDateUtc)
             .ToListAsync(cancellationToken);
 
@@ -193,9 +248,16 @@ public sealed class SubscriberPackageBillingService(
         DateTime? currentCycleEndUtc = package is null
             ? null
             : await ResolveCurrentCycleEndUtcAsync(company, package, cancellationToken);
-        var resolvedPackageStatus = ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc);
+        var accountPackageStatus = ResolvePackageStatus(billingAccount.BillingStatus, billingAccount.BillingGracePeriodEndsAtUtc);
+        var companyPackageStatus = ResolvePackageStatus(company.PackageStatus, company.PackageGracePeriodEndsAtUtc);
+        // A reactivation invoice changes the company state immediately. Prefer that
+        // transient state while the account-level projection catches up so the UI
+        // offers payment/cancellation instead of another invalid plan preview.
+        var resolvedPackageStatus = companyPackageStatus == "reactivation_pending_payment"
+            ? companyPackageStatus
+            : accountPackageStatus;
         var canCancelPendingUpgrade = resolvedPackageStatus == "upgrade_pending_payment"
-            && !string.IsNullOrWhiteSpace(company.PendingPackageCode)
+            && !string.IsNullOrWhiteSpace(billingAccount.BillingPendingPackageCode)
             && invoices.Any(invoice =>
                 invoice.Status != InvoiceStatus.Paid
                 && invoice.Status != InvoiceStatus.Voided
@@ -203,17 +265,17 @@ public sealed class SubscriberPackageBillingService(
                 && invoice.PaymentConfirmations.All(x => x.Status != PaymentConfirmationStatus.Pending));
 
         return new SubscriberPackageBillingSummaryDto(
-            company.SelectedPackage,
+            billingAccount.BillingPackageCode,
             package?.Name,
             resolvedPackageStatus,
-            company.PackageGracePeriodEndsAtUtc,
+            billingAccount.BillingGracePeriodEndsAtUtc,
             package?.Amount,
             package?.Currency,
             package is null ? null : FormatBillingInterval(package.IntervalCount, package.IntervalUnit),
-            company.PendingPackageCode,
+            billingAccount.BillingPendingPackageCode,
             pendingUpgrade?.Name,
             currentCycleEndUtc,
-            !string.IsNullOrWhiteSpace(company.Address),
+            IsAccountBillingProfileComplete(billingAccount),
             canCancelPendingUpgrade,
             availableUpgrades,
             invoices.Select(MapInvoice).ToList());
@@ -229,7 +291,8 @@ public sealed class SubscriberPackageBillingService(
     {
         var preview = await BuildUpgradePreviewAsync(packageCode, cancellationToken);
         var company = preview.Company;
-        EnsureSubscriberBillingAddressConfigured(company);
+        var billingAccount = await GetSubscriberAccountAsync(company, cancellationToken);
+        EnsureAccountBillingProfileConfigured(billingAccount);
 
         var existingOpenInvoices = await dbContext.Invoices
             .Where(x => x.SubscriberCompanyId == company.Id
@@ -242,7 +305,7 @@ public sealed class SubscriberPackageBillingService(
             throw new InvalidOperationException("Please settle the current package invoice before upgrading.");
         }
 
-        var billingCustomer = await EnsureBillingCustomerAsync(preview.PlatformOwner.Id, company, cancellationToken);
+        var billingCustomer = await EnsureBillingCustomerAsync(preview.PlatformOwner.Id, billingAccount, cancellationToken);
         var invoiceNumber = await GenerateInvoiceNumberAsync(preview.PlatformCompany.Id, cancellationToken);
         var issueDateUtc = DateTime.UtcNow;
         var dueDateUtc = issueDateUtc.AddDays(preview.PlatformSettings.PaymentDueDays);
@@ -282,6 +345,7 @@ public sealed class SubscriberPackageBillingService(
                 }
             ]
         };
+        ApplyBillingProfileSnapshot(invoice, billingAccount);
 
         var issuerProfile = PlatformIssuerProfileResolver.Resolve(preview.PlatformCompany, preview.PlatformSettings);
         var pdf = LocalInvoiceStorage.CreatePdf(
@@ -301,9 +365,9 @@ public sealed class SubscriberPackageBillingService(
             preview.TaxProfile.Name,
             preview.TaxProfile.Rate,
             preview.TaxProfile.RegistrationNo,
-            company.Name,
-            company.Email,
-            company.Address,
+            GetBillingContactName(invoice),
+            GetBillingEmail(invoice),
+            GetBillingAddress(invoice),
             invoice.InvoiceNumber,
             issueDateUtc,
             dueDateUtc,
@@ -320,6 +384,7 @@ public sealed class SubscriberPackageBillingService(
 
         dbContext.Invoices.Add(invoice);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([company.Id], cancellationToken);
         await TryWriteAuditAsync("subscriber-package.upgrade.invoice-created", nameof(Invoice), invoice.Id.ToString(), preview.PlatformCompany.Id, invoice.InvoiceNumber, cancellationToken);
 
         await TryAutoSendPlatformInvoiceEmailAsync(preview.PlatformCompany, billingCustomer, invoice, preview.PlatformSettings, cancellationToken);
@@ -372,6 +437,7 @@ public sealed class SubscriberPackageBillingService(
         company.PackageGracePeriodEndsAtUtc = null;
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([company.Id], cancellationToken);
         await TryWriteAuditAsync("subscriber-package.upgrade.cancelled", nameof(Invoice), invoice.Id.ToString(), invoice.CompanyId, invoice.InvoiceNumber, cancellationToken);
 
         return await GetCurrentAsync(cancellationToken);
@@ -439,6 +505,7 @@ public sealed class SubscriberPackageBillingService(
         if (companies.Count > 0)
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync(companies.Select(x => x.Id), cancellationToken);
         }
 
         return companies.Count;
@@ -453,7 +520,17 @@ public sealed class SubscriberPackageBillingService(
     public async Task<SubscriberPackageBillingInvoiceDto> CreateReactivationInvoiceAsync(string packageCode, CancellationToken cancellationToken = default)
     {
         var preview = await BuildReactivationPreviewAsync(packageCode, cancellationToken);
-        EnsureSubscriberBillingAddressConfigured(preview.Company);
+        EnsureAccountBillingProfileConfigured(await GetSubscriberAccountAsync(preview.Company, cancellationToken));
+
+        var existingReactivationInvoice = await dbContext.Invoices
+            .Include(x => x.Payments).Include(x => x.PaymentConfirmations)
+            .Where(x => x.SubscriberCompanyId == preview.Company.Id && x.SourceType == InvoiceSourceType.PlatformSubscription
+                && x.Status != InvoiceStatus.Paid && x.Status != InvoiceStatus.Voided && x.AmountDue > 0)
+            .OrderByDescending(x => x.IssueDateUtc).FirstOrDefaultAsync(cancellationToken);
+        if (existingReactivationInvoice is not null)
+        {
+            return MapInvoice(existingReactivationInvoice);
+        }
 
         var existingOpenInvoices = await dbContext.Invoices
             .Where(x => x.SubscriberCompanyId == preview.Company.Id
@@ -474,6 +551,7 @@ public sealed class SubscriberPackageBillingService(
         preview.Company.PackageGracePeriodEndsAtUtc = null;
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([preview.Company.Id], cancellationToken);
         await ProvisionForSubscriberCompanyAsync(preview.Company.Id, cancellationToken);
 
         var invoice = await dbContext.Invoices
@@ -485,8 +563,24 @@ public sealed class SubscriberPackageBillingService(
 
         preview.Company.PackageStatus = "reactivation_pending_payment";
         await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([preview.Company.Id], cancellationToken);
 
         return MapInvoice(invoice);
+    }
+
+    public async Task<SubscriberPackageBillingSummaryDto> CancelPendingReactivationAsync(CancellationToken cancellationToken = default)
+    {
+        var subscriberCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var company = await dbContext.Companies.FirstOrDefaultAsync(x => x.Id == subscriberCompanyId && !x.IsPlatformAccount, cancellationToken)
+            ?? throw new UnauthorizedAccessException();
+        var invoices = await dbContext.Invoices.Where(x => x.SubscriberCompanyId == company.Id && x.SourceType == InvoiceSourceType.PlatformSubscription
+            && x.Status != InvoiceStatus.Paid && x.Status != InvoiceStatus.Voided && x.AmountDue > 0).ToListAsync(cancellationToken);
+        if (invoices.Count == 0) throw new InvalidOperationException("There is no pending reactivation invoice to cancel.");
+        foreach (var invoice in invoices) { invoice.Status = InvoiceStatus.Voided; invoice.AmountDue = 0; }
+        company.PackageStatus = "past_due";
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await subscriberAccountBillingMigrationService.ReconcileForCompaniesAsync([company.Id], cancellationToken);
+        return await GetCurrentAsync(cancellationToken);
     }
 
     public async Task<SubscriberPackageBillingInvoiceDto?> CreatePaymentLinkAsync(Guid invoiceId, CancellationToken cancellationToken = default)
@@ -495,14 +589,15 @@ public sealed class SubscriberPackageBillingService(
         var subscriberCompany = await dbContext.Companies
             .FirstOrDefaultAsync(x => x.Id == subscriberCompanyId && !x.IsPlatformAccount, cancellationToken)
             ?? throw new UnauthorizedAccessException();
-        EnsureSubscriberBillingAddressConfigured(subscriberCompany);
+        var billingAccount = await GetSubscriberAccountAsync(subscriberCompany, cancellationToken);
+        EnsureAccountBillingProfileConfigured(billingAccount);
 
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
             .Include(x => x.Payments).ThenInclude(x => x.Attempts)
             .Include(x => x.PaymentConfirmations)
-            .FirstOrDefaultAsync(x => x.Id == invoiceId && x.SubscriberCompanyId == subscriberCompanyId && x.SourceType == InvoiceSourceType.PlatformSubscription, cancellationToken);
-        if (invoice?.Customer is null)
+            .FirstOrDefaultAsync(x => x.Id == invoiceId && x.SourceType == InvoiceSourceType.PlatformSubscription, cancellationToken);
+        if (invoice?.Customer is null || !await InvoiceBelongsToAccountAsync(invoice, billingAccount.Id, cancellationToken))
         {
             return null;
         }
@@ -525,8 +620,6 @@ public sealed class SubscriberPackageBillingService(
             return MapInvoice(invoice);
         }
 
-        invoice.Customer.BillingAddress = subscriberCompany.Address.Trim();
-
         var packageName = await ResolvePackageNameAsync(subscriberCompanyId, cancellationToken);
         var gateway = await ResolvePlatformGatewayAsync(invoice.CompanyId, cancellationToken);
         var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
@@ -537,9 +630,9 @@ public sealed class SubscriberPackageBillingService(
             InvoiceNumber = invoice.InvoiceNumber,
             Amount = invoice.AmountDue,
             Currency = invoice.Currency,
-            CustomerName = invoice.Customer.Name,
-            CustomerEmail = invoice.Customer.Email,
-            CustomerMobile = invoice.Customer.PhoneNumber,
+            CustomerName = GetBillingContactName(invoice),
+            CustomerEmail = GetBillingEmail(invoice),
+            CustomerMobile = GetBillingPhone(invoice),
             Description = $"{packageName} package invoice {invoice.InvoiceNumber}",
             CallbackUrl = $"{_appUrlOptions.ApiBaseUrl.TrimEnd('/')}/api/webhooks/{gateway.Name.ToLowerInvariant()}",
             RedirectUrl = $"{_appUrlOptions.WebBaseUrl.TrimEnd('/')}/package-billing"
@@ -600,12 +693,12 @@ public sealed class SubscriberPackageBillingService(
 
     public async Task<(byte[] Content, string FileName, string ContentType)?> DownloadInvoiceAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
-        var subscriberCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var billingAccount = await GetCurrentSubscriberAccountAsync(cancellationToken);
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
             .Include(x => x.LineItems)
-            .FirstOrDefaultAsync(x => x.Id == invoiceId && x.SubscriberCompanyId == subscriberCompanyId && x.SourceType == InvoiceSourceType.PlatformSubscription, cancellationToken);
-        if (invoice?.Customer is null)
+            .FirstOrDefaultAsync(x => x.Id == invoiceId && x.SourceType == InvoiceSourceType.PlatformSubscription, cancellationToken);
+        if (invoice?.Customer is null || !await InvoiceBelongsToAccountAsync(invoice, billingAccount.Id, cancellationToken))
         {
             return null;
         }
@@ -633,9 +726,9 @@ public sealed class SubscriberPackageBillingService(
                 invoice.TaxName,
                 invoice.TaxRate,
                 invoice.TaxRegistrationNo,
-                invoice.Customer.Name,
-                invoice.Customer.Email,
-                invoice.Customer.BillingAddress,
+                GetBillingContactName(invoice),
+                GetBillingEmail(invoice),
+                GetBillingAddress(invoice),
                 invoice.InvoiceNumber,
                 invoice.IssueDateUtc,
                 invoice.DueDateUtc,
@@ -659,12 +752,12 @@ public sealed class SubscriberPackageBillingService(
 
     public async Task<(byte[] Content, string FileName, string ContentType)?> DownloadReceiptAsync(Guid invoiceId, CancellationToken cancellationToken = default)
     {
-        var subscriberCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var billingAccount = await GetCurrentSubscriberAccountAsync(cancellationToken);
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
             .Include(x => x.Payments)
-            .FirstOrDefaultAsync(x => x.Id == invoiceId && x.SubscriberCompanyId == subscriberCompanyId && x.SourceType == InvoiceSourceType.PlatformSubscription, cancellationToken);
-        if (invoice?.Customer is null)
+            .FirstOrDefaultAsync(x => x.Id == invoiceId && x.SourceType == InvoiceSourceType.PlatformSubscription, cancellationToken);
+        if (invoice?.Customer is null || !await InvoiceBelongsToAccountAsync(invoice, billingAccount.Id, cancellationToken))
         {
             return null;
         }
@@ -683,7 +776,7 @@ public sealed class SubscriberPackageBillingService(
         {
             var issuerCompany = await dbContext.Companies.FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
             var invoiceSettings = await EnsurePlatformInvoiceSettingsAsync(invoice.CompanyId, cancellationToken);
-            var packageName = await ResolvePackageNameAsync(subscriberCompanyId, cancellationToken);
+            var packageName = await ResolvePackageNameAsync(invoice.SubscriberCompanyId ?? Guid.Empty, cancellationToken);
             var receiptNumber = await GenerateReceiptNumberAsync(invoice.CompanyId, cancellationToken);
             var issuerProfile = PlatformIssuerProfileResolver.Resolve(issuerCompany, invoiceSettings);
             var receiptBytes = ReceiptPdfTemplate.Render(
@@ -692,8 +785,8 @@ public sealed class SubscriberPackageBillingService(
                 issuerProfile.BillingEmail,
                 invoiceSettings.ShowCompanyAddressOnReceipt ? issuerProfile.Address : null,
                 await ReadBytesIfExistsAsync(issuerCompany.LogoPath, cancellationToken),
-                invoice.Customer.Name,
-                invoice.Customer.BillingAddress,
+                GetBillingContactName(invoice),
+                GetBillingAddress(invoice),
                 receiptNumber,
                 invoice.InvoiceNumber,
                 packageName,
@@ -717,25 +810,27 @@ public sealed class SubscriberPackageBillingService(
         return (await File.ReadAllBytesAsync(filePath, cancellationToken), string.IsNullOrWhiteSpace(fileName) ? $"{invoice.InvoiceNumber}-receipt.pdf" : fileName, "application/pdf");
     }
 
-    private async Task<Customer> EnsureBillingCustomerAsync(Guid platformOwnerUserId, Company subscriberCompany, CancellationToken cancellationToken)
+    private async Task<Customer> EnsureBillingCustomerAsync(Guid platformOwnerUserId, SubscriberAccount billingAccount, CancellationToken cancellationToken)
     {
         var customer = await dbContext.Customers
-            .FirstOrDefaultAsync(x => x.SubscriberId == platformOwnerUserId && x.ExternalReference == subscriberCompany.Id.ToString("N"), cancellationToken);
+            .FirstOrDefaultAsync(x => x.SubscriberId == platformOwnerUserId && x.ExternalReference == billingAccount.Id.ToString("N"), cancellationToken);
         if (customer is not null)
         {
-            customer.Name = subscriberCompany.Name;
-            customer.Email = subscriberCompany.Email;
-            customer.BillingAddress = subscriberCompany.Address;
+            customer.Name = billingAccount.BillingContactName ?? string.Empty;
+            customer.Email = billingAccount.BillingEmail ?? string.Empty;
+            customer.PhoneNumber = billingAccount.BillingPhone ?? string.Empty;
+            customer.BillingAddress = billingAccount.BillingAddress ?? string.Empty;
             return customer;
         }
 
         customer = new Customer
         {
             SubscriberId = platformOwnerUserId,
-            Name = subscriberCompany.Name,
-            Email = subscriberCompany.Email,
-            BillingAddress = subscriberCompany.Address,
-            ExternalReference = subscriberCompany.Id.ToString("N")
+            Name = billingAccount.BillingContactName ?? string.Empty,
+            Email = billingAccount.BillingEmail ?? string.Empty,
+            PhoneNumber = billingAccount.BillingPhone ?? string.Empty,
+            BillingAddress = billingAccount.BillingAddress ?? string.Empty,
+            ExternalReference = billingAccount.Id.ToString("N")
         };
         dbContext.Customers.Add(customer);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -1019,15 +1114,78 @@ public sealed class SubscriberPackageBillingService(
         return normalized;
     }
 
-    private static void EnsureSubscriberBillingAddressConfigured(Company company)
+    private async Task<SubscriberAccount> GetCurrentSubscriberAccountAsync(CancellationToken cancellationToken)
     {
-        if (!string.IsNullOrWhiteSpace(company.Address))
+        var userId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
+        return await dbContext.SubscriberAccounts.FirstOrDefaultAsync(x => x.OwnerUserId == userId, cancellationToken)
+            ?? throw new UnauthorizedAccessException("No subscriber account is associated with this user.");
+    }
+
+    private async Task<SubscriberAccount> GetSubscriberAccountAsync(Company company, CancellationToken cancellationToken)
+    {
+        if (!company.SubscriberAccountId.HasValue)
+        {
+            throw new InvalidOperationException("This subscriber company is not linked to an account.");
+        }
+
+        return await dbContext.SubscriberAccounts.FirstOrDefaultAsync(x => x.Id == company.SubscriberAccountId.Value, cancellationToken)
+            ?? throw new InvalidOperationException("The subscriber account could not be found.");
+    }
+
+    private Task<bool> InvoiceBelongsToAccountAsync(Invoice invoice, Guid accountId, CancellationToken cancellationToken) =>
+        invoice.SubscriberCompanyId.HasValue
+            ? dbContext.Companies.AnyAsync(company => company.Id == invoice.SubscriberCompanyId.Value
+                && company.SubscriberAccountId == accountId, cancellationToken)
+            : Task.FromResult(false);
+
+    private static AccountBillingProfileDto MapAccountBillingProfile(SubscriberAccount account) => new(
+        account.BillingContactName,
+        account.BillingEmail,
+        account.BillingPhone,
+        account.BillingAddress,
+        account.BillingTaxIdType,
+        account.BillingTaxIdNumber,
+        IsAccountBillingProfileComplete(account));
+
+    private static bool IsAccountBillingProfileComplete(SubscriberAccount account) =>
+        !string.IsNullOrWhiteSpace(account.BillingContactName)
+        && !string.IsNullOrWhiteSpace(account.BillingEmail)
+        && !string.IsNullOrWhiteSpace(account.BillingAddress);
+
+    private static void EnsureAccountBillingProfileConfigured(SubscriberAccount account)
+    {
+        if (IsAccountBillingProfileComplete(account))
         {
             return;
         }
 
-        throw new InvalidOperationException("Please update your company billing address in Companies before creating or paying package invoices.");
+        throw new InvalidOperationException("Please complete Account Billing before creating or paying package invoices.");
     }
+
+    private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void ApplyBillingProfileSnapshot(Invoice invoice, SubscriberAccount account)
+    {
+        invoice.BillingContactNameSnapshot = account.BillingContactName;
+        invoice.BillingEmailSnapshot = account.BillingEmail;
+        invoice.BillingPhoneSnapshot = account.BillingPhone;
+        invoice.BillingAddressSnapshot = account.BillingAddress;
+        invoice.BillingTaxIdTypeSnapshot = account.BillingTaxIdType;
+        invoice.BillingTaxIdNumberSnapshot = account.BillingTaxIdNumber;
+        invoice.BillingProfileSnapshotAtUtc = DateTime.UtcNow;
+    }
+
+    private static string GetBillingContactName(Invoice invoice) =>
+        invoice.BillingContactNameSnapshot ?? invoice.Customer?.Name ?? string.Empty;
+
+    private static string? GetBillingEmail(Invoice invoice) =>
+        invoice.BillingEmailSnapshot ?? invoice.Customer?.Email;
+
+    private static string GetBillingPhone(Invoice invoice) =>
+        invoice.BillingPhoneSnapshot ?? invoice.Customer?.PhoneNumber ?? string.Empty;
+
+    private static string? GetBillingAddress(Invoice invoice) =>
+        invoice.BillingAddressSnapshot ?? invoice.Customer?.BillingAddress;
 
     private SubscriberPackageBillingInvoiceDto MapInvoice(Invoice invoice)
     {

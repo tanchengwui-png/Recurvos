@@ -8,6 +8,7 @@ import { useClientPagination } from "../hooks/useClientPagination";
 import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { BillingReadiness, CompanyLookup, ProductPlan, Subscription } from "../types";
@@ -506,8 +507,8 @@ export function SubscriptionsPage() {
 
   return (
     <div className="page subscriptions-page">
-      {message ? <HelperText>{message}</HelperText> : null}
-      {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
+      <ResponseToast message={error} tone="error" />
       {billingReadiness && !billingReadiness.isReady ? (
         <HelperText>
           {`Complete the company billing profile before starting subscriptions: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}

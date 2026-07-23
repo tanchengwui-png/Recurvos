@@ -1556,6 +1556,15 @@ export type PlatformDashboardSummary = {
   companiesUsingWhatsAppThisMonth: number;
 };
 
+export type SubscriberAccountBillingRolloutAccount = {
+  accountId: string;
+  accountBillingEnabled: boolean;
+  health: string;
+  warning?: string | null;
+  lastValidatedAtUtc?: string | null;
+  companies: Array<{ companyId: string; companyName: string }>;
+};
+
 export type PlatformJobTriggerResult = {
   jobKey: string;
   jobName: string;
@@ -1723,10 +1732,20 @@ export type SubscriberPackageBillingSummary = {
   pendingUpgradePackageCode?: string | null;
   pendingUpgradePackageName?: string | null;
   currentCycleEndUtc?: string | null;
-  isCompanyBillingAddressConfigured: boolean;
+  isAccountBillingProfileConfigured: boolean;
   canCancelPendingUpgrade: boolean;
   availableUpgrades: SubscriberPackageUpgradeOption[];
   invoices: SubscriberPackageBillingInvoice[];
+};
+
+export type AccountBillingProfile = {
+  billingContactName?: string | null;
+  billingEmail?: string | null;
+  billingPhone?: string | null;
+  billingAddress?: string | null;
+  billingTaxIdType?: string | null;
+  billingTaxIdNumber?: string | null;
+  isComplete: boolean;
 };
 
 export type FeatureAccess = {

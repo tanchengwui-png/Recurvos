@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Mvc;
 using Hangfire;
 using Hangfire.Storage;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Recurvos.Application.Abstractions;
 using Recurvos.Application.Invoices;
 using Recurvos.Application.Platform;
+using Recurvos.Infrastructure.Configuration;
 using Recurvos.Infrastructure.Jobs;
 using Recurvos.Infrastructure.Persistence;
 using Recurvos.Infrastructure.Services;
@@ -22,7 +24,8 @@ public sealed class PlatformController(
     JobStorage jobStorage,
     IAuditService auditService,
     AppDbContext dbContext,
-    SubscriberAccountBillingMigrationService subscriberAccountBillingMigrationService) : ControllerBase
+    SubscriberAccountBillingMigrationService subscriberAccountBillingMigrationService,
+    IOptions<SubscriberAccountBillingOptions> subscriberAccountBillingOptions) : ControllerBase
 {
     private static readonly (string Key, string Name)[] SupportedPlatformJobs =
     [
@@ -47,6 +50,7 @@ public sealed class PlatformController(
         var accounts = dbContext.SubscriberAccounts.AsNoTracking();
         return Ok(new
         {
+            accountReadCanaryGloballyEnabled = subscriberAccountBillingOptions.Value.Enabled,
             totalAccounts = await accounts.CountAsync(cancellationToken),
             accountBillingEnabled = await accounts.CountAsync(x => x.AccountBillingEnabled, cancellationToken),
             legacyBilling = await accounts.CountAsync(x => !x.AccountBillingEnabled, cancellationToken),
@@ -77,6 +81,8 @@ public sealed class PlatformController(
         {
             accountId = account.Id,
             accountBillingEnabled = account.AccountBillingEnabled,
+            canaryReadGloballyEnabled = subscriberAccountBillingOptions.Value.Enabled,
+            canaryEligible = health.Status == "Healthy" && health.Warning is null,
             health = health.Status,
             warning = health.Warning,
             lastValidatedAtUtc = account.BillingValidatedAtUtc,
@@ -92,6 +98,74 @@ public sealed class PlatformController(
                 trialEndsAtUtc = account.BillingTrialEndsAtUtc
             }
         });
+    }
+
+    [HttpGet("subscriber-account-billing/accounts")]
+    public async Task<ActionResult<object>> ListSubscriberAccountBillingAccounts(CancellationToken cancellationToken)
+    {
+        var accounts = await dbContext.SubscriberAccounts.AsNoTracking()
+            .Include(x => x.Companies)
+            .OrderBy(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+        return Ok(accounts.Select(account => new
+        {
+            accountId = account.Id,
+            accountBillingEnabled = account.AccountBillingEnabled,
+            health = account.BillingHealthStatus ?? "NotValidated",
+            warning = account.BillingHealthWarning ?? account.ReconciliationWarning,
+            lastValidatedAtUtc = account.BillingValidatedAtUtc,
+            companies = account.Companies.Where(x => !x.IsPlatformAccount).OrderBy(x => x.Name)
+                .Select(x => new { companyId = x.Id, companyName = x.Name })
+        }));
+    }
+
+    [HttpPut("subscriber-account-billing/accounts/{accountId:guid}/canary")]
+    public async Task<ActionResult<object>> SetSubscriberAccountBillingCanary(
+        Guid accountId,
+        SubscriberAccountBillingCanaryRequest request,
+        CancellationToken cancellationToken)
+    {
+        var account = await dbContext.SubscriberAccounts
+            .Include(x => x.Companies)
+            .FirstOrDefaultAsync(x => x.Id == accountId, cancellationToken);
+        if (account is null)
+        {
+            return NotFound();
+        }
+
+        if (request.Enabled && !subscriberAccountBillingOptions.Value.Enabled)
+        {
+            return Conflict(new { message = "The global account-billing read canary is disabled. No account can be opted in." });
+        }
+
+        var health = subscriberAccountBillingMigrationService.GetHealth(account);
+        if (request.Enabled && (health.Status != "Healthy" || health.Warning is not null))
+        {
+            return Conflict(new { message = "Only a healthy account whose shadow exactly matches legacy Company billing can be opted in.", health = health.Status, warning = health.Warning });
+        }
+
+        if (account.AccountBillingEnabled != request.Enabled)
+        {
+            account.AccountBillingEnabled = request.Enabled;
+            account.UpdatedAtUtc = DateTime.UtcNow;
+            dbContext.SubscriberAccountBillingEvents.Add(new Domain.Entities.SubscriberAccountBillingEvent
+            {
+                SubscriberAccountId = account.Id,
+                EventType = request.Enabled ? "billing.canary.enabled" : "billing.canary.disabled",
+                Severity = "Information",
+                Details = request.Enabled
+                    ? "Per-account billing read canary enabled after a healthy legacy/shadow comparison."
+                    : "Per-account billing read canary disabled; legacy Company billing remains in use."
+            });
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return Ok(new { accountId = account.Id, accountBillingEnabled = account.AccountBillingEnabled, canaryReadGloballyEnabled = subscriberAccountBillingOptions.Value.Enabled });
+    }
+
+    public sealed class SubscriberAccountBillingCanaryRequest
+    {
+        public bool Enabled { get; set; }
     }
 
     [HttpGet("subscribers")]

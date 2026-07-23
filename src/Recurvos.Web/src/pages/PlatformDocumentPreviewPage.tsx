@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { DataCard } from "../components/DataCard";
-import { HelperText } from "../components/ui/HelperText";
+import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 
 export function PlatformDocumentPreviewPage() {
@@ -89,8 +89,8 @@ export function PlatformDocumentPreviewPage() {
         </div>
       </header>
 
-      {message ? <HelperText>{message}</HelperText> : null}
-      {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <ResponseToast message={message} tone="success" />
+      <ResponseToast message={error} tone="error" />
 
       <section className="card platform-preview-hero-card">
         <div className="metrics-grid">
