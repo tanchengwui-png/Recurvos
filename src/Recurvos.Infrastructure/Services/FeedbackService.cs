@@ -112,8 +112,9 @@ public sealed class FeedbackService(
         }
 
         var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
         var company = await dbContext.Companies.FirstOrDefaultAsync(
-            x => x.Id == request.CompanyId && x.SubscriberId == subscriberId && !x.IsPlatformAccount,
+            x => x.Id == request.CompanyId && x.Id == activeCompanyId && !x.IsPlatformAccount,
             cancellationToken)
             ?? throw new InvalidOperationException("The selected company could not be found.");
 
@@ -223,9 +224,9 @@ public sealed class FeedbackService(
     private async Task<List<Guid>> GetAccessibleCompanyIdsAsync(CancellationToken cancellationToken)
     {
         var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        return await dbContext.Companies
-            .Where(x => x.SubscriberId == subscriberId && !x.IsPlatformAccount)
-            .Select(x => x.Id)
+        return await dbContext.CompanyMemberships
+            .Where(x => x.UserId == subscriberId && x.IsActive && !x.Company!.IsPlatformAccount)
+            .Select(x => x.CompanyId)
             .ToListAsync(cancellationToken);
     }
 

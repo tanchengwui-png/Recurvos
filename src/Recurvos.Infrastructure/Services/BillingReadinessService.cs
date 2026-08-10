@@ -36,8 +36,8 @@ public sealed class BillingReadinessService(AppDbContext dbContext, ICurrentUser
     private async Task<BillingReadinessDto> GetOwnedCompanyReadinessAsync(Guid companyId, CancellationToken cancellationToken)
     {
         var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        var hasAccess = await dbContext.Companies.AnyAsync(
-            x => x.Id == companyId && x.SubscriberId == subscriberId && !x.IsPlatformAccount,
+        var hasAccess = await dbContext.CompanyMemberships.AnyAsync(
+            x => x.CompanyId == companyId && x.UserId == subscriberId && x.IsActive && !x.Company!.IsPlatformAccount,
             cancellationToken);
 
         if (!hasAccess)

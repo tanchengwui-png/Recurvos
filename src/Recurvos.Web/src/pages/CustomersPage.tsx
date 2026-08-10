@@ -292,6 +292,11 @@ function getContactStatusClassName(status: Customer["status"]) {
   return "status-pill-inactive";
 }
 
+function getContactInitials(name: string) {
+  const initials = name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("");
+  return initials.toUpperCase() || "C";
+}
+
 function AddContactMenu({ onAddManually, onImport, onBatchUpdate, showBatchUpdate }: { onAddManually: () => void; onImport: () => void; onBatchUpdate: () => void; showBatchUpdate: boolean }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -314,14 +319,14 @@ function AddContactMenu({ onAddManually, onImport, onBatchUpdate, showBatchUpdat
 
   return (
     <div ref={menuRef} className="contact-add-menu">
-      <button type="button" className="button button-primary contact-add-trigger" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="menu">
-        Add Contact <span aria-hidden="true">▼</span>
+      <button type="button" className="button button-primary contacts-action-control contacts-action-primary contact-add-trigger" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="menu">
+        <span aria-hidden="true">+</span>Add contact <span aria-hidden="true">▼</span>
       </button>
       {open ? (
         <div className="contact-add-popover" role="menu" aria-label="Add contact actions">
-          <button type="button" role="menuitem" onClick={() => select(onAddManually)}>Add Manually</button>
-          <button type="button" role="menuitem" onClick={() => select(onImport)}>Import Contacts</button>
-          {showBatchUpdate ? <button type="button" role="menuitem" onClick={() => select(onBatchUpdate)}>Batch Update</button> : null}
+          <button type="button" className="contacts-action-control" role="menuitem" onClick={() => select(onAddManually)}>Add manually</button>
+          <button type="button" className="contacts-action-control" role="menuitem" onClick={() => select(onImport)}>Import contacts</button>
+          {showBatchUpdate ? <button type="button" className="contacts-action-control" role="menuitem" onClick={() => select(onBatchUpdate)}>Batch update</button> : null}
         </div>
       ) : null}
     </div>
@@ -1176,7 +1181,7 @@ export function CustomersPage() {
     const statusActionLabel = item.status === "Active" ? "Deactivate" : "Activate";
 
     return [
-      { label: "View", onClick: () => setExpandedId((current) => current === item.id ? null : item.id) },
+      { label: "View details", onClick: () => setExpandedId(item.id) },
       { label: "Edit", onClick: () => navigate(`/customers/${item.id}/edit`) },
       ...(canViewStatement ? [{ label: "Statement of Account", onClick: () => navigate(`/customers/${item.id}/statement`) }] : []),
       {
@@ -1813,75 +1818,30 @@ export function CustomersPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>Contacts</h2>
-        </div>
-      </header>
+    <div className="page contacts-page">
       <ResponseToast message={message} tone="success" />
-      <div className="catalog-toolbar card subtle-card customer-filter-bar">
-        <input
-          aria-label="Search contacts"
-          className="text-input"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Search contact name, email, phone, reference, or address"
-        />
-        <select aria-label="Filter contacts by type" value={contactTypeFilter} onChange={(event) => setContactTypeFilter(event.target.value as Customer["contactType"] | "all")}>
-          <option value="all">All contact types</option>
-          {contactTypeOptions.map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-        <select aria-label="Filter contacts by contact group" value={contactGroupFilter} onChange={(event) => setContactGroupFilter(event.target.value)}>
-          <option value="all">All Groups</option>
-          {contactGroups.map((group) => (
-            <option key={group.id} value={group.name}>{group.name}</option>
-          ))}
-        </select>
-        <select aria-label="Filter contacts by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as Customer["status"] | "all")}>
-          <option value="all">All statuses</option>
-          {statusOptions.map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-        <select aria-label="Filter contacts by tags" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}>
-          <option value="all">All tags</option>
-          {allTagOptions.map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-        <select aria-label="Filter contacts by company" value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)}>
-          <option value="all">All companies</option>
-          {companyFilterOptions.map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-      </div>
-      <section className="card">
-        <div className="card-section-header">
-          <div className="section-header-cluster">
-            <h3 className="section-title">Saved contacts</h3>
-            <div className="page-meta-row page-meta-row-inline" aria-label="Contact summary">
-              <div className="page-meta-chips">
-                <span className="page-meta-chip">
-                  <span className="page-meta-chip-label">Total</span>
-                  <strong className="page-meta-chip-value">{items.length}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}</strong>
-                </span>
-                <span className="page-meta-chip">
-                  <span className="page-meta-chip-label">Email</span>
-                  <strong className="page-meta-chip-value">{contactsWithEmail}</strong>
-                </span>
-                <span className="page-meta-chip">
-                  <span className="page-meta-chip-label">Active</span>
-                  <strong className="page-meta-chip-value">{activeContacts}</strong>
-                </span>
-              </div>
-            </div>
+      <div className="contacts-page-content">
+        <div className="contacts-filter-card">
+          <label className="contacts-filter-field contacts-search"><span>Search</span><span className="contacts-search-icon" aria-hidden="true">⌕</span><input aria-label="Search contacts" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search contact name, email, phone, company, or registration" /></label>
+          <label className="contacts-filter-field"><span>Contact type</span><select aria-label="Filter contacts by type" value={contactTypeFilter} onChange={(event) => setContactTypeFilter(event.target.value as Customer["contactType"] | "all")}><option value="all">All contact types</option>{contactTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          <label className="contacts-filter-field"><span>Contact group</span><select aria-label="Filter contacts by contact group" value={contactGroupFilter} onChange={(event) => setContactGroupFilter(event.target.value)}><option value="all">All groups</option>{contactGroups.map((group) => <option key={group.id} value={group.name}>{group.name}</option>)}</select></label>
+          <label className="contacts-filter-field"><span>Status</span><select aria-label="Filter contacts by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as Customer["status"] | "all")}><option value="all">All statuses</option>{statusOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          <div className="contacts-filter-secondary">
+            <label className="contacts-filter-field"><span>Tags</span><select aria-label="Filter contacts by tags" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="all">All tags</option>{allTagOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+            <label className="contacts-filter-field"><span>Company</span><select aria-label="Filter contacts by company" value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)}><option value="all">All companies</option>{companyFilterOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+          </div>
+        </div>
+      <section className="contacts-list-card">
+        <div className="contacts-list-header">
+          <div className="contacts-summary" aria-label="Contact summary">
+            <h3>Contacts</h3>
+            <span className="contacts-summary-chip"><span aria-hidden="true">◌</span>Contacts <strong>{items.length}</strong></span>
+            <span className="contacts-summary-chip"><i className="contacts-active-dot" aria-hidden="true" />Active <strong>{activeContacts}</strong></span>
+            <span className="contacts-summary-chip"><span aria-hidden="true">✉</span>With email <strong>{contactsWithEmail}</strong></span>
+            {packageLimit !== null ? <span className="contacts-capacity">{`${items.length} of ${packageLimitLabel} contacts used`}</span> : null}
           </div>
           <div className="contact-page-actions">
-            <button type="button" className="button button-secondary" onClick={() => navigate("/contact-groups")}>Contact Groups</button>
+            <button type="button" className="contacts-action-control contacts-groups-button" onClick={() => navigate("/contact-groups")}><span aria-hidden="true">◌</span>Contact groups</button>
             <AddContactMenu
               onAddManually={() => navigate("/customers/new")}
               onImport={() => navigate("/customers/import")}
@@ -1952,7 +1912,7 @@ export function CustomersPage() {
             </article>
           ))}
         </div>
-        <div className="subscription-table-shell">
+        <div className="contacts-table-wrapper subscription-table-shell">
           <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
             <div ref={topInnerRef} />
           </div>
@@ -1961,9 +1921,9 @@ export function CustomersPage() {
               tableScrollRef.current = node;
               contentScrollRef.current = node;
             }}
-            className="table-scroll table-scroll-bounded table-scroll-draggable"
+            className="table-scroll table-scroll-bounded table-scroll-draggable contacts-table-scroll"
           >
-            <table className="catalog-table subscription-table customer-table">
+            <table className="contacts-table">
             <thead>
               <tr>
                 <th className="contact-select-column">
@@ -1974,10 +1934,10 @@ export function CustomersPage() {
                     onChange={(event) => toggleAllFiltered(event.target.checked)}
                   />
                 </th>
-                <th className="sticky-cell sticky-cell-left contact-name-column">Name</th>
+                <th className="contact-name-column">Contact</th>
                 <th className="contact-type-column">Contact Type</th>
                 <th className="contact-group-column">Contact Group</th>
-                <th className="contact-person-column">Contact Person</th>
+                <th className="contact-person-column">Company / Contact Person</th>
                 <th className="contact-phone-column">Phone</th>
                 <th className="contact-email-column">Email</th>
                 <th className="contact-status-column">Status</th>
@@ -1986,17 +1946,7 @@ export function CustomersPage() {
             </thead>
             <tbody>
               {items.length === 0 ? (
-                <EmptyTableRow
-                  colSpan={9}
-                  title="No contacts yet"
-                  description="Add customers, suppliers, and employees here so you can manage billing contacts and internal records from one place."
-                  actions={(
-                    <>
-                      <button type="button" className="button button-primary" onClick={() => navigate("/customers/new")}>Add first contact</button>
-                      <button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>
-                    </>
-                  )}
-                />
+                <tr><td colSpan={9}><div className="contacts-empty-state"><div aria-hidden="true">◌</div><h3>No contacts yet</h3><p>Add customers, suppliers, employees and other billing contacts in one place.</p><div className="contacts-empty-actions"><button type="button" className="contacts-action-control contacts-action-primary contact-add-trigger" onClick={() => navigate("/customers/new")}>Add first contact</button><button type="button" className="contacts-action-control contacts-groups-button" onClick={() => navigate("/contact-groups")}>Contact groups</button></div></div></td></tr>
               ) : filteredItems.length === 0 ? (
                 <EmptyTableRow
                   colSpan={9}
@@ -2013,17 +1963,15 @@ export function CustomersPage() {
                       onChange={(event) => toggleSelectedContact(item.id, event.target.checked)}
                     />
                   </td>
-                  <td className="sticky-cell sticky-cell-left table-primary-cell">
-                    <div className="table-primary-cell-stack">
-                      <span>{item.legalName || item.name}</span>
-                    </div>
+                  <td className="contact-name-column">
+                    <div className="contact-cell"><div className="contact-avatar" aria-hidden="true">{getContactInitials(item.legalName || item.name)}</div><div><div className="contact-name">{item.legalName || item.name}</div><div className="contact-secondary">{item.externalReference || item.entityType || "Contact record"}</div></div></div>
                   </td>
-                  <td className="contact-type-column"><span className="badge">{parseContactTypes(item.contactType).join(", ") || item.contactType}</span></td>
-                  <td className="contact-group-column"><ContactGroupPills groups={item.groups} /></td>
-                  <td className="contact-person-column">{getPrimaryContactPerson(item)}</td>
+                  <td className="contact-type-column"><span className="contact-type-pill">{parseContactTypes(item.contactType).join(", ") || item.contactType}</span></td>
+                  <td className="contact-group-column">{item.groups.length ? <ContactGroupPills groups={item.groups} /> : <span className="contacts-not-set">No group</span>}</td>
+                  <td className="contact-person-column">{getPrimaryContactPerson(item) === "-" ? <span className="contacts-not-set">{item.entityType === "Individual" ? "Individual contact" : "Not set"}</span> : getPrimaryContactPerson(item)}</td>
                   <td className="contact-phone-column">{item.phoneNumber || "Phone not set"}</td>
-                  <td className="contact-email-column">{item.email || "-"}</td>
-                  <td className="contact-status-column"><span className={`status-pill ${getContactStatusClassName(item.status)}`}>{item.status}</span></td>
+                  <td className="contact-email-column" title={item.email || "Not set"}>{item.email || "Not set"}</td>
+                  <td className="contact-status-column"><span className={`contact-status-pill ${getContactStatusClassName(item.status)}`}>{item.status}</span></td>
                   <td className="actions-cell contact-actions-column"><RowActionMenu items={getCustomerActions(item)} /></td>
                 </tr>
               ))}
@@ -2034,12 +1982,13 @@ export function CustomersPage() {
             <div ref={bottomInnerRef} />
           </div>
         </div>
-        <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
+        {items.length > 0 ? <div className="contacts-pagination"><TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} /></div> : null}
       </section>
+      </div>
       {selectedCustomer ? (
-        <div className="modal-backdrop invoice-detail-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
-          <div className="card invoice-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title" onClick={(event) => event.stopPropagation()}>
-            <div className="invoice-detail-drawer-header">
+        <div className="modal-backdrop product-preview-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
+          <div className="card product-preview-modal" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title" onClick={(event) => event.stopPropagation()}>
+            <div className="product-preview-modal-header">
               <div>
                 <p className="eyebrow">Contact detail</p>
                 <h3 id="customer-detail-title">{selectedCustomer.legalName || selectedCustomer.name}</h3>
@@ -2047,7 +1996,7 @@ export function CustomersPage() {
               </div>
               <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
             </div>
-            <div className="invoice-detail-drawer-body">
+            <div className="product-preview-modal-body">
               <div className="invoice-detail-panel">
                 <div className="company-detail-sections">
                   <div className="invoice-detail-block">

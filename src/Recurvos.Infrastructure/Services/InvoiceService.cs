@@ -112,7 +112,7 @@ public sealed class InvoiceService(
         var companyId = GetCompanyId();
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.ManualInvoices, cancellationToken);
         await billingReadinessService.EnsureReadyAsync(companyId, "invoice creation", cancellationToken);
-        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == request.CustomerId, cancellationToken)
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(companyId.ToString()) && x.Id == request.CustomerId, cancellationToken)
             ?? throw new InvalidOperationException("Customer not found.");
 
         if (request.LineItems.Count == 0)
@@ -216,7 +216,7 @@ public sealed class InvoiceService(
             return null;
         }
 
-        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == salesOrder.ContactId, cancellationToken)
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(companyId.ToString()) && x.Id == salesOrder.ContactId, cancellationToken)
             ?? throw new InvalidOperationException("Contact not found.");
 
         if (request.LineItems.Count == 0)
@@ -271,7 +271,7 @@ public sealed class InvoiceService(
             .Include(x => x.Lines)
             .FirstAsync(x => x.CompanyId == companyId && x.Id == deliveryOrder.SalesOrderId, cancellationToken);
 
-        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == deliveryOrder.ContactId, cancellationToken)
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(companyId.ToString()) && x.Id == deliveryOrder.ContactId, cancellationToken)
             ?? throw new InvalidOperationException("Contact not found.");
 
         if (request.LineItems.Count == 0)
@@ -961,7 +961,7 @@ public sealed class InvoiceService(
             var invoiceSettings = await EnsureCompanyInvoiceSettingsAsync(createdInvoice.CompanyId, cancellationToken);
             var customer = createdInvoice.CustomerId == Guid.Empty
                 ? null
-                : await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == createdInvoice.CustomerId, cancellationToken);
+                : await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(createdInvoice.CompanyId.ToString()) && x.Id == createdInvoice.CustomerId, cancellationToken);
             if (invoiceSettings?.AutoSendInvoices == true
                 && customer is not null
                 && await featureEntitlementService.CompanyHasFeatureAsync(createdInvoice.CompanyId, PlatformFeatureKeys.EmailReminders, cancellationToken))
@@ -1890,7 +1890,7 @@ public sealed class InvoiceService(
 
     private async Task<string?> TryCreateGatewayPaymentLinkAsync(Invoice invoice, CancellationToken cancellationToken)
     {
-        var customer = invoice.Customer ?? await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == invoice.CustomerId, cancellationToken);
+        var customer = invoice.Customer ?? await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(invoice.CompanyId.ToString()) && x.Id == invoice.CustomerId, cancellationToken);
         if (customer is null)
         {
             return null;
@@ -2182,7 +2182,7 @@ public sealed class InvoiceService(
         await auditService.WriteAsync("invoice.created", nameof(Invoice), invoice.Id.ToString(), invoice.CompanyId, invoice.InvoiceNumber, cancellationToken);
 
         var subscriptionCustomer = subscription.Customer
-            ?? await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == invoice.CustomerId, cancellationToken);
+            ?? await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(subscription.CompanyId.ToString()) && x.Id == invoice.CustomerId, cancellationToken);
         if (invoiceSettings?.AutoSendInvoices == true
             && subscriptionCustomer is not null
             && await featureEntitlementService.CompanyHasFeatureAsync(subscription.CompanyId, PlatformFeatureKeys.EmailReminders, cancellationToken))
@@ -2217,17 +2217,13 @@ public sealed class InvoiceService(
     private async Task<Subscription?> GetSubscriptionForInvoiceGenerationAsync(Guid subscriptionId, CancellationToken cancellationToken)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.RecurringInvoices, cancellationToken);
-        var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        var ownedCompanyIds = await dbContext.Companies
-            .Where(x => x.SubscriberId == subscriberId)
-            .Select(x => x.Id)
-            .ToListAsync(cancellationToken);
+        var activeCompanyId = GetCompanyId();
 
         return await dbContext.Subscriptions
             .Include(x => x.Company)
             .Include(x => x.Customer)
             .Include(x => x.Items).ThenInclude(x => x.ProductPlan)
-            .FirstOrDefaultAsync(x => ownedCompanyIds.Contains(x.CompanyId) && x.Id == subscriptionId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.CompanyId == activeCompanyId && x.Id == subscriptionId, cancellationToken);
     }
 
     private static CompanyTaxProfile ResolveTaxProfile(CompanyInvoiceSettings? settings)

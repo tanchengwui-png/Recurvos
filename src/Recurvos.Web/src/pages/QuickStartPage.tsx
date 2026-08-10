@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { fetchProductPlans } from "../hooks/useProductPlans";
 import { fetchProducts } from "../hooks/useProducts";
 import { api } from "../lib/api";
+import { hasAnyFeature, hasFeature } from "../lib/features";
 import type { BillingReadiness, CompanyLookup, FeatureAccess } from "../types";
 
 const setupSteps = [
@@ -100,10 +101,10 @@ export function QuickStartPage() {
       const [products, plans, customers, subscriptions, invoices, payments, readiness] = await Promise.all([
         fetchProducts({ search: "", isActive: "all", page: 1, pageSize: 1 }),
         fetchProductPlans({ billingType: "all", isActive: "all", page: 1, pageSize: 1 }),
-        access.featureKeys.includes("customer_management") ? api.get<unknown[]>("/customers") : Promise.resolve([]),
-        access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/subscriptions") : Promise.resolve([]),
-        access.featureKeys.includes("manual_invoices") || access.featureKeys.includes("recurring_invoices") ? api.get<unknown[]>("/invoices") : Promise.resolve([]),
-        access.featureKeys.includes("payment_tracking") ? api.get<unknown[]>("/payments") : Promise.resolve([]),
+        hasFeature(access, "customer_management") ? api.get<unknown[]>("/customers") : Promise.resolve([]),
+        hasFeature(access, "recurring_invoices") ? api.get<unknown[]>("/subscriptions") : Promise.resolve([]),
+        hasAnyFeature(access, ["manual_invoices", "recurring_invoices"]) ? api.get<unknown[]>("/invoices") : Promise.resolve([]),
+        hasFeature(access, "payment_tracking") ? api.get<unknown[]>("/payments") : Promise.resolve([]),
         companyList[0]?.id ? api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyList[0].id}`) : Promise.resolve(null),
       ]);
 
@@ -136,9 +137,9 @@ export function QuickStartPage() {
                 : setupCounts.invoices > 0 || setupCounts.subscriptions > 0;
 
         const enabled = step.key === "customer"
-          ? featureAccess?.featureKeys.includes("customer_management") ?? false
+          ? hasFeature(featureAccess, "customer_management")
           : step.key === "billing"
-            ? (featureAccess?.featureKeys.includes("manual_invoices") ?? false) || (featureAccess?.featureKeys.includes("recurring_invoices") ?? false)
+            ? hasAnyFeature(featureAccess, ["manual_invoices", "recurring_invoices"])
             : true;
 
         return { ...step, done, enabled };
@@ -164,7 +165,7 @@ export function QuickStartPage() {
         actionLabel: "Fix now",
       }));
 
-    if (!(featureAccess?.featureKeys.includes("customer_management") ?? false)) {
+    if (!hasFeature(featureAccess, "customer_management")) {
       blockers.push({
         key: "feature-customer-management",
         title: "Customer records are locked on your current package",
@@ -174,7 +175,7 @@ export function QuickStartPage() {
       });
     }
 
-    if (!((featureAccess?.featureKeys.includes("manual_invoices") ?? false) || (featureAccess?.featureKeys.includes("recurring_invoices") ?? false))) {
+    if (!hasAnyFeature(featureAccess, ["manual_invoices", "recurring_invoices"])) {
       blockers.push({
         key: "feature-billing",
         title: "Billing actions are locked on your current package",
@@ -189,8 +190,7 @@ export function QuickStartPage() {
   const sprintMilestones = useMemo<SprintMilestone[]>(() => {
     const readinessItems = billingReadiness?.items ?? [];
     const requiredReady = readinessItems.filter((item) => item.required).every((item) => item.done);
-    const paymentCollectionReady = (featureAccess?.featureKeys.includes("payment_tracking") ?? false)
-      || (featureAccess?.featureKeys.includes("payment_link_generation") ?? false)
+    const paymentCollectionReady = hasAnyFeature(featureAccess, ["payment_tracking", "payment_link_generation"])
       || setupCounts.payments > 0;
 
     return [

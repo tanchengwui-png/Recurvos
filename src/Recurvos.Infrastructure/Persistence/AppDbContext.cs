@@ -10,6 +10,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<CompanyAddress> CompanyAddresses => Set<CompanyAddress>();
     public DbSet<CompanyInvoiceSettings> CompanyInvoiceSettings => Set<CompanyInvoiceSettings>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<CompanyMembership> CompanyMemberships => Set<CompanyMembership>();
     public DbSet<SubscriberAccount> SubscriberAccounts => Set<SubscriberAccount>();
     public DbSet<SubscriberAccountBillingEvent> SubscriberAccountBillingEvents => Set<SubscriberAccountBillingEvent>();
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
@@ -105,6 +106,36 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<User>()
             .HasOne(x => x.Company)
             .WithMany(x => x.Users)
+            .HasForeignKey(x => x.CompanyId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<CompanyMembership>()
+            .HasIndex(x => new { x.UserId, x.CompanyId })
+            .IsUnique();
+
+        modelBuilder.Entity<CompanyMembership>()
+            .HasIndex(x => new { x.UserId, x.IsActive });
+
+        modelBuilder.Entity<CompanyMembership>()
+            .HasIndex(x => new { x.CompanyId, x.IsActive });
+
+        modelBuilder.Entity<CompanyMembership>()
+            .HasOne(x => x.User)
+            .WithMany(x => x.CompanyMemberships)
+            .HasForeignKey(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ContactGroup>()
+            .HasIndex(x => new { x.CompanyId, x.Name })
+            .IsUnique();
+
+        modelBuilder.Entity<ProductGroup>()
+            .HasIndex(x => new { x.CompanyId, x.Name })
+            .IsUnique();
+
+        modelBuilder.Entity<CompanyMembership>()
+            .HasOne(x => x.Company)
+            .WithMany(x => x.Memberships)
             .HasForeignKey(x => x.CompanyId)
             .OnDelete(DeleteBehavior.Cascade);
 
@@ -274,6 +305,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasIndex(x => x.SubscriberId);
 
         modelBuilder.Entity<Customer>()
+            .Property(x => x.CompanyIdsJson)
+            .HasDefaultValue("[]")
+            .IsRequired();
+
+        modelBuilder.Entity<Customer>()
             .Property(x => x.ContactType)
             .HasMaxLength(30)
             .HasDefaultValue("Customer")
@@ -363,20 +399,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasIndex(x => x.SubscriberId);
 
         modelBuilder.Entity<ContactGroup>()
-            .HasIndex(x => new { x.SubscriberId, x.Name })
-            .IsUnique();
-
-        modelBuilder.Entity<ContactGroup>()
             .Property(x => x.Name)
             .HasMaxLength(150)
             .IsRequired();
 
         modelBuilder.Entity<ProductGroup>()
             .HasIndex(x => x.SubscriberId);
-
-        modelBuilder.Entity<ProductGroup>()
-            .HasIndex(x => new { x.SubscriberId, x.Name })
-            .IsUnique();
 
         modelBuilder.Entity<ProductGroup>()
             .Property(x => x.Name)

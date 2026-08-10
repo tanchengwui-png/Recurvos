@@ -425,8 +425,8 @@ export function SubscriptionsPage() {
   function getSubscriptionActions(item: Subscription) {
       return [
       {
-        label: expandedId === item.id ? "Hide details" : "View details",
-        onClick: () => setExpandedId((current) => current === item.id ? null : item.id),
+        label: "View details",
+        onClick: () => setExpandedId(item.id),
       },
       {
         label: "Preview invoice",

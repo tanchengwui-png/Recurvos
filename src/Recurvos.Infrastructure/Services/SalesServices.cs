@@ -256,18 +256,20 @@ public sealed class SalesQuotationService(
     }
 
     private async Task<Customer> LoadContactAsync(Guid contactId, CancellationToken cancellationToken) =>
-        await dbContext.Customers.FirstOrDefaultAsync(x => x.SubscriberId == GetSubscriberId() && x.Id == contactId, cancellationToken)
+        await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && x.Id == contactId, cancellationToken)
         ?? throw new InvalidOperationException("Contact not found.");
 
     private async Task EnsureCompanyAccessAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        var hasAccess = await dbContext.Companies.AnyAsync(x => x.Id == companyId && x.SubscriberId == GetSubscriberId(), cancellationToken);
+        var hasAccess = companyId == GetCompanyId();
         if (!hasAccess) throw new UnauthorizedAccessException();
     }
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
 
-    private IQueryable<Guid> OwnedCompanyIdsQuery() => dbContext.Companies.Where(x => x.SubscriberId == GetSubscriberId()).Select(x => x.Id);
+    private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+
+    private IQueryable<Guid> OwnedCompanyIdsQuery() => dbContext.Companies.Where(x => x.Id == GetCompanyId()).Select(x => x.Id);
 
     private async Task<string> GenerateQuotationNumberAsync(Guid companyId, CancellationToken cancellationToken)
     {
@@ -531,17 +533,18 @@ public sealed class SalesOrderService(
     }
 
     private async Task<Customer> LoadContactAsync(Guid contactId, CancellationToken cancellationToken) =>
-        await dbContext.Customers.FirstOrDefaultAsync(x => x.SubscriberId == GetSubscriberId() && x.Id == contactId, cancellationToken)
+        await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && x.Id == contactId, cancellationToken)
         ?? throw new InvalidOperationException("Contact not found.");
 
     private async Task EnsureCompanyAccessAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        var hasAccess = await dbContext.Companies.AnyAsync(x => x.Id == companyId && x.SubscriberId == GetSubscriberId(), cancellationToken);
+        var hasAccess = companyId == GetCompanyId();
         if (!hasAccess) throw new UnauthorizedAccessException();
     }
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
-    private IQueryable<Guid> OwnedCompanyIdsQuery() => dbContext.Companies.Where(x => x.SubscriberId == GetSubscriberId()).Select(x => x.Id);
+    private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+    private IQueryable<Guid> OwnedCompanyIdsQuery() => dbContext.Companies.Where(x => x.Id == GetCompanyId()).Select(x => x.Id);
     private async Task<string> ResolveCurrencyAsync(Guid companyId, string? requestCurrency, string? contactCurrency, CancellationToken cancellationToken)
     {
         var value = string.IsNullOrWhiteSpace(requestCurrency) ? contactCurrency : requestCurrency;

@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Recurvos.Application.Abstractions;
 using Recurvos.Application.Common;
 using Recurvos.Application.Dashboard;
-using Recurvos.Application.Features;
 using Recurvos.Domain.Entities;
 using Recurvos.Domain.Enums;
 using Recurvos.Infrastructure.Persistence;
@@ -11,8 +10,7 @@ namespace Recurvos.Infrastructure.Services;
 
 public sealed class DashboardService(
     AppDbContext dbContext,
-    ICurrentUserService currentUserService,
-    IFeatureEntitlementService featureEntitlementService) : IDashboardService
+    ICurrentUserService currentUserService) : IDashboardService
 {
     public async Task<DashboardSummaryDto> GetSummaryAsync(DashboardFilterQuery query, CancellationToken cancellationToken = default)
     {
@@ -352,13 +350,12 @@ public sealed class DashboardService(
 
     private async Task<IReadOnlyCollection<Guid>> GetScopedCompanyIdsAsync(Guid? companyId, CancellationToken cancellationToken)
     {
-        await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.BasicReports, cancellationToken);
-        var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        var companies = dbContext.Companies.Where(x => x.SubscriberId == subscriberId && !x.IsPlatformAccount);
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var companies = dbContext.Companies.Where(x => x.Id == activeCompanyId && !x.IsPlatformAccount);
 
         if (companyId.HasValue)
         {
-            var exists = await companies.AnyAsync(x => x.Id == companyId.Value, cancellationToken);
+            var exists = companyId.Value == activeCompanyId && await companies.AnyAsync(cancellationToken);
             if (!exists)
             {
                 throw new UnauthorizedAccessException();

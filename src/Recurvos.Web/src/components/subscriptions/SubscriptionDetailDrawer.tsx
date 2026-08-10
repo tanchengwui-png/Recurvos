@@ -10,15 +10,15 @@ type Props = {
 
 export function SubscriptionDetailDrawer({ selectedSubscription, onClose, onEditPricing, onMigrateItem }: Props) {
   return (
-    <div className="modal-backdrop subscription-detail-backdrop" role="presentation" onClick={onClose}>
+    <div className="modal-backdrop product-preview-backdrop" role="presentation" onClick={onClose}>
       <div
-        className="card subscription-detail-drawer"
+        className="card product-preview-modal subscription-detail-drawer"
         role="dialog"
         aria-modal="true"
         aria-labelledby="subscription-detail-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="subscription-detail-header">
+        <div className="product-preview-modal-header subscription-detail-header">
           <div>
             <p className="eyebrow">Subscription detail</p>
             <h3 id="subscription-detail-title">{selectedSubscription.customerName}</h3>
@@ -26,7 +26,7 @@ export function SubscriptionDetailDrawer({ selectedSubscription, onClose, onEdit
           </div>
           <button type="button" className="button button-secondary button-compact" onClick={onClose}>Close</button>
         </div>
-        <div className="subscription-detail-body">
+        <div className="product-preview-modal-body subscription-detail-body">
           <div className="subscription-detail-summary">
             <div className="subscription-detail-stat">
               <p className="eyebrow">Status</p>

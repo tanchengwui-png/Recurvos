@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { TablePagination } from "../components/TablePagination";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
+import { hasFeature } from "../lib/features";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy, ReminderHistoryItem, ReminderHistoryPage } from "../types";
 
@@ -176,11 +178,11 @@ export function SettingsPage() {
   const invoiceNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.prefix, invoiceSettings.nextNumber, invoiceSettings.padding) : "";
   const receiptNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.receiptPrefix, invoiceSettings.receiptNextNumber, invoiceSettings.receiptPadding) : "";
   const creditNoteNumberExample = invoiceSettings ? formatDocumentNumber(invoiceSettings.creditNotePrefix, invoiceSettings.creditNoteNextNumber, invoiceSettings.creditNotePadding) : "";
-  const configurableWhatsAppEnabled = featureAccess?.featureKeys.includes("configurable_whatsapp") ?? false;
+  const configurableWhatsAppEnabled = hasFeature(featureAccess, "configurable_whatsapp");
   const configurableWhatsAppHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "configurable_whatsapp");
-  const emailRemindersEnabled = featureAccess?.featureKeys.includes("email_reminders") ?? false;
+  const emailRemindersEnabled = hasFeature(featureAccess, "email_reminders");
   const emailRemindersHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "email_reminders");
-  const paymentGatewayConfigurationEnabled = featureAccess?.featureKeys.includes("payment_gateway_configuration") ?? false;
+  const paymentGatewayConfigurationEnabled = hasFeature(featureAccess, "payment_gateway_configuration");
   const paymentGatewayConfigurationHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "payment_gateway_configuration");
   const activeTabTitle = {
     documents: "Documents",
@@ -299,7 +301,7 @@ export function SettingsPage() {
       const [invoiceConfig, readiness, ruleList, policy] = await Promise.all([
         api.get<CompanyInvoiceSettings>(`/settings/invoice-settings?companyId=${companyId}`),
         api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyId}`).catch(() => null),
-        nextFeatureAccess.featureKeys.includes("dunning_workflows")
+        hasFeature(nextFeatureAccess, "dunning_workflows")
           ? api.get<DunningRule[]>(`/settings/dunning-rules?companyId=${companyId}`)
           : Promise.resolve([]),
         api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
@@ -325,7 +327,7 @@ export function SettingsPage() {
     page = reminderHistoryCurrentPage,
     pageSize = reminderHistoryPageSize,
   ) {
-    if (!companyId || !currentFeatureAccess?.featureKeys.includes("dunning_workflows")) {
+    if (!companyId || !hasFeature(currentFeatureAccess, "dunning_workflows")) {
       setReminderHistory([]);
       setReminderHistoryTotalCount(0);
       setReminderHistoryError("");
@@ -396,7 +398,7 @@ export function SettingsPage() {
   }, [selectedCompanyId, reminderHistoryCurrentPage, reminderHistoryPageSize, featureAccess]);
 
   return (
-    <div className="page">
+    <StandardFormLayout className="page standard-form-page settings-form-page">
       <header className="page-header">
         <div className="settings-header-copy">
           <h2>Settings</h2>
@@ -1245,7 +1247,7 @@ export function SettingsPage() {
               </>
             ) : null}
             {activeTab === "reminders" ? (
-              featureAccess?.featureKeys.includes("dunning_workflows") ? (
+              hasFeature(featureAccess, "dunning_workflows") ? (
                 <div className="settings-panel settings-panel-wide">
                   <div className="settings-panel-header">
                     <div>
@@ -1400,6 +1402,6 @@ export function SettingsPage() {
         onConfirm={async () => { if (confirmState) await confirmState.action(); }}
         onCancel={() => setConfirmState(null)}
       />
-    </div>
+    </StandardFormLayout>
   );
 }

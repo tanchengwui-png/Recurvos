@@ -14,6 +14,8 @@ type SearchableSelectProps = {
   ariaLabel?: string;
   disabled?: boolean;
   className?: string;
+  loading?: boolean;
+  error?: string;
 };
 
 export function SearchableSelect({
@@ -28,6 +30,8 @@ export function SearchableSelect({
   ariaLabel,
   disabled = false,
   className = "",
+  loading = false,
+  error = "",
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -189,7 +193,11 @@ export function SearchableSelect({
             onKeyDown={handleSearchKeyDown}
           />
           <ul id={listboxId} className="searchable-select-list" role="listbox" aria-label={ariaLabel}>
-            {filteredOptions.length > 0 ? filteredOptions.map((option, index) => (
+            {error ? (
+              <li className="searchable-select-empty" role="alert">{error}</li>
+            ) : loading ? (
+              <li className="searchable-select-empty">Loading accounts...</li>
+            ) : filteredOptions.length > 0 ? filteredOptions.map((option, index) => (
               <li key={`${option.value}-${option.label}`} role="option" aria-selected={option.value === value}>
                 <button
                   type="button"

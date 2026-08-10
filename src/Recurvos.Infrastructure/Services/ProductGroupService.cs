@@ -14,9 +14,9 @@ public sealed class ProductGroupService(
 {
     public async Task<IReadOnlyCollection<ProductGroupDto>> GetAsync(CancellationToken cancellationToken = default)
     {
-        var subscriberId = GetSubscriberId();
+        var companyId = GetCompanyId();
         var groups = await dbContext.ProductGroups
-            .Where(x => x.SubscriberId == subscriberId)
+            .Where(x => x.CompanyId == companyId)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
         var products = await GetOwnedProductsQuery()
@@ -27,9 +27,9 @@ public sealed class ProductGroupService(
 
     public async Task<ProductGroupDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var subscriberId = GetSubscriberId();
+        var companyId = GetCompanyId();
         var group = await dbContext.ProductGroups
-            .FirstOrDefaultAsync(x => x.SubscriberId == subscriberId && x.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (group is null)
         {
             return null;
@@ -64,10 +64,10 @@ public sealed class ProductGroupService(
 
     public async Task<ProductGroupDto> CreateAsync(ProductGroupRequest request, CancellationToken cancellationToken = default)
     {
-        var subscriberId = GetSubscriberId();
+        var companyId = GetCompanyId();
         var normalizedName = NormalizeName(request.Name);
         var normalizedDescription = NormalizeDescription(request.Description);
-        await EnsureUniqueNameAsync(subscriberId, normalizedName, null, cancellationToken);
+        await EnsureUniqueNameAsync(companyId, normalizedName, null, cancellationToken);
 
         var selectedProductIds = request.ProductIds.Distinct().ToHashSet();
         var products = await GetOwnedProductsQuery().ToListAsync(cancellationToken);
@@ -75,7 +75,8 @@ public sealed class ProductGroupService(
 
         var group = new ProductGroup
         {
-            SubscriberId = subscriberId,
+            CompanyId = companyId,
+            SubscriberId = GetSubscriberId(),
             Name = normalizedName,
             Description = normalizedDescription,
         };
@@ -89,9 +90,9 @@ public sealed class ProductGroupService(
 
     public async Task<ProductGroupDto?> UpdateAsync(Guid id, ProductGroupRequest request, CancellationToken cancellationToken = default)
     {
-        var subscriberId = GetSubscriberId();
+        var companyId = GetCompanyId();
         var group = await dbContext.ProductGroups
-            .FirstOrDefaultAsync(x => x.SubscriberId == subscriberId && x.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (group is null)
         {
             return null;
@@ -99,7 +100,7 @@ public sealed class ProductGroupService(
 
         var normalizedName = NormalizeName(request.Name);
         var normalizedDescription = NormalizeDescription(request.Description);
-        await EnsureUniqueNameAsync(subscriberId, normalizedName, id, cancellationToken);
+        await EnsureUniqueNameAsync(companyId, normalizedName, id, cancellationToken);
 
         var selectedProductIds = request.ProductIds.Distinct().ToHashSet();
         var products = await GetOwnedProductsQuery().ToListAsync(cancellationToken);
@@ -117,9 +118,9 @@ public sealed class ProductGroupService(
 
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var subscriberId = GetSubscriberId();
+        var companyId = GetCompanyId();
         var group = await dbContext.ProductGroups
-            .FirstOrDefaultAsync(x => x.SubscriberId == subscriberId && x.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (group is null)
         {
             return false;
@@ -134,11 +135,12 @@ public sealed class ProductGroupService(
     }
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
+    private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
 
     private IQueryable<Product> GetOwnedProductsQuery() =>
         dbContext.Products
             .Include(x => x.Company)
-            .Where(x => dbContext.Companies.Any(company => company.Id == x.CompanyId && company.SubscriberId == GetSubscriberId()));
+            .Where(x => x.CompanyId == GetCompanyId());
 
     private static string NormalizeName(string? value)
     {
@@ -154,11 +156,11 @@ public sealed class ProductGroupService(
     private static string NormalizeDescription(string? value) =>
         string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
 
-    private async Task EnsureUniqueNameAsync(Guid subscriberId, string name, Guid? excludeId, CancellationToken cancellationToken)
+    private async Task EnsureUniqueNameAsync(Guid companyId, string name, Guid? excludeId, CancellationToken cancellationToken)
     {
         var normalizedName = name.ToLowerInvariant();
         var exists = await dbContext.ProductGroups.AnyAsync(
-            x => x.SubscriberId == subscriberId
+            x => x.CompanyId == companyId
                 && x.Id != excludeId
                 && x.Name.ToLower() == normalizedName,
             cancellationToken);

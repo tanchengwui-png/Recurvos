@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { Customer, GoodsReceivedNote, GoodsReceivedNoteListItem, MasterDataSnapshot, PaymentTerm, PurchaseBill, PurchaseOrder, PurchaseOrderListItem } from "../types";
@@ -239,11 +241,9 @@ export function PurchaseBillFormPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Create Purchase Bill</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate(backPath)}>Back</button>
-      </header>
+      <FormPageHeader backLabel="Back to Bills" backHref={backPath} breadcrumbs={<><span>Bills</span><span>/</span><span>New Bill</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <TransactionFormCard title="Bill details" description="Supplier, dates, source document and bill lines.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           <label className="form-label">
@@ -322,6 +322,7 @@ export function PurchaseBillFormPage() {
           <button type="button" className="button button-primary" onClick={() => void submit()}>Create bill</button>
         </div>
       </section>
+      </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>
   );

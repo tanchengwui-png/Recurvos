@@ -29,8 +29,8 @@ public sealed class MasterDataService(
 
     public async Task<IReadOnlyCollection<WarehouseDto>> ListWarehousesAsync(MasterDataQueryRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureDefaultsAsync(cancellationToken);
-        var companyId = GetCompanyId();
+        var companyId = await ResolveCompanyIdAsync(request.CompanyId, cancellationToken);
+        await EnsureDefaultsAsync(companyId, cancellationToken);
         var search = BuildSearchPattern(request.Search);
 
         var items = await dbContext.Warehouses
@@ -155,8 +155,8 @@ public sealed class MasterDataService(
 
     public async Task<IReadOnlyCollection<TaxCodeDto>> ListTaxCodesAsync(TaxCodeQueryRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureDefaultsAsync(cancellationToken);
-        var companyId = GetCompanyId();
+        var companyId = await ResolveCompanyIdAsync(request.CompanyId, cancellationToken);
+        await EnsureDefaultsAsync(companyId, cancellationToken);
         var search = BuildSearchPattern(request.Search);
 
         var items = await dbContext.TaxCodes
@@ -280,8 +280,8 @@ public sealed class MasterDataService(
 
     public async Task<IReadOnlyCollection<CurrencyDefinitionDto>> ListCurrenciesAsync(MasterDataQueryRequest request, CancellationToken cancellationToken = default)
     {
-        await EnsureDefaultsAsync(cancellationToken);
-        var companyId = GetCompanyId();
+        var companyId = await ResolveCompanyIdAsync(request.CompanyId, cancellationToken);
+        await EnsureDefaultsAsync(companyId, cancellationToken);
         var search = BuildSearchPattern(request.Search);
 
         var items = await dbContext.CurrencyDefinitions
@@ -469,10 +469,30 @@ public sealed class MasterDataService(
 
     private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
 
-    private async Task EnsureDefaultsAsync(CancellationToken cancellationToken)
+    private async Task<Guid> ResolveCompanyIdAsync(Guid? requestedCompanyId, CancellationToken cancellationToken)
     {
-        var companyId = GetCompanyId();
+        var currentCompanyId = GetCompanyId();
+        if (!requestedCompanyId.HasValue || requestedCompanyId.Value == currentCompanyId)
+        {
+            return currentCompanyId;
+        }
 
+        var userId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
+        var isAccessible = await dbContext.CompanyMemberships.AnyAsync(membership => membership.CompanyId == requestedCompanyId.Value
+            && membership.UserId == userId && membership.IsActive, cancellationToken);
+        if (!isAccessible)
+        {
+            throw new UnauthorizedAccessException();
+        }
+
+        return requestedCompanyId.Value;
+    }
+
+    private Task EnsureDefaultsAsync(CancellationToken cancellationToken) =>
+        EnsureDefaultsAsync(GetCompanyId(), cancellationToken);
+
+    private async Task EnsureDefaultsAsync(Guid companyId, CancellationToken cancellationToken)
+    {
         if (!await dbContext.Warehouses.AnyAsync(x => x.CompanyId == companyId, cancellationToken))
         {
             dbContext.Warehouses.Add(new Warehouse

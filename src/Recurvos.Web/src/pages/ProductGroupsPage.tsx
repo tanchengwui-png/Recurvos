@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { RecordDetailsModal } from "../components/RecordDetailsModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
+import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormSection } from "../components/ui/FormSection";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import type { ProductGroup, ProductGroupProductLookup } from "../types";
@@ -130,10 +133,6 @@ export function ProductGroupsPage() {
     setIsEditorOpen(true);
   }
 
-  function openDetails(group: ProductGroup) {
-    setExpandedGroupId((current) => current === group.id ? null : group.id);
-  }
-
   function resetEditor() {
     setEditor(emptyEditor());
     setProductNameSearch("");
@@ -217,7 +216,7 @@ export function ProductGroupsPage() {
 
   function getGroupActions(group: ProductGroup) {
     return [
-      { label: expandedGroupId === group.id ? "Hide details" : "View details", onClick: () => openDetails(group) },
+      { label: "View details", onClick: () => setExpandedGroupId(group.id) },
       { label: "Edit group", onClick: () => openEdit(group) },
       { label: "Delete group", onClick: () => requestDelete(group) },
     ];
@@ -319,12 +318,7 @@ export function ProductGroupsPage() {
       </section>
 
       {expandedGroup ? (
-        <section className="card">
-          <div className="card-section-header">
-            <div className="section-header-cluster">
-              <h3 className="section-title">Product group details</h3>
-            </div>
-          </div>
+        <RecordDetailsModal eyebrow="Product group summary" title={expandedGroup.name} subtitle={`${expandedGroup.productsCount} product${expandedGroup.productsCount === 1 ? "" : "s"} assigned`} onClose={() => setExpandedGroupId(null)} actions={<button type="button" className="button button-secondary button-compact" onClick={() => openEdit(expandedGroup)}>Edit group</button>}>
           <div className="company-detail-grid">
             <div className="company-detail-item">
               <span>Group Name</span>
@@ -379,7 +373,7 @@ export function ProductGroupsPage() {
               </div>
             )}
           </div>
-        </section>
+        </RecordDetailsModal>
       ) : null}
 
       {isEditorOpen ? (
@@ -387,10 +381,6 @@ export function ProductGroupsPage() {
           <div className="card-section-header">
             <div className="section-header-cluster">
               <h3 className="section-title">{editor.id ? "Edit product group" : "Create product group"}</h3>
-            </div>
-            <div className="contact-page-actions">
-              <button type="button" className="button button-secondary" onClick={resetEditor}>Cancel</button>
-              <button type="button" className="button button-primary" onClick={() => void submit()}>{editor.id ? "Update group" : "Save group"}</button>
             </div>
           </div>
 
@@ -405,105 +395,54 @@ export function ProductGroupsPage() {
             </label>
           </div>
 
-          <section className="contact-selection-panel">
-            <div className="company-profile-address-header">
-              <h4 className="section-title">Products</h4>
-              <p className="muted">Search, filter, and assign multiple products to this group.</p>
-            </div>
+          <section className="product-group-assignment-card" aria-label="Product assignment">
+            <FormSection number="01" title="Search and filter products" description="Use the filters below to find the products you want to add to this group.">
+              <div className="product-group-filter-grid">
+                <label className="form-label product-group-filter-field">Product Name<input className="text-input" value={productNameSearch} onChange={(event) => setProductNameSearch(event.target.value)} placeholder="Search by product name" /></label>
+                <label className="form-label product-group-filter-field">SKU / Code<input className="text-input" value={productCodeSearch} onChange={(event) => setProductCodeSearch(event.target.value)} placeholder="Search by SKU or code" /></label>
+                <label className="form-label product-group-filter-field">Barcode<input className="text-input" value={barcodeSearch} onChange={(event) => setBarcodeSearch(event.target.value)} placeholder="Search by barcode" /></label>
+                <label className="form-label product-group-filter-field">Is Selling<select value={sellingFilter} onChange={(event) => setSellingFilter(event.target.value as YesNoFilter)}><option value="all">Is Selling: All</option><option value="yes">Is Selling: Yes</option><option value="no">Is Selling: No</option></select></label>
+                <label className="form-label product-group-filter-field">Is Buying<select value={buyingFilter} onChange={(event) => setBuyingFilter(event.target.value as YesNoFilter)}><option value="all">Is Buying: All</option><option value="yes">Is Buying: Yes</option><option value="no">Is Buying: No</option></select></label>
+                <label className="form-label product-group-filter-field">Track Inventory<select value={inventoryFilter} onChange={(event) => setInventoryFilter(event.target.value as YesNoFilter)}><option value="all">Track Inventory: All</option><option value="yes">Track Inventory: Yes</option><option value="no">Track Inventory: No</option></select></label>
+                <label className="product-group-filter-toggle"><input type="checkbox" checked={showSelectedOnly} onChange={(event) => setShowSelectedOnly(event.target.checked)} /><span>Show only selected</span></label>
+                <button type="button" className="button button-secondary product-group-filter-action" onClick={selectAllFiltered}>Select all</button>
+              </div>
+              <button type="button" className="button button-secondary product-group-clear-selection" onClick={() => setEditor((current) => ({ ...current, selectedProductIds: [] }))}>Clear selection</button>
+            </FormSection>
 
-            <div className="catalog-toolbar card subtle-card contact-selection-toolbar">
-              <input
-                aria-label="Search products by name"
-                className="text-input"
-                value={productNameSearch}
-                onChange={(event) => setProductNameSearch(event.target.value)}
-                placeholder="Product Name"
-              />
-              <input
-                aria-label="Search products by code"
-                className="text-input"
-                value={productCodeSearch}
-                onChange={(event) => setProductCodeSearch(event.target.value)}
-                placeholder="SKU / Code"
-              />
-              <input
-                aria-label="Search products by barcode"
-                className="text-input"
-                value={barcodeSearch}
-                onChange={(event) => setBarcodeSearch(event.target.value)}
-                placeholder="Barcode"
-              />
-              <select aria-label="Filter products by selling status" value={sellingFilter} onChange={(event) => setSellingFilter(event.target.value as YesNoFilter)}>
-                <option value="all">Is Selling: All</option>
-                <option value="yes">Is Selling: Yes</option>
-                <option value="no">Is Selling: No</option>
-              </select>
-              <select aria-label="Filter products by buying status" value={buyingFilter} onChange={(event) => setBuyingFilter(event.target.value as YesNoFilter)}>
-                <option value="all">Is Buying: All</option>
-                <option value="yes">Is Buying: Yes</option>
-                <option value="no">Is Buying: No</option>
-              </select>
-              <select aria-label="Filter products by inventory tracking" value={inventoryFilter} onChange={(event) => setInventoryFilter(event.target.value as YesNoFilter)}>
-                <option value="all">Track Inventory: All</option>
-                <option value="yes">Track Inventory: Yes</option>
-                <option value="no">Track Inventory: No</option>
-              </select>
-              <label className="contact-selection-toggle">
-                <input type="checkbox" checked={showSelectedOnly} onChange={(event) => setShowSelectedOnly(event.target.checked)} />
-                <span>Show only selected</span>
-              </label>
-              <button type="button" className="button button-secondary" onClick={selectAllFiltered}>Select all</button>
-              <button type="button" className="button button-secondary" onClick={() => setEditor((current) => ({ ...current, selectedProductIds: [] }))}>Clear selection</button>
-            </div>
-
-            <div className="table-scroll table-scroll-bounded">
-              <table className="catalog-table customer-table contact-selection-table">
-                <thead>
-                  <tr>
-                    <th>
-                      <input type="checkbox" aria-label="Select all products on this page" checked={pageFullySelected} onChange={(event) => togglePageSelection(event.target.checked)} />
-                    </th>
-                    <th>Product Name</th>
-                    <th>SKU / Code</th>
-                    <th>Barcode</th>
-                    <th>Is Selling</th>
-                    <th>Is Buying</th>
-                    <th>Track Inventory</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.length === 0 ? (
-                    <EmptyTableRow
-                      colSpan={7}
-                      title="No products available"
-                      description="Create products first before assigning them to a group."
-                      actions={<button type="button" className="button button-primary" onClick={() => navigate("/products/new")}>Add product</button>}
-                    />
-                  ) : filteredProducts.length === 0 ? (
-                    <EmptyTableRow
-                      colSpan={7}
-                      title="No matching products"
-                      description="Try a different search term or filter to find products for this group."
-                    />
-                  ) : pagination.pagedItems.map((product) => (
-                    <tr key={product.id}>
-                      <td>
-                        <input type="checkbox" checked={selectedProductIdSet.has(product.id)} onChange={(event) => toggleProduct(product.id, event.target.checked)} aria-label={`Select ${product.name}`} />
-                      </td>
-                      <td>{product.name}</td>
-                      <td>{product.code}</td>
-                      <td>{product.barcode || "-"}</td>
-                      <td>{product.isSelling ? "Yes" : "No"}</td>
-                      <td>{product.isBuying ? "Yes" : "No"}</td>
-                      <td>{product.trackInventory ? "Yes" : "No"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
+            <FormSection number="02" title="Select products" description="Select one or more products from the list below." actions={<span className="product-group-selected-count" aria-live="polite">{editor.selectedProductIds.length} selected</span>}>
+              <div className="product-group-selection-table-container">
+                <div className="table-scroll table-scroll-bounded">
+                  <table className="catalog-table customer-table contact-selection-table">
+                    <thead>
+                      <tr>
+                        <th><input type="checkbox" aria-label="Select all products on this page" checked={pageFullySelected} onChange={(event) => togglePageSelection(event.target.checked)} /></th>
+                        <th>Product Name</th><th>SKU / Code</th><th>Barcode</th><th>Is Selling</th><th>Is Buying</th><th>Track Inventory</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {products.length === 0 ? (
+                        <EmptyTableRow colSpan={7} title="No products available" description="Create products first before assigning them to a group." actions={<button type="button" className="button button-primary" onClick={() => navigate("/products/new")}>Add product</button>} />
+                      ) : filteredProducts.length === 0 ? (
+                        <EmptyTableRow colSpan={7} title="No products found" description="Try adjusting your search filters." />
+                      ) : pagination.pagedItems.map((product) => (
+                        <tr key={product.id} className={selectedProductIdSet.has(product.id) ? "product-group-selection-row-selected" : ""}>
+                          <td><input type="checkbox" checked={selectedProductIdSet.has(product.id)} onChange={(event) => toggleProduct(product.id, event.target.checked)} aria-label={`Select ${product.name}`} /></td>
+                          <td>{product.name}</td><td>{product.code}</td><td>{product.barcode || "-"}</td><td>{product.isSelling ? "Yes" : "No"}</td><td>{product.isBuying ? "Yes" : "No"}</td><td>{product.trackInventory ? "Yes" : "No"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="product-group-selection-pagination"><TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} /></div>
+              </div>
+            </FormSection>
           </section>
+
+          <FormActionSection className="product-group-editor-actions">
+            <p aria-live="polite">{editor.selectedProductIds.length} product{editor.selectedProductIds.length === 1 ? "" : "s"} selected</p>
+            <div><button type="button" className="button button-secondary" onClick={resetEditor}>Cancel</button><button type="button" className="button button-primary" onClick={() => void submit()}>{editor.id ? "Update group" : "Save group"}</button></div>
+          </FormActionSection>
         </section>
       ) : null}
 

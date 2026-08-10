@@ -158,6 +158,8 @@ public sealed record ProductListItemDto(
     IReadOnlyCollection<string> ProductGroups,
     decimal? SalesPrice,
     decimal? PurchasePrice,
+    bool IsSelling,
+    bool IsBuying,
     string BaseUnitLabel,
     bool HasMultipleUoms,
     IReadOnlyCollection<ProductUomConversionDto> UomConversions,

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { ListToolbar } from "../components/ListToolbar";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -11,6 +13,7 @@ import type { CompanyLookup, SalesOrderListItem } from "../types";
 
 export function SalesOrdersPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [items, setItems] = useState<SalesOrderListItem[]>([]);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [search, setSearch] = useState("");
@@ -44,7 +47,7 @@ export function SalesOrdersPage() {
 
   function getActions(item: SalesOrderListItem) {
     return [
-      { label: "View", onClick: () => navigate(`/sales/orders/${item.id}`) },
+      { label: "View details", onClick: () => navigate(`/sales/orders/${item.id}`, { state: { backgroundLocation: location } }) },
       ...((item.status === "Draft" || item.status === "Confirmed") ? [{ label: "Edit", onClick: () => navigate(`/sales/orders/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{ label: "Confirm", onClick: async () => { await api.patch(`/sales/orders/${item.id}/status`, { status: "Confirmed" }); await load(); } }] : []),
       ...((item.status === "Confirmed" || item.status === "PartiallyDelivered") ? [{ label: "Create Delivery Order", onClick: () => navigate(`/sales/delivery-orders/new?salesOrderId=${item.id}`) }] : []),
@@ -72,11 +75,7 @@ export function SalesOrdersPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Sales Orders</h2></div>
-        <button type="button" className="button button-primary" onClick={() => navigate("/sales/orders/new")}>Create sales order</button>
-      </header>
-      <div className="catalog-toolbar card subtle-card">
+      <ListToolbar>
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sales order number, contact, or reference" />
         <select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>
           <option value="">All companies</option>
@@ -92,8 +91,14 @@ export function SalesOrdersPage() {
           <option value="Cancelled">Cancelled</option>
         </select>
         <select aria-label="Sort sales orders" value={sort} onChange={(event) => setSort(event.target.value as typeof sort)}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="number">Order number</option><option value="amount-desc">Highest total</option></select>
-      </div>
+      </ListToolbar>
       <section className="card">
+        <ListCardHeader
+          title="Sales orders"
+          count={sortedItems.length}
+          countLabel={sortedItems.length === 1 ? "order" : "orders"}
+          actions={<button type="button" className="button button-primary" onClick={() => navigate("/sales/orders/new")}>Create sales order</button>}
+        />
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Sales Order No</th><th>Date</th><th>Contact</th><th>Source Quotation</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>

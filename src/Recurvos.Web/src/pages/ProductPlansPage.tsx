@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { ListToolbar } from "../components/ListToolbar";
 import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { Button } from "../components/ui/Button";
@@ -176,7 +178,7 @@ export function ProductPlansPage() {
 
   function getPlanActions(plan: ProductPlan) {
     return [
-      { label: expandedId === plan.id ? "Hide details" : "View details", onClick: () => setExpandedId((current) => current === plan.id ? null : plan.id) },
+      { label: "View details", onClick: () => setExpandedId(plan.id) },
       { label: "Edit plan", onClick: () => navigate(`/plans/${plan.id}/edit`) },
       ...(plan.isInUse ? [{ label: "Duplicate plan", onClick: () => navigate("/plans/new", { state: { duplicatePlanId: plan.id } }) }] : []),
       plan.isActive && plan.isDefault
@@ -243,7 +245,7 @@ export function ProductPlansPage() {
       </header>
       <ResponseToast message={message} tone="success" />
 
-      <div className="catalog-toolbar card subtle-card pwa-filter-bar">
+      <ListToolbar className="pwa-filter-bar">
         <select aria-label="Filter plans by product" value={selectedProductId} onChange={(event) => setSelectedProductId(event.target.value)}>
           <option value="">All products</option>
           {products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
@@ -258,16 +260,11 @@ export function ProductPlansPage() {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
-      </div>
+      </ListToolbar>
 
       <section className="card">
         {actionError ? <HelperText tone="error">{actionError}</HelperText> : null}
-        <div className="card-section-header">
-          <div>
-            <h3 className="section-title">Plans and pricing</h3>
-          </div>
-          <button type="button" className="button button-primary" onClick={() => navigate("/plans/new")}>Add plan</button>
-        </div>
+        <ListCardHeader title="Plans and pricing" count={plans.length} countLabel={plans.length === 1 ? "plan" : "plans"} actions={<button type="button" className="button button-primary" onClick={() => navigate("/plans/new")}>Add plan</button>} />
         <div className="subscription-mobile-list">
           {plans.map((plan) => {
             const taxInclusiveAmount = calculateTaxInclusiveAmount(plan.unitAmount);
@@ -420,9 +417,9 @@ export function ProductPlansPage() {
         />
       </section>
       {selectedPlan ? (
-        <div className="modal-backdrop invoice-detail-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
-          <div className="card invoice-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="plan-detail-title" onClick={(event) => event.stopPropagation()}>
-            <div className="invoice-detail-drawer-header">
+        <div className="modal-backdrop product-preview-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
+          <div className="card product-preview-modal" role="dialog" aria-modal="true" aria-labelledby="plan-detail-title" onClick={(event) => event.stopPropagation()}>
+            <div className="product-preview-modal-header">
               <div>
                 <p className="eyebrow">Plan detail</p>
                 <h3 id="plan-detail-title">{selectedPlan.planName}</h3>
@@ -442,7 +439,7 @@ export function ProductPlansPage() {
                 <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
               </div>
             </div>
-            <div className="invoice-detail-drawer-body">
+            <div className="product-preview-modal-body">
               <div className="invoice-detail-panel">
                 <div className="invoice-detail-summary">
                   <div className="invoice-detail-stat"><p className="eyebrow">Amount</p><strong>{formatCurrency(selectedPlan.unitAmount, selectedPlan.currency)}</strong></div>

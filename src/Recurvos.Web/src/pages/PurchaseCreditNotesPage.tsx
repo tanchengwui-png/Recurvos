@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { ListToolbar } from "../components/ListToolbar";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -12,6 +14,7 @@ import type { PurchaseCreditNote, PurchaseCreditNoteListItem } from "../types";
 
 export function PurchaseCreditNotesPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [items, setItems] = useState<PurchaseCreditNoteListItem[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -39,7 +42,7 @@ export function PurchaseCreditNotesPage() {
 
   function getActions(item: PurchaseCreditNoteListItem) {
     return [
-      { label: "View", onClick: () => navigate(`/purchases/credit-notes/${item.id}`) },
+      { label: "View details", onClick: () => navigate(`/purchases/credit-notes/${item.id}`, { state: { backgroundLocation: location } }) },
       ...(item.status === "Applied" ? [{
         label: "Cancel",
         onClick: () => setConfirmState({
@@ -58,20 +61,17 @@ export function PurchaseCreditNotesPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Purchase Credit Notes</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/bills")}>Create from purchase bill</button>
-      </header>
       <ResponseToast message={message} tone="success" />
-      <div className="catalog-toolbar card subtle-card">
+      <ListToolbar>
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search credit note, bill, or supplier" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
           <option value="Applied">Applied</option>
           <option value="Cancelled">Cancelled</option>
         </select>
-      </div>
+      </ListToolbar>
       <section className="card">
+        <ListCardHeader title="Purchase credit notes" count={pagination.totalItems} countLabel={pagination.totalItems === 1 ? "credit note" : "credit notes"} actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/bills")}>Create from purchase bill</button>} />
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Credit Note No</th><th>Date</th><th>Supplier</th><th>Purchase Bill</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>

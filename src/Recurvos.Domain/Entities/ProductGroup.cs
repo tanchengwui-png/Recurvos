@@ -4,6 +4,7 @@ namespace Recurvos.Domain.Entities;
 
 public sealed class ProductGroup : BaseEntity
 {
+    public Guid CompanyId { get; set; }
     public Guid SubscriberId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;

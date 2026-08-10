@@ -1133,8 +1133,19 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_ContactGroups_SubscriberId_Name"
-            ON "ContactGroups" ("SubscriberId", "Name");
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'ContactGroups'
+                      AND column_name = 'CompanyId'
+                ) THEN
+                    CREATE UNIQUE INDEX IF NOT EXISTS "IX_ContactGroups_SubscriberId_Name"
+                    ON "ContactGroups" ("SubscriberId", "Name");
+                END IF;
+            END $$;
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
@@ -1155,8 +1166,19 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""
-            CREATE UNIQUE INDEX IF NOT EXISTS "IX_ProductGroups_SubscriberId_Name"
-            ON "ProductGroups" ("SubscriberId", "Name");
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'ProductGroups'
+                      AND column_name = 'CompanyId'
+                ) THEN
+                    CREATE UNIQUE INDEX IF NOT EXISTS "IX_ProductGroups_SubscriberId_Name"
+                    ON "ProductGroups" ("SubscriberId", "Name");
+                END IF;
+            END $$;
             """, cancellationToken);
 
         await dbContext.Database.ExecuteSqlRawAsync("""

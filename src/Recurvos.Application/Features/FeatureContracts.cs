@@ -8,6 +8,8 @@ public static class PlatformFeatureKeys
     public const string AutoInvoiceGeneration = "auto_invoice_generation";
     public const string EmailReminders = "email_reminders";
     public const string BasicReports = "basic_reports";
+    public const string GrowthReports = "growth_reports";
+    public const string PremiumReports = "premium_reports";
     public const string PaymentTracking = "payment_tracking";
     public const string FinanceExports = "finance_exports";
     public const string DunningWorkflows = "dunning_workflows";

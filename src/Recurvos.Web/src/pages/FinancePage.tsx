@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { HelperText } from "../components/ui/HelperText";
 import { getAuth } from "../lib/auth";
 import { api } from "../lib/api";
+import { hasFeature } from "../lib/features";
 import type { FeatureAccess } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
@@ -69,7 +70,7 @@ export function FinancePage() {
     void api.get<FeatureAccess>("/settings/feature-access").then(setFeatureAccess).catch(() => setFeatureAccess(null));
   }, []);
 
-  const financeEnabled = featureAccess?.featureKeys.includes("finance_exports") ?? false;
+  const financeEnabled = hasFeature(featureAccess, "finance_exports");
   const financeHint = featureAccess?.featureRequirements?.find((item) => item.featureKey === "finance_exports");
 
   const exportRangeLabel = useMemo(

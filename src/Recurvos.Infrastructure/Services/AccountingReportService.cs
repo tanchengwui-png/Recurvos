@@ -77,7 +77,8 @@ public sealed class AccountingReportService(AppDbContext db, ICurrentUserService
     private async Task<ReportContext> LoadContextAsync(AccountingReportQuery query, CancellationToken ct)
     {
         if (!query.CompanyId.HasValue || query.CompanyId == Guid.Empty) throw new InvalidOperationException("Company is required.");
-        var company = await db.Companies.FirstOrDefaultAsync(x => x.Id == query.CompanyId && x.SubscriberId == UserId, ct) ?? throw new UnauthorizedAccessException();
+        var activeCompanyId = currentUser.CompanyId ?? throw new UnauthorizedAccessException();
+        var company = await db.Companies.FirstOrDefaultAsync(x => x.Id == query.CompanyId && x.Id == activeCompanyId, ct) ?? throw new UnauthorizedAccessException();
         var from = query.FromDateUtc?.ToUniversalTime().Date ?? DateTime.UtcNow.Date.AddDays(-30); var to = (query.ToDateUtc?.ToUniversalTime().Date ?? DateTime.UtcNow.Date).AddDays(1);
         if (to <= from) throw new InvalidOperationException("The end date must be on or after the start date.");
         return new(company.Id, company.Name, company.Currency, from, to);

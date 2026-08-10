@@ -3,6 +3,8 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { Button } from "../components/ui/Button";
 import { FormLabel } from "../components/ui/FormLabel";
+import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { HelperText } from "../components/ui/HelperText";
 import { TextInput } from "../components/ui/TextInput";
 import { fetchProductPlans } from "../hooks/useProductPlans";
@@ -185,15 +187,12 @@ export function ProductPlanFormPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>{form.id ? "Update billing plan" : "Create billing plan"}</h2>
-        </div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/plans")}>Back to plans</button>
-      </header>
-      <section className="card subscription-create-page-card">
-        <form className="form-stack" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+    <div className="page form-page">
+      <FormPageHeader backLabel="Back to Plans" backHref="/plans" breadcrumbs={<><span>Plans</span><span>/</span><span>{form.id ? "Edit Plan" : "New Plan"}</span></>} />
+        <form className="form-stack form-page-content" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+          <section className="form-section-card">
+            <div className="form-section-card-header"><span className="form-section-card-number">01</span><div><h3>Plan details</h3><p>Product, billing cycle and pricing settings.</p></div></div>
+            <div className="form-section-card-body form-page-field-grid">
           {billingTermsLocked ? (
             <HelperText>This plan already has subscribed customers. Billing terms are locked here. Duplicate the plan to create new pricing for future subscriptions.</HelperText>
           ) : null}
@@ -216,13 +215,17 @@ export function ProductPlanFormPage() {
           ) : null}
           <label className="checkbox-row"><input type="checkbox" checked={form.isDefault} onChange={(event) => setForm((current) => ({ ...current, isDefault: event.target.checked }))} /> Default plan</label>
           <label className="checkbox-row"><input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} /> Active</label>
+            </div>
+          </section>
           {formError ? <HelperText tone="error">{formError}</HelperText> : <HelperText>{billingTermsLocked ? "Safe edits only: name, code, default flag, and active status. Duplicate the plan to change price or billing cycle." : "Use an uppercase code like STARTER-MONTHLY."}</HelperText>}
-          <div className="subscription-create-actions">
-            <Button type="submit" disabled={isSubmitting || !form.productId}>{isSubmitting ? "Saving..." : form.id ? "Update Plan" : "Create Plan"}</Button>
+          <FormActionSection>
+            <p>{billingTermsLocked ? "Only safe plan details can be changed while subscriptions exist." : "Review the billing cycle and price before saving."}</p>
+            <div>
             <Button type="button" variant="secondary" onClick={() => navigate("/plans")}>Cancel</Button>
-          </div>
+            <Button type="submit" disabled={isSubmitting || !form.productId}>{isSubmitting ? "Saving..." : form.id ? "Update plan" : "Create plan"}</Button>
+            </div>
+          </FormActionSection>
         </form>
-      </section>
       <ConfirmModal
         open={confirmState !== null}
         title={confirmState?.title ?? ""}

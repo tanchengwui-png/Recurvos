@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { ListToolbar } from "../components/ListToolbar";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -12,6 +14,7 @@ import type { PurchasePayment, PurchasePaymentListItem } from "../types";
 
 export function PurchasePaymentsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [items, setItems] = useState<PurchasePaymentListItem[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -38,7 +41,7 @@ export function PurchasePaymentsPage() {
 
   function getActions(item: PurchasePaymentListItem) {
     return [
-      { label: "View", onClick: () => navigate(`/purchases/payments/${item.id}`) },
+      { label: "View details", onClick: () => navigate(`/purchases/payments/${item.id}`, { state: { backgroundLocation: location } }) },
       ...(item.status === "Posted" && item.refundedAmount < item.totalAmount ? [{
         label: "Record Refund",
         onClick: () => navigate(`/purchases/refunds/new?purchasePaymentId=${item.id}`),
@@ -61,23 +64,17 @@ export function PurchasePaymentsPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Purchase Payments</h2></div>
-        <div className="invoice-detail-inline-actions">
-          <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/refunds")}>View refunds</button>
-          <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/bills")}>Create from purchase bills</button>
-        </div>
-      </header>
-      <ResponseToast message={message} tone="success" />
-      <div className="catalog-toolbar card subtle-card">
+      <ListToolbar>
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search payment number or supplier" />
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">All statuses</option>
           <option value="Posted">Posted</option>
           <option value="Reversed">Reversed</option>
         </select>
-      </div>
+      </ListToolbar>
+      <ResponseToast message={message} tone="success" />
       <section className="card">
+        <ListCardHeader title="Purchase payments" count={pagination.totalItems} countLabel={pagination.totalItems === 1 ? "payment" : "payments"} actions={<div className="invoice-detail-inline-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/purchases/refunds")}>View refunds</button><button type="button" className="button button-secondary" onClick={() => navigate("/purchases/bills")}>Create from purchase bills</button></div>} />
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Payment No</th><th>Date</th><th>Supplier</th><th>Total</th><th>Refunded</th><th>Status</th><th>Action</th></tr></thead>

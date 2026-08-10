@@ -3,13 +3,17 @@ import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { StandardFormLayout } from "../components/ui/StandardFormLayout";
+import { AccountSelect } from "../components/ui/AccountSelect";
 import { PhoneNumberField } from "../components/ui/PhoneNumberField";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api } from "../lib/api";
 import { countryOptions, currencyOptions, malaysiaStateOptions } from "../lib/localeOptions";
 import { combinePhoneNumber, splitStoredPhoneNumber } from "../lib/phoneNumbers";
 import type { SearchableSelectOption } from "../lib/localeOptions";
-import type { ContactAddress, ContactGroup, ContactPerson, Customer, MasterDataSnapshot } from "../types";
+import type { CompanyLookup, ContactAddress, ContactGroup, ContactPerson, Customer, MasterDataSnapshot } from "../types";
 
 const contactTypeOptions = ["Customer", "Supplier", "Employee"] as const;
 const entityTypeOptions = ["Company", "Individual", "General Public", "Foreign Company", "Foreign Individual", "Exempted Person"] as const;
@@ -25,6 +29,7 @@ const contactRegistrationNumberTypeOptions: SearchableSelectOption[] = [
 ];
 
 type ContactFormState = {
+  companyIds: string[];
   legalName: string;
   otherName: string;
   entityType: Customer["entityType"];
@@ -75,6 +80,7 @@ const emptyAddress = (): ContactAddress => ({
 });
 
 const emptyForm = (): ContactFormState => ({
+  companyIds: [],
   legalName: "",
   otherName: "",
   entityType: "Company",
@@ -374,25 +380,30 @@ export function CustomerFormPage() {
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const [form, setForm] = useState<ContactFormState>(emptyForm);
   const [expandedAddressIndexes, setExpandedAddressIndexes] = useState<number[]>(() => editingCustomerId ? [] : [0]);
+  const [expandedContactPersonIndexes, setExpandedContactPersonIndexes] = useState<number[]>(() => editingCustomerId ? [] : [0]);
   const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
   const [contactTagOptions, setContactTagOptions] = useState<string[]>([]);
   const [masterData, setMasterData] = useState<MasterDataSnapshot | null>(null);
+  const [companies, setCompanies] = useState<CompanyLookup[]>([]);
 
   useEffect(() => {
     async function loadReferenceData() {
       try {
-        const [groups, snapshot, contacts] = await Promise.all([
+        const [groups, snapshot, contacts, companyList] = await Promise.all([
           api.get<ContactGroup[]>("/contact-groups"),
           api.get<MasterDataSnapshot>("/master-data"),
           api.get<Customer[]>("/customers").catch(() => []),
+          api.get<CompanyLookup[]>("/companies").catch(() => []),
         ]);
         setContactGroups(groups);
         setMasterData(snapshot);
         setContactTagOptions(normalizeUniqueStrings(contacts.flatMap((contact) => contact.tags ?? [])));
+        setCompanies(companyList);
       } catch {
         setContactGroups([]);
         setContactTagOptions([]);
         setMasterData(null);
+        setCompanies([]);
       }
     }
 
@@ -419,6 +430,7 @@ export function CustomerFormPage() {
           : [{ ...emptyAddress(), isDefaultBilling: true, isDefaultShipping: true }]);
 
       setForm({
+        companyIds: customer.companyIds ?? [],
         legalName: customer.legalName || customer.name,
         otherName: customer.otherName || "",
         entityType: customer.entityType || "Company",
@@ -448,6 +460,7 @@ export function CustomerFormPage() {
         externalReference: customer.externalReference || "",
       });
       setExpandedAddressIndexes([]);
+      setExpandedContactPersonIndexes([]);
     }
 
     void load();
@@ -474,8 +487,6 @@ export function CustomerFormPage() {
   const accountOptions = buildAccountOptions(masterData?.accounts);
   const receivableAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Asset"));
   const payableAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Liability"));
-  const incomeAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Revenue"));
-  const expenseAccountOptions = accountOptions.filter((option) => option.keywords?.includes("Expense"));
   const masterCurrencyOptions = buildCurrencyOptions(masterData?.currencies, form.currency, availableCurrencyOptions);
   const paymentTermOptions = buildPaymentTermOptions(masterData?.paymentTerms, form.paymentTerm);
   const priceLevelOptions = buildPriceLevelOptions(masterData?.priceLevels, form.priceLevel);
@@ -527,10 +538,12 @@ export function CustomerFormPage() {
   }
 
   function addContactPerson() {
+    const nextIndex = form.contactPersons.length;
     setForm((current) => ({
       ...current,
       contactPersons: [...current.contactPersons, emptyContactPerson()],
     }));
+    setExpandedContactPersonIndexes((current) => current.includes(nextIndex) ? current : [...current, nextIndex]);
   }
 
   function removeContactPerson(index: number) {
@@ -538,6 +551,15 @@ export function CustomerFormPage() {
       ...current,
       contactPersons: current.contactPersons.length === 1 ? [emptyContactPerson()] : current.contactPersons.filter((_, personIndex) => personIndex !== index),
     }));
+    setExpandedContactPersonIndexes((current) => current
+      .filter((personIndex) => personIndex !== index)
+      .map((personIndex) => personIndex > index ? personIndex - 1 : personIndex));
+  }
+
+  function toggleContactPersonExpanded(index: number) {
+    setExpandedContactPersonIndexes((current) => current.includes(index)
+      ? current.filter((personIndex) => personIndex !== index)
+      : [...current, index]);
   }
 
   function updateAddress(index: number, patch: Partial<ContactAddress>) {
@@ -666,6 +688,7 @@ export function CustomerFormPage() {
     const expenseAccountId = resolveAccountIdByCode(masterData?.accounts, form.expenseAccount);
 
     const payload = {
+      companyIds: form.companyIds,
       name: form.legalName.trim(),
       legalName: form.legalName.trim(),
       otherName: form.otherName.trim(),
@@ -740,20 +763,21 @@ export function CustomerFormPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>{editingCustomerId ? "Update contact profile" : "Create contact profile"}</h2>
-        </div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Back to contacts</button>
-      </header>
-      <section className="card company-profile-card">
-        <form id="customer-create-form" className="form-stack company-profile-form" onSubmit={submit}>
-          <section className="company-profile-section" aria-labelledby="contact-basic-information-title">
-            <div className="company-profile-address-header">
-              <h3 id="contact-basic-information-title" className="section-title">Basic Information</h3>
+    <div className="page contact-create-page">
+      <StandardFormLayout className="contact-create-content standard-form-page">
+      <FormPageHeader backLabel="Back to Contacts" backHref="/customers" breadcrumbs={<><span>Contacts</span><span>/</span><span>{editingCustomerId ? "Edit Contact" : "New Contact"}</span></>} />
+        <form id="customer-create-form" className="form-stack contact-create-form" onSubmit={submit}>
+          <section className="contact-form-section" aria-labelledby="contact-basic-information-title">
+            <div className="contact-form-section-header"><div className="contact-form-section-number" aria-hidden="true">01</div><div><h3 id="contact-basic-information-title">Basic information</h3><p>Identity, registration and tax details.</p></div>
             </div>
             <div className="company-profile-fields-grid">
+              <div className="form-label company-profile-field company-profile-field-wide">
+                Companies
+                <div className="contact-checkbox-group" aria-label="Companies assigned to this contact">
+                  {companies.map((company) => <label key={company.id} className="contact-checkbox-card"><input type="checkbox" checked={form.companyIds.includes(company.id)} onChange={(event) => setForm((current) => ({ ...current, companyIds: event.target.checked ? [...current.companyIds, company.id] : current.companyIds.filter((id) => id !== company.id) }))} />{company.name}</label>)}
+                  {companies.length === 0 ? <span className="muted">No companies available.</span> : null}
+                </div>
+              </div>
               <label className="form-label company-profile-field company-profile-field-wide">
                 Entity Type
                 <select value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value as Customer["entityType"] }))}>
@@ -809,10 +833,8 @@ export function CustomerFormPage() {
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="contact-contact-information-title">
-            <div className="company-profile-address-header">
-              <h3 id="contact-contact-information-title" className="section-title">Contact Information</h3>
-              <p className="muted">The first email address is used as the primary contact for existing billing workflows.</p>
+          <section className="contact-form-section" aria-labelledby="contact-contact-information-title">
+            <div className="contact-form-section-header"><div className="contact-form-section-number" aria-hidden="true">02</div><div><h3 id="contact-contact-information-title">Contact details</h3><p>Phone numbers and email addresses used for billing.</p></div>
             </div>
             <div className="company-profile-fields-grid">
               <div className="form-label company-profile-field company-profile-field-wide">
@@ -838,7 +860,7 @@ export function CustomerFormPage() {
                       </div>
                     );
                   })}
-                  <button type="button" className="button button-secondary" onClick={() => addStringListItem("phoneNumbers")}>+ Add Contact Number</button>
+                  <button type="button" className="contact-secondary-action" onClick={() => addStringListItem("phoneNumbers")}><span aria-hidden="true">+</span>Add phone number</button>
                 </div>
               </div>
               <div className="form-label company-profile-field company-profile-field-wide">
@@ -850,15 +872,14 @@ export function CustomerFormPage() {
                       <button type="button" className="button button-secondary button-small" onClick={() => removeStringListItem("emailAddresses", index)} disabled={form.emailAddresses.length === 1}>Delete</button>
                     </div>
                   ))}
-                  <button type="button" className="button button-secondary" onClick={() => addStringListItem("emailAddresses")}>+ Add Email Address</button>
+                  <button type="button" className="contact-secondary-action" onClick={() => addStringListItem("emailAddresses")}><span aria-hidden="true">+</span>Add email address</button>
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="company-profile-address-section" aria-labelledby="contact-addresses-title">
-            <div className="company-profile-address-header">
-              <h3 id="contact-addresses-title" className="section-title">Addresses</h3>
+          <section className="contact-form-section contact-addresses-section" aria-labelledby="contact-addresses-title">
+            <div className="contact-form-section-header"><div className="contact-form-section-number" aria-hidden="true">03</div><div><h3 id="contact-addresses-title">Addresses</h3><p>Billing, shipping and operating locations.</p></div><button type="button" className="contact-secondary-action" onClick={addAddress}><span aria-hidden="true">+</span>Add address</button>
             </div>
             <div className="company-profile-address-list">
               {form.addresses.map((address, index) => {
@@ -871,7 +892,7 @@ export function CustomerFormPage() {
                     <div className="company-profile-address-card-header">
                       <div className="company-profile-address-card-heading">
                         <div className="company-profile-address-title-row">
-                          <h4>{address.addressName || "Untitled address"}</h4>
+                          <h4>{address.addressName || `Address ${index + 1}`}</h4>
                           {address.isDefaultBilling ? <span className="status-pill status-pill-active status-pill-compact">Billing Default</span> : null}
                           {address.isDefaultShipping ? <span className="status-pill status-pill-active status-pill-compact">Shipping Default</span> : null}
                         </div>
@@ -883,15 +904,15 @@ export function CustomerFormPage() {
                       </div>
                       <div className="company-profile-address-card-actions">
                         {!address.isDefaultBilling ? (
-                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "billing")}>Set Billing</button>
+                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "billing")}>Set as billing default</button>
                         ) : null}
                         {!address.isDefaultShipping ? (
-                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "shipping")}>Set Shipping</button>
+                          <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(index, "shipping")}>Set as shipping default</button>
                         ) : null}
                         <button type="button" className="button button-secondary button-small" onClick={() => toggleAddressExpanded(index)} aria-expanded={isExpanded}>
                           {isExpanded ? "Collapse ▲" : "Expand ▼"}
                         </button>
-                        <button type="button" className="button button-secondary button-small" onClick={() => removeAddress(index)} disabled={form.addresses.length === 1}>Delete</button>
+                        <button type="button" className="button button-secondary button-small" onClick={() => removeAddress(index)} disabled={form.addresses.length === 1}>{`Delete address ${index + 1}`}</button>
                       </div>
                     </div>
                     {isExpanded ? (
@@ -943,27 +964,28 @@ export function CustomerFormPage() {
                 );
               })}
             </div>
-            <div className="company-profile-address-actions">
-              <button type="button" className="button button-secondary" onClick={addAddress}>+ Add Address</button>
-            </div>
           </section>
 
-          <section className="company-profile-section company-profile-separated-section" aria-labelledby="contact-contact-persons-title">
-            <div className="company-profile-address-header">
-              <h3 id="contact-contact-persons-title" className="section-title">Contact Persons</h3>
+          <section className="contact-form-section" aria-labelledby="contact-contact-persons-title">
+            <div className="contact-form-section-header"><div className="contact-form-section-number" aria-hidden="true">04</div><div><h3 id="contact-contact-persons-title">Contact persons</h3><p>People associated with this contact record.</p></div><button type="button" className="contact-secondary-action" onClick={addContactPerson}><span aria-hidden="true">+</span>Add contact person</button>
             </div>
             <div className="company-profile-address-list">
-              {form.contactPersons.map((person, index) => (
-                <article key={`person-${index}`} className="company-profile-address-card">
+              {form.contactPersons.map((person, index) => {
+                const isExpanded = expandedContactPersonIndexes.includes(index);
+
+                return (
+                <article key={`person-${index}`} className={`company-profile-address-card contact-person-card ${isExpanded ? "company-profile-address-card-expanded" : "company-profile-address-card-collapsed"}`}>
                   <div className="company-profile-address-card-header">
                     <div className="company-profile-address-card-heading company-profile-address-card-heading-nowrap">
                       <h4>{person.name || `Contact Person ${index + 1}`}</h4>
+                      {!isExpanded && (person.role || person.email || person.phoneNumber) ? <p className="contact-person-summary">{[person.role, person.email, person.phoneNumber].filter(Boolean).join(" · ")}</p> : null}
                     </div>
                     <div className="company-profile-address-card-actions">
+                      <button type="button" className="button button-secondary button-small" onClick={() => toggleContactPersonExpanded(index)} aria-expanded={isExpanded}>{isExpanded ? "Collapse" : "Expand"}</button>
                       <button type="button" className="button button-secondary button-small" onClick={() => removeContactPerson(index)} disabled={form.contactPersons.length === 1}>Delete</button>
                     </div>
                   </div>
-                  <div className="company-profile-address-card-grid">
+                  {isExpanded ? <div className="company-profile-address-card-grid">
                     <div className="company-profile-field">
                       <input className="text-input" value={person.name} onChange={(event) => updateContactPerson(index, { name: event.target.value })} placeholder="Name" />
                     </div>
@@ -976,19 +998,15 @@ export function CustomerFormPage() {
                     <div className="company-profile-field">
                       <input className="text-input" value={person.phoneNumber} onChange={(event) => updateContactPerson(index, { phoneNumber: event.target.value })} placeholder="Phone Number" />
                     </div>
-                  </div>
+                  </div> : null}
                 </article>
-              ))}
-            </div>
-            <div className="company-profile-address-actions">
-              <button type="button" className="button button-secondary" onClick={addContactPerson}>+ Add Contact Person</button>
+                );
+              })}
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="contact-type-grouping-title">
-            <div className="company-profile-address-header">
-              <h3 id="contact-type-grouping-title" className="section-title">Type & Grouping</h3>
-              <p className="muted">Only fields relevant to the selected contact type are shown.</p>
+          <section className="contact-form-section" aria-labelledby="contact-type-grouping-title">
+            <div className="contact-form-section-header"><div className="contact-form-section-number" aria-hidden="true">05</div><div><h3 id="contact-type-grouping-title">Type and grouping</h3><p>Customer, supplier, employee and commercial settings.</p></div>
             </div>
             <div className="company-profile-fields-grid">
               <div className="form-label company-profile-field company-profile-field-wide">
@@ -1063,8 +1081,8 @@ export function CustomerFormPage() {
             </div>
           </section>
 
-          <details className="contact-advanced-section">
-            <summary>Advanced Settings</summary>
+          <details className="contact-form-section contact-advanced-section">
+            <summary><span className="contact-form-section-number" aria-hidden="true">06</span><span><strong>Advanced settings</strong><small>Currency, payment terms, accounts, tags and status.</small></span><span aria-hidden="true">⌄</span></summary>
             <div className="company-profile-fields-grid">
               <label className="form-label company-profile-field">
                 Currency
@@ -1095,10 +1113,10 @@ export function CustomerFormPage() {
               </label>
               <label className="form-label company-profile-field">
                 Income Account
-                <SearchableSelect
+                <AccountSelect
                   value={form.incomeAccount}
                   onChange={(value) => setForm((current) => ({ ...current, incomeAccount: value }))}
-                  options={incomeAccountOptions}
+                  kind="income"
                   placeholder="Select income account"
                   searchPlaceholder="Search revenue accounts"
                   ariaLabel="Income Account"
@@ -1107,10 +1125,10 @@ export function CustomerFormPage() {
               </label>
               <label className="form-label company-profile-field">
                 Expense Account
-                <SearchableSelect
+                <AccountSelect
                   value={form.expenseAccount}
                   onChange={(value) => setForm((current) => ({ ...current, expenseAccount: value }))}
-                  options={expenseAccountOptions}
+                  kind="expense"
                   placeholder="Select expense account"
                   searchPlaceholder="Search expense accounts"
                   ariaLabel="Expense Account"
@@ -1158,12 +1176,10 @@ export function CustomerFormPage() {
           </details>
 
           {error ? <HelperText tone="error">{error}</HelperText> : null}
-          <div className="subscription-create-actions">
-            <button type="submit" className="button button-primary">{editingCustomerId ? "Update contact" : "Save contact"}</button>
-            <button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Cancel</button>
-          </div>
+          <FormActionSection className="contact-create-actions"><p>Complete all required fields before saving the contact.</p><div><button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Cancel</button><button type="submit" className="button button-primary">{editingCustomerId ? "Update contact" : "Save contact"}</button></div>
+          </FormActionSection>
         </form>
-      </section>
+      </StandardFormLayout>
       <ConfirmModal
         open={confirmState !== null}
         title={confirmState?.title ?? ""}

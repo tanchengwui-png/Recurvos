@@ -1,276 +1,137 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { ConfirmModal } from "../components/ConfirmModal";
-import { TablePagination } from "../components/TablePagination";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "../components/ui/Button";
-import { FormLabel } from "../components/ui/FormLabel";
-import { HelperText } from "../components/ui/HelperText";
-import { TextInput } from "../components/ui/TextInput";
-import { useClientPagination } from "../hooks/useClientPagination";
-import { fetchPlansForProduct } from "../hooks/useProductPlans";
 import { fetchProduct } from "../hooks/useProducts";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { CompanyInvoiceSettings, ProductDetails, ProductPlan } from "../types";
+import type { ProductDetails } from "../types";
 
-const emptyPlanForm = {
-  planName: "",
-  planCode: "",
-  billingType: "Recurring",
-  intervalUnit: "Month",
-  intervalCount: "1",
-  currency: "MYR",
-  unitAmount: "0.00",
-  taxBehavior: "Unspecified",
-  isDefault: false,
-  isActive: true,
-  sortOrder: "0",
-};
+function DetailField({ label, value }: { label: string; value?: ReactNode }) {
+  return <div className="product-detail-field"><span>{label}</span><strong>{value || "—"}</strong></div>;
+}
+
+function DetailSection({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return <section className="card product-detail-section"><div className="product-detail-section-heading"><div><h3>{title}</h3>{description ? <p>{description}</p> : null}</div></div>{children}</section>;
+}
+
+function formatQuantity(value?: number | null) {
+  return value == null ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value);
+}
 
 export function ProductDetailsPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [product, setProduct] = useState<ProductDetails | null>(null);
-  const [plans, setPlans] = useState<ProductPlan[]>([]);
-  const [invoiceSettings, setInvoiceSettings] = useState<CompanyInvoiceSettings | null>(null);
-  const pagination = useClientPagination(plans, [plans.length]);
-  const [planForm, setPlanForm] = useState(emptyPlanForm);
-  const [actionError, setActionError] = useState("");
-  const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
-
-  async function load() {
-    if (!id) return;
-    const [productData, plansData, invoiceSettingsData] = await Promise.all([
-      fetchProduct(id),
-      fetchPlansForProduct(id),
-      api.get<CompanyInvoiceSettings>("/settings/invoice-settings").catch(() => null),
-    ]);
-    setProduct(productData);
-    setPlans(plansData);
-    setInvoiceSettings(invoiceSettingsData);
-  }
+  const [imageUrl, setImageUrl] = useState("");
 
   useEffect(() => {
-    void load();
+    if (!id) return;
+    void fetchProduct(id).then(setProduct);
   }, [id]);
 
-  async function createPlan() {
-    if (!id) return;
-    setConfirmState({
-      title: "Create plan",
-      description: `Create ${planForm.planName || "this plan"} under ${product?.name || "this product"}?`,
-      action: async () => {
-        await api.post(`/products/${id}/plans`, {
-          productId: id,
-          planName: planForm.planName,
-          planCode: planForm.planCode.toUpperCase(),
-          billingType: planForm.billingType,
-          intervalUnit: planForm.billingType === "OneTime" ? "None" : planForm.intervalUnit,
-          intervalCount: planForm.billingType === "OneTime" ? 0 : Number(planForm.intervalCount),
-          currency: "MYR",
-          unitAmount: Number(planForm.unitAmount),
-          taxBehavior: planForm.taxBehavior,
-          isDefault: planForm.isDefault,
-          isActive: planForm.isActive,
-          sortOrder: Number(planForm.sortOrder),
-        });
-        setPlanForm(emptyPlanForm);
-        setConfirmState(null);
-        await load();
-      },
-    });
-  }
-
-  function calculateTaxInclusiveAmount(amount: number) {
-    if (!invoiceSettings?.isTaxEnabled || !invoiceSettings.taxRate) {
-      return null;
+  useEffect(() => {
+    if (!id || !product?.hasImage) {
+      setImageUrl("");
+      return;
     }
 
-    return amount + (amount * invoiceSettings.taxRate / 100);
-  }
+    let active = true;
+    let objectUrl = "";
+    void api.download(`/products/${id}/image`)
+      .then((file) => {
+        objectUrl = URL.createObjectURL(file.blob);
+        if (active) setImageUrl(objectUrl);
+      })
+      .catch(() => { if (active) setImageUrl(""); });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [id, product?.hasImage]);
 
   if (!product) {
     return <div className="page"><section className="card"><p className="muted">Loading product details...</p></section></div>;
   }
 
+  const customPriceGroups: Array<{ kind: "Sales" | "Purchase"; prices: ProductDetails["customSalesPrices"] }> = [
+    { kind: "Sales", prices: product.customSalesPrices },
+    { kind: "Purchase", prices: product.customPurchasePrices },
+  ];
+
   return (
-    <div className="page">
+    <div className="page product-details-page">
       <header className="page-header">
-        <div className="page-header-copy">
-          <h2>{product.name}</h2>
+        <div className="page-header-copy product-details-title">
+          <p className="eyebrow">Products / {product.code}</p>
+          <div className="product-details-title-row">
+            <div className="product-details-image">{imageUrl ? <img src={imageUrl} alt={`${product.name} product`} /> : <span aria-hidden="true">▧</span>}</div>
+            <div><h2>{product.name}</h2><p>{product.description || "No product description added."}</p></div>
+          </div>
         </div>
+        <div className="product-details-actions"><Button variant="secondary" onClick={() => navigate("/products")}>Back to products</Button><Button onClick={() => navigate(`/products/${product.id}/edit`)}>Edit product</Button></div>
       </header>
 
-      <div className="metrics-grid">
-        <section className="card metric-card"><p className="muted">Total Plans</p><h3>{product.plansCount}</h3></section>
-        <section className="card metric-card"><p className="muted">Active Plans</p><h3>{product.activePlansCount}</h3></section>
-        <section className="card metric-card"><p className="muted">Default Plan</p><h3>{product.defaultPlan?.planName || "-"}</h3></section>
-        <section className="card metric-card"><p className="muted">Starting Price</p><h3>{product.startingPrice ? formatCurrency(product.startingPrice) : "-"}</h3></section>
+      <div className="product-details-status-row">
+        <span className={`status-pill ${product.isActive ? "status-pill-active" : "status-pill-inactive"}`}>{product.isActive ? "Active" : "Inactive"}</span>
+        {product.trackInventory ? <span className="status-pill">Inventory tracked</span> : <span className="status-pill status-pill-inactive">Inventory not tracked</span>}
+        {product.isSelling ? <span className="status-pill">For sale</span> : null}
+        {product.isBuying ? <span className="status-pill">For purchase</span> : null}
       </div>
 
-      <div className="grid-two">
-        <section className="card">
-          <div className="row">
-            <div>
-              <p className="eyebrow">Plans</p>
-              <h3>Product Plans</h3>
-            </div>
+      <div className="product-details-layout">
+        <DetailSection title="Product information" description="Identity, classification and catalogue details.">
+          <div className="product-detail-grid">
+            <DetailField label="Company" value={product.companyName} />
+            <DetailField label="Product code" value={product.code} />
+            <DetailField label="Barcode" value={product.barcode} />
+            <DetailField label="Classification code" value={product.category} />
+            <DetailField label="Product groups" value={product.productGroups.length ? product.productGroups.join(", ") : undefined} />
+            <DetailField label="Bin location" value={product.binLocation} />
+            <DetailField label="Created" value={new Date(product.createdAtUtc).toLocaleDateString()} />
+            <DetailField label="Last updated" value={product.updatedAtUtc ? new Date(product.updatedAtUtc).toLocaleDateString() : undefined} />
           </div>
-          {actionError ? <HelperText tone="error">{actionError}</HelperText> : null}
-          {plans.length === 0 ? (
-            <div className="empty-state">
-              <h3>No plans added for this product yet</h3>
-              <p className="muted">Add monthly, quarterly, yearly, or one-time plans to make the product billable. Trial is configured at subscription creation.</p>
-            </div>
-          ) : (
-            <>
-              <div className="table-scroll">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Plan Name</th>
-                      <th>Plan Code</th>
-                      <th>Billing Type</th>
-                      <th>Interval</th>
-                      <th>Amount</th>
-                      <th>Default</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pagination.pagedItems.map((plan) => (
-                      <tr key={plan.id}>
-                        <td>
-                          <div className="stack">
-                            <span>{plan.planName}</span>
-                            <div className="table-meta">
-                              <span className="table-meta-item">
-                                <span className={`table-meta-dot ${plan.isActive ? "table-meta-dot-active" : "table-meta-dot-inactive"}`} aria-hidden="true" />
-                                {plan.isActive ? "Active" : "Inactive"}
-                              </span>
-                              {plan.isDefault ? <span className="table-meta-item">Default</span> : null}
-                            </div>
-                          </div>
-                        </td>
-                        <td>{plan.planCode}</td>
-                        <td><span className="badge">{plan.billingType === "OneTime" ? "One-Time" : "Recurring"}</span></td>
-                        <td>{plan.billingLabel}</td>
-                        <td>
-                          <div className="stack">
-                            <span>{formatCurrency(plan.unitAmount, plan.currency)}</span>
-                            {calculateTaxInclusiveAmount(plan.unitAmount) ? (
-                              <div className="table-meta">
-                                <span className="table-meta-item">
-                                  Incl. {invoiceSettings?.taxName || "SST"} {invoiceSettings?.taxRate}%: {formatCurrency(calculateTaxInclusiveAmount(plan.unitAmount) ?? plan.unitAmount, plan.currency)}
-                                </span>
-                              </div>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td>{plan.isDefault ? "Yes" : "No"}</td>
-                        <td className="actions-cell">
-                          {!plan.isDefault ? <button type="button" className="button button-secondary" onClick={() => {
-                            setActionError("");
-                            setConfirmState({
-                              title: "Set default plan",
-                              description: `Make ${plan.planName} the default plan for ${product.name}?`,
-                              action: async () => {
-                                try {
-                                  await api.patch(`/product-plans/${plan.id}/default`, { isDefault: true });
-                                  setConfirmState(null);
-                                  await load();
-                                } catch (error) {
-                                  const nextError = error instanceof Error ? error.message : "Unable to set default plan.";
-                                  setActionError(nextError);
-                                  throw new Error(nextError);
-                                }
-                              },
-                            });
-                          }}>Set default</button> : null}
-                          <button
-                            type="button"
-                            className="button button-secondary"
-                            disabled={plan.isActive && plan.isDefault}
-                            title={plan.isActive && plan.isDefault ? `This is the default plan for ${product.name}. Set another plan in the same product as default before deactivating it.` : undefined}
-                            onClick={() => {
-                              setActionError("");
-                              setConfirmState({
-                                title: `${plan.isActive ? "Deactivate" : "Activate"} plan`,
-                                description: `${plan.planName} will ${plan.isActive ? "stop" : "start"} appearing as an active option.`,
-                                action: async () => {
-                                  try {
-                                    await api.patch(`/product-plans/${plan.id}/status`, { isActive: !plan.isActive });
-                                    setConfirmState(null);
-                                    await load();
-                                  } catch (error) {
-                                    const nextError = error instanceof Error ? error.message : "Unable to update plan status.";
-                                    setActionError(nextError);
-                                    throw new Error(nextError);
-                                  }
-                                },
-                              });
-                            }}
-                          >
-                            {plan.isActive ? "Deactivate" : "Activate"}
-                          </button>
-                          <button type="button" className="button button-secondary" onClick={() => {
-                            setActionError("");
-                            setConfirmState({
-                              title: "Delete plan",
-                              description: `Delete ${plan.planName}? This is blocked if the plan is linked to subscriptions.`,
-                              action: async () => {
-                                try {
-                                  await api.delete(`/product-plans/${plan.id}`);
-                                  setConfirmState(null);
-                                  await load();
-                                } catch (error) {
-                                  const nextError = error instanceof Error ? error.message : "Unable to delete plan.";
-                                  setActionError(nextError);
-                                  throw new Error(nextError);
-                                }
-                              },
-                            });
-                          }}>Delete</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
-            </>
-          )}
-        </section>
+        </DetailSection>
 
-        <section className="card">
-          <p className="eyebrow">Add plan</p>
-          <div className="form-stack">
-            <FormLabel htmlFor="detail-plan-name">Plan Name<TextInput id="detail-plan-name" value={planForm.planName} onChange={(event) => setPlanForm((current) => ({ ...current, planName: event.target.value }))} /></FormLabel>
-            <FormLabel htmlFor="detail-plan-code">Plan Code<TextInput id="detail-plan-code" value={planForm.planCode} onChange={(event) => setPlanForm((current) => ({ ...current, planCode: event.target.value.toUpperCase() }))} /></FormLabel>
-            <FormLabel htmlFor="detail-billing-type">Billing Type<select id="detail-billing-type" value={planForm.billingType} onChange={(event) => setPlanForm((current) => ({ ...current, billingType: event.target.value }))}><option value="Recurring">Recurring</option><option value="OneTime">One-Time</option></select></FormLabel>
-            {planForm.billingType === "Recurring" ? (
-              <div className="inline-fields">
-                <FormLabel htmlFor="detail-interval-unit">Interval<select id="detail-interval-unit" value={planForm.intervalUnit} onChange={(event) => setPlanForm((current) => ({ ...current, intervalUnit: event.target.value }))}><option value="Month">Monthly</option><option value="Quarter">Quarterly</option><option value="Year">Yearly</option></select></FormLabel>
-                <FormLabel htmlFor="detail-interval-count">Count<TextInput id="detail-interval-count" value={planForm.intervalCount} onChange={(event) => setPlanForm((current) => ({ ...current, intervalCount: event.target.value }))} /></FormLabel>
-              </div>
-            ) : null}
-            <div className="inline-fields">
-              <FormLabel htmlFor="detail-amount">Amount<TextInput id="detail-amount" value={planForm.unitAmount} onChange={(event) => setPlanForm((current) => ({ ...current, unitAmount: event.target.value }))} /></FormLabel>
-              <FormLabel htmlFor="detail-currency">Currency<TextInput id="detail-currency" value="MYR" readOnly /></FormLabel>
-            </div>
-            <label className="checkbox-row"><input type="checkbox" checked={planForm.isDefault} onChange={(event) => setPlanForm((current) => ({ ...current, isDefault: event.target.checked }))} /> Make default plan</label>
-            <Button type="button" onClick={() => void createPlan()}>Add Plan</Button>
-          </div>
-        </section>
+        <DetailSection title="Inventory" description="Stock-tracking, opening balances and inventory account.">
+          {product.trackInventory ? <div className="product-detail-grid">
+            <DetailField label="Inventory account" value={product.inventoryAccount} />
+            <DetailField label="Reorder level" value={formatQuantity(product.reorderLevel)} />
+            <DetailField label="Opening quantity" value={formatQuantity(product.openingQuantity)} />
+            <DetailField label="Opening cost" value={product.openingCost == null ? undefined : formatCurrency(product.openingCost)} />
+          </div> : <p className="product-details-empty">Inventory tracking is not enabled for this product.</p>}
+        </DetailSection>
+
+        <DetailSection title="Sales" description="Sales pricing, tax and revenue settings.">
+          {product.isSelling ? <div className="product-detail-grid">
+            <DetailField label="Sales price" value={product.salesPrice == null ? undefined : formatCurrency(product.salesPrice)} />
+            <DetailField label="Sales tax" value={product.salesTaxCode} />
+            <DetailField label="Income account" value={product.incomeAccount} />
+            <DetailField label="Sales description" value={product.salesDescription} />
+          </div> : <p className="product-details-empty">Selling is not enabled for this product.</p>}
+        </DetailSection>
+
+        <DetailSection title="Purchases" description="Purchase cost, tax, expense and supplier settings.">
+          {product.isBuying ? <div className="product-detail-grid">
+            <DetailField label="Purchase price / cost" value={product.purchasePrice == null ? undefined : formatCurrency(product.purchasePrice)} />
+            <DetailField label="Purchase tax" value={product.purchaseTaxCode} />
+            <DetailField label="Expense account" value={product.expenseAccount} />
+            <DetailField label="Preferred supplier" value={product.preferredSupplierName} />
+            <DetailField label="Purchase description" value={product.purchaseDescription} />
+          </div> : <p className="product-details-empty">Buying is not enabled for this product.</p>}
+        </DetailSection>
+
+        <DetailSection title="Units of measurement" description="Base unit and available conversions.">
+          <div className="product-detail-grid product-detail-grid-compact"><DetailField label="Base unit" value={product.baseUnitLabel} /><DetailField label="Multiple units" value={product.hasMultipleUoms ? "Enabled" : "Disabled"} /></div>
+          {product.hasMultipleUoms && product.uomConversions.length ? <div className="table-scroll product-detail-table"><table><thead><tr><th>Unit</th><th>Factor</th><th>Sales price</th><th>Purchase price</th><th>Defaults</th></tr></thead><tbody>{product.uomConversions.map((uom) => <tr key={`${uom.label}-${uom.factor}`}><td>{uom.label}</td><td>{formatQuantity(uom.factor)}</td><td>{uom.salePrice == null ? "—" : formatCurrency(uom.salePrice)}</td><td>{uom.purchasePrice == null ? "—" : formatCurrency(uom.purchasePrice)}</td><td>{[uom.isDefaultSalesUom ? "Sales" : "", uom.isDefaultPurchaseUom ? "Purchase" : ""].filter(Boolean).join(", ") || "—"}</td></tr>)}</tbody></table></div> : null}
+        </DetailSection>
+
+        <DetailSection title="Custom pricing" description="Contact, group and price-level overrides.">
+          <div className="product-custom-pricing-summary"><span>Sales overrides <strong>{product.customSalesPrices.length}</strong></span><span>Purchase overrides <strong>{product.customPurchasePrices.length}</strong></span></div>
+          {customPriceGroups.map(({ kind, prices }) => prices.length ? <div key={kind} className="product-detail-price-list"><h4>{kind} prices</h4><div className="table-scroll product-detail-table"><table><thead><tr><th>Applies to</th><th>Period</th><th>Min. quantity</th><th>UOM</th><th>Unit price</th></tr></thead><tbody>{prices.map((price, index) => <tr key={`${kind}-${index}`}><td>{price.targetType === "Contact" ? price.contactName : price.targetType === "ContactGroup" ? price.contactGroup : price.priceLevel}</td><td>{price.dateFromUtc ? `${new Date(price.dateFromUtc).toLocaleDateString()} – ${price.dateToUtc ? new Date(price.dateToUtc).toLocaleDateString() : "Open ended"}` : "Always"}</td><td>{formatQuantity(price.minQuantity)}</td><td>{price.uom || "—"}</td><td>{formatCurrency(price.unitPrice)}</td></tr>)}</tbody></table></div></div> : null)}
+          {!product.customSalesPrices.length && !product.customPurchasePrices.length ? <p className="product-details-empty">No custom prices have been configured.</p> : null}
+        </DetailSection>
       </div>
-
-      <ConfirmModal
-        open={confirmState !== null}
-        title={confirmState?.title ?? ""}
-        description={confirmState?.description ?? ""}
-        confirmLabel="Confirm"
-        onConfirm={async () => { if (confirmState) await confirmState.action(); }}
-        onCancel={() => setConfirmState(null)}
-      />
     </div>
   );
 }

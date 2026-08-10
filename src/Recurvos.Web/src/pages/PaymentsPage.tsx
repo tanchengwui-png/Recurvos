@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { RecordDetailsModal } from "../components/RecordDetailsModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { HelperText } from "../components/ui/HelperText";
@@ -9,6 +10,7 @@ import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { hasFeature } from "../lib/features";
 import type { FeatureAccess, Payment, PaymentConfirmation } from "../types";
 
 function getPaymentStatusClassName(status: string) {
@@ -63,6 +65,7 @@ export function PaymentsPage() {
   const [refundError, setRefundError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
   const pendingConfirmations = confirmations.filter((item) => item.status === "Pending");
+  const selectedPayment = expandedPaymentId ? items.find((item) => item.id === expandedPaymentId) ?? null : null;
   const processedConfirmations = confirmations
     .filter((item) => item.status !== "Pending")
     .sort((left, right) => new Date(right.paidAtUtc).getTime() - new Date(left.paidAtUtc).getTime());
@@ -112,7 +115,7 @@ export function PaymentsPage() {
 
   async function load() {
     const access = await api.get<FeatureAccess>("/settings/feature-access").catch(() => null);
-    const paymentConfirmationsEnabled = access?.featureKeys.includes("public_payment_confirmation") ?? false;
+    const paymentConfirmationsEnabled = hasFeature(access, "public_payment_confirmation");
 
     const [payments, confirmationList] = await Promise.all([
       api.get<Payment[]>("/payments"),
@@ -481,8 +484,8 @@ export function PaymentsPage() {
                     <RowActionMenu
                       items={[
                         {
-                          label: expandedPaymentId === item.id ? "Hide details" : "View details",
-                          onClick: () => setExpandedPaymentId((current) => current === item.id ? null : item.id),
+                          label: "View details",
+                          onClick: () => setExpandedPaymentId(item.id),
                         },
                         {
                           label: "Record refund",
@@ -650,8 +653,8 @@ export function PaymentsPage() {
                         <RowActionMenu
                           items={[
                             {
-                              label: expandedPaymentId === item.id ? "Hide details" : "View details",
-                              onClick: () => setExpandedPaymentId((current) => current === item.id ? null : item.id),
+                              label: "View details",
+                              onClick: () => setExpandedPaymentId(item.id),
                             },
                             {
                               label: "Record refund",
@@ -745,76 +748,6 @@ export function PaymentsPage() {
                       }
                     }}>Receipt</button> : "-"}</td>
                   </tr>
-                  {expandedPaymentId === item.id ? (
-                    <tr>
-                      <td colSpan={9} className="subscription-details-cell">
-                        <div className="invoice-detail-panel">
-                          <div className="invoice-detail-summary">
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Invoice</p>
-                              <p>{item.invoiceNumber}</p>
-                            </div>
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Method</p>
-                              <p>{item.gatewayName}</p>
-                            </div>
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Status</p>
-                              <p>{item.status}</p>
-                            </div>
-                            <div className="invoice-detail-stat">
-                              <p className="eyebrow">Net collected</p>
-                              <p>{formatCurrency(item.netCollectedAmount, "MYR")}</p>
-                            </div>
-                          </div>
-
-                          <div className="invoice-detail-secondary-grid">
-                            <div className="invoice-detail-block">
-                              <div className="invoice-detail-block-header">
-                                <p className="eyebrow">Refund history</p>
-                              </div>
-                              <div className="invoice-detail-list">
-                                {item.refunds.length > 0 ? item.refunds.map((refund) => (
-                                  <div key={refund.id} className="invoice-detail-list-row">
-                                    <span>{`${formatCurrency(refund.amount, refund.currency)} | ${refund.reason}`}</span>
-                                    <span className="muted">{new Date(refund.createdAtUtc).toLocaleString()}</span>
-                                  </div>
-                                )) : <p className="muted">No refunds recorded.</p>}
-                              </div>
-                            </div>
-
-                            <div className="invoice-detail-block">
-                              <div className="invoice-detail-block-header">
-                                <p className="eyebrow">Disputes</p>
-                              </div>
-                              <div className="invoice-detail-list">
-                                {item.disputes.length > 0 ? item.disputes.map((dispute) => (
-                                  <div key={dispute.id} className="invoice-detail-list-row">
-                                    <span>{`${formatCurrency(dispute.amount, "MYR")} | ${dispute.reason} | ${dispute.status}`}</span>
-                                    <span className="muted">{new Date(dispute.openedAtUtc).toLocaleDateString()}</span>
-                                  </div>
-                                )) : <p className="muted">No disputes. Future capability remains read-only.</p>}
-                              </div>
-                            </div>
-
-                            <div className="invoice-detail-block">
-                              <div className="invoice-detail-block-header">
-                                <p className="eyebrow">Attempts</p>
-                              </div>
-                              <div className="invoice-detail-list">
-                                {item.attempts.length > 0 ? item.attempts.map((attempt) => (
-                                  <div key={`${item.id}-${attempt.attemptNumber}`} className="invoice-detail-list-row">
-                                    <span>{`Attempt ${attempt.attemptNumber} | ${attempt.status}`}</span>
-                                    <span className="muted">{attempt.failureMessage || attempt.failureCode || "-"}</span>
-                                  </div>
-                                )) : <p className="muted">No attempt history.</p>}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : null}
                 </Fragment>
               ))}
             </tbody>
@@ -832,6 +765,34 @@ export function PaymentsPage() {
         ) : null}
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
+      ) : null}
+      {selectedPayment ? (
+        <RecordDetailsModal
+          eyebrow="Payment summary"
+          title={selectedPayment.invoiceNumber}
+          subtitle={selectedPayment.gatewayName}
+          onClose={() => setExpandedPaymentId(null)}
+        >
+          <div className="invoice-detail-panel">
+            <div className="invoice-detail-summary">
+              <div className="invoice-detail-stat"><p className="eyebrow">Invoice</p><p>{selectedPayment.invoiceNumber}</p></div>
+              <div className="invoice-detail-stat"><p className="eyebrow">Method</p><p>{selectedPayment.gatewayName}</p></div>
+              <div className="invoice-detail-stat"><p className="eyebrow">Status</p><p>{selectedPayment.status}</p></div>
+              <div className="invoice-detail-stat"><p className="eyebrow">Net collected</p><p>{formatCurrency(selectedPayment.netCollectedAmount, "MYR")}</p></div>
+            </div>
+            <div className="invoice-detail-secondary-grid">
+              <div className="invoice-detail-block"><div className="invoice-detail-block-header"><p className="eyebrow">Refund history</p></div><div className="invoice-detail-list">
+                {selectedPayment.refunds.length > 0 ? selectedPayment.refunds.map((refund) => <div key={refund.id} className="invoice-detail-list-row"><span>{`${formatCurrency(refund.amount, refund.currency)} | ${refund.reason}`}</span><span className="muted">{new Date(refund.createdAtUtc).toLocaleString()}</span></div>) : <p className="muted">No refunds recorded.</p>}
+              </div></div>
+              <div className="invoice-detail-block"><div className="invoice-detail-block-header"><p className="eyebrow">Disputes</p></div><div className="invoice-detail-list">
+                {selectedPayment.disputes.length > 0 ? selectedPayment.disputes.map((dispute) => <div key={dispute.id} className="invoice-detail-list-row"><span>{`${formatCurrency(dispute.amount, "MYR")} | ${dispute.reason} | ${dispute.status}`}</span><span className="muted">{new Date(dispute.openedAtUtc).toLocaleDateString()}</span></div>) : <p className="muted">No disputes. Future capability remains read-only.</p>}
+              </div></div>
+              <div className="invoice-detail-block"><div className="invoice-detail-block-header"><p className="eyebrow">Attempts</p></div><div className="invoice-detail-list">
+                {selectedPayment.attempts.length > 0 ? selectedPayment.attempts.map((attempt) => <div key={`${selectedPayment.id}-${attempt.attemptNumber}`} className="invoice-detail-list-row"><span>{`Attempt ${attempt.attemptNumber} | ${attempt.status}`}</span><span className="muted">{attempt.failureMessage || attempt.failureCode || "-"}</span></div>) : <p className="muted">No attempt history.</p>}
+              </div></div>
+            </div>
+          </div>
+        </RecordDetailsModal>
       ) : null}
       {refundForm ? (
         <section className="card" style={{ marginTop: "1rem" }}>

@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { GoodsReceivedNote, MasterDataSnapshot, PurchaseOrder, PurchaseOrderListItem, Warehouse } from "../types";
+import type { GoodsReceivedNote, PurchaseOrder, PurchaseOrderListItem, Warehouse } from "../types";
 
 type LineForm = {
   purchaseOrderLineId: string;
@@ -39,13 +41,10 @@ export function GoodsReceivedNoteFormPage() {
 
   useEffect(() => {
     async function load() {
-      const [orderOptions, snapshot] = await Promise.all([
+      const [orderOptions] = await Promise.all([
         api.get<PurchaseOrderListItem[]>("/purchases/orders"),
-        api.get<MasterDataSnapshot>("/master-data"),
       ]);
-      const activeWarehouses = snapshot.warehouses.filter((item) => item.isActive);
       setPurchaseOrderOptions(orderOptions.filter((item) => item.status !== "Closed" && item.status !== "Cancelled" && item.status !== "FullyReceived"));
-      setWarehouses(activeWarehouses);
 
       const existing = id ? await api.get<GoodsReceivedNote>(`/purchases/grns/${id}`) : null;
       const sourcePurchaseOrderId = existing?.purchaseOrderId ?? initialPurchaseOrderId ?? "";
@@ -105,6 +104,24 @@ export function GoodsReceivedNoteFormPage() {
     }
     void load();
   }, [id, initialPurchaseOrderId]);
+
+  useEffect(() => {
+    if (!companyId) {
+      setWarehouses([]);
+      return;
+    }
+
+    let cancelled = false;
+    void api.get<Warehouse[]>(`/master-data/warehouses?companyId=${companyId}&isActive=true`).then((companyWarehouses) => {
+      if (cancelled) return;
+      setWarehouses(companyWarehouses);
+      setWarehouseId((current) => companyWarehouses.some((warehouse) => warehouse.id === current) ? current : companyWarehouses[0]?.id ?? "");
+    }).catch(() => {
+      if (!cancelled) setError("Unable to load warehouses for the selected company.");
+    });
+
+    return () => { cancelled = true; };
+  }, [companyId]);
 
   async function handlePurchaseOrderChange(nextPurchaseOrderId: string) {
     setError("");
@@ -198,11 +215,9 @@ export function GoodsReceivedNoteFormPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>{id ? "Edit GRN" : "Create GRN"}</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate(backPath)}>{!id && isDeepLinked ? "Back to purchase orders" : "Back to GRNs"}</button>
-      </header>
+      <FormPageHeader backLabel={!id && isDeepLinked ? "Back to Purchase Orders" : "Back to Goods Received Notes"} backHref={backPath} breadcrumbs={<><span>Goods Received Notes</span><span>/</span><span>{id ? "Edit Goods Received Note" : "New Goods Received Note"}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <TransactionFormCard title="Goods received note details" description="Supplier, dates, source order and received lines.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           {id ? (
@@ -271,6 +286,7 @@ export function GoodsReceivedNoteFormPage() {
           {editable ? <button type="button" className="button button-primary" onClick={() => void submit()}>{id ? "Update GRN" : "Create GRN"}</button> : null}
         </div>
       </section>
+      </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>
   );

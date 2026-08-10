@@ -46,6 +46,14 @@ public sealed class CompaniesController(ICompanyService companyService) : Contro
         return NoContent();
     }
 
+    [HttpPut("{id:guid}/members")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<IActionResult> GrantMembership(Guid id, CompanyMembershipUpsertRequest request, CancellationToken cancellationToken)
+    {
+        await companyService.GrantMembershipAsync(id, request, cancellationToken);
+        return NoContent();
+    }
+
     [HttpPost("{id:guid}/logo")]
     [Authorize(Policy = "ManageBilling")]
     [RequestSizeLimit(5_000_000)]

@@ -13,6 +13,7 @@ import { fetchProducts } from "../hooks/useProducts";
 import { getAuth } from "../lib/auth";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { hasAnyFeature, hasFeature } from "../lib/features";
 import type { BillingReadiness, CompanyLookup, FeatureAccess } from "../types";
 
 type QuickRange = "thisMonth" | "last30" | "today" | "next7" | "custom";
@@ -129,8 +130,7 @@ export function DashboardPage() {
     startDateUtc: startDateUtc ? new Date(startDateUtc).toISOString() : undefined,
     endDateUtc: endDateUtc ? new Date(endDateUtc).toISOString() : undefined,
   }), [selectedCompanyId, startDateUtc, endDateUtc]);
-  const reportsEnabled = featureAccess?.featureKeys.includes("basic_reports") ?? false;
-  const { loading, error, summary, upcomingRenewals, overdueInvoices, recentPayments, scheduledCancellations, trialEnding, revenueTrend, subscriptionGrowth, revenueByCompany, statusSummary } = useDashboard(filters, reportsEnabled);
+  const { loading, error, summary, upcomingRenewals, overdueInvoices, recentPayments, scheduledCancellations, trialEnding, revenueTrend, subscriptionGrowth, revenueByCompany, statusSummary } = useDashboard(filters);
 
   useEffect(() => {
     void (async () => {
@@ -150,12 +150,12 @@ export function DashboardPage() {
       const [products, plans, customers, subscriptions, invoices, payments, readiness] = await Promise.all([
         fetchProducts({ search: "", isActive: "all", page: 1, pageSize: 1 }),
         fetchProductPlans({ billingType: "all", isActive: "all", page: 1, pageSize: 1 }),
-        access.featureKeys.includes("customer_management") ? loadOptional(api.get<unknown[]>("/customers"), []) : Promise.resolve([]),
-        access.featureKeys.includes("recurring_invoices") ? loadOptional(api.get<unknown[]>("/subscriptions"), []) : Promise.resolve([]),
-        access.featureKeys.includes("manual_invoices") || access.featureKeys.includes("recurring_invoices")
+        hasFeature(access, "customer_management") ? loadOptional(api.get<unknown[]>("/customers"), []) : Promise.resolve([]),
+        hasFeature(access, "recurring_invoices") ? loadOptional(api.get<unknown[]>("/subscriptions"), []) : Promise.resolve([]),
+        hasAnyFeature(access, ["manual_invoices", "recurring_invoices"])
           ? loadOptional(api.get<unknown[]>("/invoices"), [])
           : Promise.resolve([]),
-        access.featureKeys.includes("payment_tracking") ? loadOptional(api.get<unknown[]>("/payments"), []) : Promise.resolve([]),
+        hasFeature(access, "payment_tracking") ? loadOptional(api.get<unknown[]>("/payments"), []) : Promise.resolve([]),
         initialCompanyId
           ? loadOptional(api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${initialCompanyId}`), null)
           : Promise.resolve(null),
@@ -188,10 +188,10 @@ export function DashboardPage() {
     { key: "logo", title: "Upload logo", description: "Brand invoices with your company logo.", done: companies.some((company) => company.hasLogo), href: "/companies", action: "Manage Logo" },
     { key: "products", title: "Create product", description: "Define what your customer is buying.", done: setupStats.products > 0, href: "/products", action: "Open Products" },
     { key: "plans", title: "Create plan", description: "Set how much and how often customers are charged.", done: setupStats.plans > 0, href: "/plans", action: "Open Plans" },
-    { key: "customers", title: "Add contact", description: "Create the customers, suppliers, and employees you manage.", done: setupStats.customers > 0, href: "/customers", action: "Open Contacts", enabled: featureAccess?.featureKeys.includes("customer_management") ?? false },
-    { key: "subscriptions", title: "Create subscription", description: "Link a customer to a recurring plan.", done: setupStats.subscriptions > 0, href: "/subscriptions", action: "Open Subscriptions", enabled: featureAccess?.featureKeys.includes("recurring_invoices") ?? false },
-    { key: "invoices", title: "Review invoice", description: "Create a manual invoice or wait for a renewal invoice.", done: setupStats.invoices > 0, href: "/invoices", action: "Open Invoices", enabled: (featureAccess?.featureKeys.includes("manual_invoices") ?? false) || (featureAccess?.featureKeys.includes("recurring_invoices") ?? false) },
-    { key: "payments", title: "Collect payment", description: "Record payment or generate a payment link.", done: setupStats.payments > 0, href: "/payments", action: "Open Payments", enabled: featureAccess?.featureKeys.includes("payment_tracking") ?? false },
+    { key: "customers", title: "Add contact", description: "Create the customers, suppliers, and employees you manage.", done: setupStats.customers > 0, href: "/customers", action: "Open Contacts", enabled: hasFeature(featureAccess, "customer_management") },
+    { key: "subscriptions", title: "Create subscription", description: "Link a customer to a recurring plan.", done: setupStats.subscriptions > 0, href: "/subscriptions", action: "Open Subscriptions", enabled: hasFeature(featureAccess, "recurring_invoices") },
+    { key: "invoices", title: "Review invoice", description: "Create a manual invoice or wait for a renewal invoice.", done: setupStats.invoices > 0, href: "/invoices", action: "Open Invoices", enabled: hasAnyFeature(featureAccess, ["manual_invoices", "recurring_invoices"]) },
+    { key: "payments", title: "Collect payment", description: "Record payment or generate a payment link.", done: setupStats.payments > 0, href: "/payments", action: "Open Payments", enabled: hasFeature(featureAccess, "payment_tracking") },
   ] as const;
   const readinessSteps = (billingReadiness?.items ?? []).map((item) => ({
     key: `billing-${item.key}`,
@@ -217,7 +217,7 @@ export function DashboardPage() {
       };
     }
 
-    if (!(featureAccess?.featureKeys.includes("customer_management") ?? false)) {
+    if (!hasFeature(featureAccess, "customer_management")) {
       return {
         key: "feature-customer-management",
         title: "Unlock customer records",
@@ -227,7 +227,7 @@ export function DashboardPage() {
       };
     }
 
-    if (!((featureAccess?.featureKeys.includes("manual_invoices") ?? false) || (featureAccess?.featureKeys.includes("recurring_invoices") ?? false))) {
+    if (!hasAnyFeature(featureAccess, ["manual_invoices", "recurring_invoices"])) {
       return {
         key: "feature-billing",
         title: "Unlock billing actions",
@@ -282,8 +282,8 @@ export function DashboardPage() {
         key: "collect-payment",
         title: "Chase the first payment",
         description: "Generate a payment link or record the payment as soon as it lands.",
-        href: (featureAccess?.featureKeys.includes("payment_tracking") ?? false) ? "/payments" : "/settings",
-        action: (featureAccess?.featureKeys.includes("payment_tracking") ?? false) ? "Open payments" : "Open settings",
+        href: hasFeature(featureAccess, "payment_tracking") ? "/payments" : "/settings",
+        action: hasFeature(featureAccess, "payment_tracking") ? "Open payments" : "Open settings",
       };
     }
 
@@ -376,15 +376,12 @@ export function DashboardPage() {
       </section>
 
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-      {featureAccess && !reportsEnabled ? (
-        <HelperText>Your current package does not include Basic reports.</HelperText>
-      ) : null}
       {billingReadiness && !billingReadiness.isReady ? (
         <HelperText>
           {`Billing is blocked until required setup is complete: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
         </HelperText>
       ) : null}
-      {!reportsEnabled ? null : loading || !summary || !statusSummary ? <p>Loading business insight...</p> : (
+      {loading || !summary || !statusSummary ? <p>Loading business insight...</p> : (
         <>
           {!setupDismissed ? (
             <section className="card setup-card dashboard-panel">

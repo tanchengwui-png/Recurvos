@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
@@ -25,6 +25,7 @@ function buildQuery(search: string, filters: Record<string, string>) {
 
 export function FoundationModuleListPage({ moduleKey }: { moduleKey: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const module = useMemo(() => foundationModules.find((item) => item.key === moduleKey) as FoundationModuleConfig | undefined, [moduleKey]);
   const [items, setItems] = useState<FoundationRecord[]>([]);
   const [search, setSearch] = useState("");
@@ -111,7 +112,7 @@ export function FoundationModuleListPage({ moduleKey }: { moduleKey: string }) {
                   <td className="actions-cell">
                     <RowActionMenu
                       items={[
-                        { label: "View", onClick: () => navigate(`${moduleConfig.path}/${item.id}`) },
+                        { label: "View details", onClick: () => navigate(`${moduleConfig.path}/${item.id}`, { state: { backgroundLocation: location } }) },
                         { label: "Edit", onClick: () => navigate(`${moduleConfig.path}/${item.id}/edit`) },
                         {
                           label: "Delete",

@@ -27,6 +27,8 @@ public sealed class DbSeeder(AppDbContext dbContext)
         {
             await SyncPlatformSeedSettingsAsync(cancellationToken);
             await BackfillPlatformPackageBillingDefaultsAsync(cancellationToken);
+            await EnsureCompanyMembershipsAsync(cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
             return;
         }
 
@@ -419,7 +421,34 @@ public sealed class DbSeeder(AppDbContext dbContext)
             }
         }
 
+        await EnsureCompanyMembershipsAsync(cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task EnsureCompanyMembershipsAsync(CancellationToken cancellationToken)
+    {
+        var companies = await dbContext.Companies
+            .Include(x => x.Users)
+            .Where(x => !x.IsPlatformAccount)
+            .ToListAsync(cancellationToken);
+
+        foreach (var company in companies)
+        {
+            var ownerId = company.SubscriberId
+                ?? company.Users.OrderByDescending(x => x.IsOwner).ThenBy(x => x.CreatedAtUtc).Select(x => (Guid?)x.Id).FirstOrDefault();
+            if (!ownerId.HasValue || await dbContext.CompanyMemberships.AnyAsync(x => x.UserId == ownerId.Value && x.CompanyId == company.Id, cancellationToken))
+            {
+                continue;
+            }
+
+            dbContext.CompanyMemberships.Add(new CompanyMembership
+            {
+                UserId = ownerId.Value,
+                CompanyId = company.Id,
+                Role = CompanyMembershipRole.Owner,
+                IsActive = true,
+            });
+        }
     }
 
     private static DemoSubscriberSeed[] GetDemoSubscribers() =>
@@ -1292,7 +1321,8 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     "Generate WhatsApp friendly reminder (Copy and Paste)",
                     "Generate WhatsApp friendly reminder (Browser copy and paste, click send to send)",
                     "Payment record screen for customer to upload their payment",
-                    "Basic reports"
+                    "Basic reports",
+                    "Growth reports"
                 ],
                 []),
             CreatePackage(
@@ -1330,6 +1360,8 @@ public sealed class DbSeeder(AppDbContext dbContext)
                     "Payment record screen for customer to upload their payment",
                     "Payment gateway configuration",
                     "Basic reports",
+                    "Growth reports",
+                    "Premium reports",
                     "Finance exports"
                 ],
                 []));

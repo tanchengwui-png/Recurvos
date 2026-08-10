@@ -248,6 +248,7 @@ app.UseHttpsRedirection();
 app.UseCors("Web");
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<Recurvos.Api.Middleware.CompanyContextMiddleware>();
 app.UseAuthorization();
 if (!app.Environment.IsEnvironment("Testing"))
 {

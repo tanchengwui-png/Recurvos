@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { BrandLogo } from "./BrandLogo";
 import { ConfirmModal } from "./ConfirmModal";
 import { InstallPromptCard } from "./InstallPromptCard";
 import { api } from "../lib/api";
-import { getAuth, setAuth } from "../lib/auth";
+import { getActiveCompanyId, getAuth, setActiveCompanyId, setAuth } from "../lib/auth";
+import { hasFeature } from "../lib/features";
 import { useInstallPromptState } from "../hooks/useInstallPromptState";
 import { isStandalonePwa } from "../lib/pwa";
 import type { BillingReadiness, CompanyLookup, FeatureAccess, FeedbackNotificationSummary, SubscriberPackageBillingSummary } from "../types";
@@ -92,8 +94,55 @@ function getFeatureRequirementLabel(featureAccess: FeatureAccess | null, feature
   return requirement ? `Available on ${requirement.packageName}` : "Upgrade required";
 }
 
-function getPageLabel(pathname: string, isPlatformOwner: boolean) {
-  if (pathname === "/" || pathname === "") {
+function getSubscribedPackageLabel(featureAccess: FeatureAccess | null) {
+  return featureAccess?.packageCode ? formatPackageLabel(featureAccess.packageCode) : "Upgrade";
+}
+
+type CrudPageTitle = {
+  path: string;
+  list: string;
+  singular: string;
+  detail?: string;
+};
+
+const tenantCrudPageTitles: CrudPageTitle[] = [
+  { path: "/companies", list: "Companies", singular: "company", detail: "Company details" },
+  { path: "/customers", list: "Contacts", singular: "contact", detail: "Contact details" },
+  { path: "/products", list: "Products", singular: "product", detail: "Product details" },
+  { path: "/plans", list: "Product plans", singular: "product plan", detail: "Product plan details" },
+  { path: "/subscriptions", list: "Subscriptions", singular: "subscription", detail: "Subscription details" },
+  { path: "/sales/quotations", list: "Sales quotations", singular: "sales quotation", detail: "Sales quotation details" },
+  { path: "/sales/orders", list: "Sales orders", singular: "sales order", detail: "Sales order details" },
+  { path: "/sales/delivery-orders", list: "Delivery orders", singular: "delivery order", detail: "Delivery order details" },
+  { path: "/purchases/orders", list: "Purchase orders", singular: "purchase order", detail: "Purchase order details" },
+  { path: "/purchases/grns", list: "Goods received notes", singular: "goods received note", detail: "Goods received note details" },
+  { path: "/purchases/bills", list: "Purchase bills", singular: "purchase bill", detail: "Purchase bill details" },
+  { path: "/purchases/payments", list: "Purchase payments", singular: "purchase payment", detail: "Purchase payment details" },
+  { path: "/purchases/credit-notes", list: "Purchase credit notes", singular: "purchase credit note", detail: "Purchase credit note details" },
+  { path: "/purchases/refunds", list: "Purchase refunds", singular: "purchase refund", detail: "Purchase refund details" },
+  { path: "/finance/journal-entries", list: "Journal entries", singular: "journal entry", detail: "Journal entry details" },
+];
+
+const foundationCrudPageTitles: CrudPageTitle[] = [
+  { path: "/foundation/chart-of-accounts", list: "Chart of accounts", singular: "account", detail: "Account details" },
+  { path: "/foundation/tax-codes", list: "Tax codes", singular: "tax code", detail: "Tax code details" },
+  { path: "/foundation/payment-terms", list: "Payment terms", singular: "payment term", detail: "Payment term details" },
+  { path: "/foundation/warehouses", list: "Warehouses", singular: "warehouse", detail: "Warehouse details" },
+  { path: "/foundation/currencies", list: "Currencies", singular: "currency", detail: "Currency details" },
+  { path: "/foundation/product-categories", list: "Product categories", singular: "product category", detail: "Product category details" },
+  { path: "/foundation/price-levels", list: "Price levels", singular: "price level", detail: "Price level details" },
+];
+
+function getCrudPageTitle(pathname: string, page: CrudPageTitle) {
+  if (pathname === page.path) return page.list;
+  if (pathname === `${page.path}/new`) return `Create ${page.singular}`;
+  if (new RegExp(`^${page.path}/[^/]+/edit$`).test(pathname)) return `Edit ${page.singular}`;
+  if (new RegExp(`^${page.path}/[^/]+$`).test(pathname)) return page.detail ?? page.singular;
+  return null;
+}
+
+function getWorkspacePageTitle(pathname: string, isPlatformOwner: boolean) {
+  if (pathname === "/" || pathname === "" || pathname === "/app") {
     return "Dashboard";
   }
 
@@ -106,44 +155,45 @@ function getPageLabel(pathname: string, isPlatformOwner: boolean) {
     if (pathname.startsWith("/platform/packages")) return "Packages";
     if (pathname.startsWith("/platform/documents")) return "Document Preview";
     if (pathname.startsWith("/platform/whatsapp-sessions")) return "WhatsApp Sessions";
+    if (pathname.startsWith("/platform/account-billing-rollout")) return "Account billing rollout";
     if (pathname.startsWith("/platform/settings")) return "Settings";
     return "Platform";
   }
 
-  if (pathname.startsWith("/companies")) return "Companies";
-  if (pathname.startsWith("/contact-groups")) return "Contact Groups";
-  if (pathname.startsWith("/products")) return "Products";
-  if (pathname.startsWith("/plans")) return "Plans";
-  if (/^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname)) return "Statement of Account";
-  if (pathname.startsWith("/customers")) return "Contacts";
-  if (pathname.startsWith("/sales/quotations")) return "Sales Quotations";
-  if (pathname.startsWith("/sales/orders")) return "Sales Orders";
-  if (pathname.startsWith("/sales/delivery-orders")) return "Delivery Orders";
-  if (pathname.startsWith("/sales/invoices")) return "Sales Invoice";
-  if (pathname.startsWith("/purchases/orders")) return "Purchase Orders";
-  if (pathname.startsWith("/purchases/grns")) return "Goods Received Notes";
-  if (pathname.startsWith("/purchases/bills")) return "Purchase Bills";
-  if (pathname.startsWith("/purchases/payments")) return "Purchase Payments";
-  if (pathname.startsWith("/purchases/credit-notes")) return "Purchase Credit Notes";
-  if (pathname.startsWith("/purchases/refunds")) return "Purchase Refunds";
-  if (pathname.startsWith("/subscriptions")) return "Subscriptions";
+  if (pathname === "/products/batch-update") return "Batch update products";
+  if (pathname === "/products/import") return "Import products";
+  if (pathname === "/customers/import") return "Import contacts";
+  if (/^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname)) return "Statement of account";
+
+  for (const page of tenantCrudPageTitles) {
+    const title = getCrudPageTitle(pathname, page);
+    if (title) return title;
+  }
+
+  for (const page of foundationCrudPageTitles) {
+    const title = getCrudPageTitle(pathname, page);
+    if (title) return title;
+  }
+
+  if (pathname === "/sales/invoices/new") return "Create sales invoice";
+  if (pathname.startsWith("/sales/invoices")) return "Sales invoices";
+  if (pathname.startsWith("/contact-groups")) return "Contact groups";
+  if (pathname.startsWith("/product-groups")) return "Product groups";
   if (pathname.startsWith("/invoices")) return "Invoices";
   if (pathname.startsWith("/payments")) return "Payments";
-  if (pathname.startsWith("/foundation/chart-of-accounts")) return "Chart of Accounts";
-  if (pathname.startsWith("/foundation/tax-codes")) return "Tax Codes";
-  if (pathname.startsWith("/foundation/payment-terms")) return "Payment Terms";
-  if (pathname.startsWith("/foundation/warehouses")) return "Warehouses";
-  if (pathname.startsWith("/foundation/currencies")) return "Currencies";
-  if (pathname.startsWith("/foundation/product-categories")) return "Product Categories";
-  if (pathname.startsWith("/foundation/price-levels")) return "Price Levels";
   if (pathname.startsWith("/foundation")) return "Foundation";
-  if (pathname.startsWith("/settings/master-data")) return "Master Data";
-  if (pathname.startsWith("/whatsapp-messages")) return "Notification History";
+  if (pathname.startsWith("/settings/master-data")) return "Master data";
+  if (pathname.startsWith("/whatsapp-messages")) return "Notification history";
+  if (pathname.startsWith("/finance/general-ledger")) return "General ledger";
+  if (pathname.startsWith("/finance/trial-balance")) return "Trial balance";
+  if (pathname.startsWith("/finance/profit-and-loss")) return "Profit and loss";
+  if (pathname.startsWith("/finance/balance-sheet")) return "Balance sheet";
+  if (pathname.startsWith("/finance/cash-flow")) return "Cash flow";
   if (pathname.startsWith("/finance")) return "Finance";
   if (pathname.startsWith("/feedback")) return "Feedback";
   if (pathname.startsWith("/package-billing")) return "My Plan";
   if (pathname.startsWith("/settings")) return "Settings";
-  if (pathname.startsWith("/help/quick-start")) return "Quick Start";
+  if (pathname.startsWith("/help/quick-start")) return "Quick start";
   return "Workspace";
 }
 
@@ -360,7 +410,7 @@ export function AppShell() {
   const auth = getAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const contentRef = useRef<HTMLElement | null>(null);
+  const contentBodyRef = useRef<HTMLDivElement | null>(null);
   const appbarRef = useRef<HTMLDivElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
@@ -370,6 +420,8 @@ export function AppShell() {
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [packageBilling, setPackageBilling] = useState<SubscriberPackageBillingSummary | null>(null);
   const [companyCount, setCompanyCount] = useState<number | null>(null);
+  const [workspaceCompanies, setWorkspaceCompanies] = useState<CompanyLookup[]>([]);
+  const [activeCompanyId, setActiveCompanyIdState] = useState(getActiveCompanyId() ?? auth?.companyId ?? "");
   const [pendingSetupCount, setPendingSetupCount] = useState<number | null>(null);
   const [feedbackUnreadCount, setFeedbackUnreadCount] = useState(0);
   const [pendingPaymentConfirmationCount, setPendingPaymentConfirmationCount] = useState(0);
@@ -381,19 +433,21 @@ export function AppShell() {
   }, [location.pathname]);
 
   useEffect(() => {
-    contentRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    contentBodyRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const appbar = appbarRef.current;
-    const content = contentRef.current;
-    if (!appbar || !content) return;
-    const updateHeight = () => content.style.setProperty("--appbar-height", `${appbar.getBoundingClientRect().height}px`);
+    if (!appbar) return;
+    const updateHeight = () => document.documentElement.style.setProperty("--app-header-height", `${appbar.getBoundingClientRect().height}px`);
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
     observer.observe(appbar);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty("--app-header-height");
+    };
   }, []);
 
   useEffect(() => {
@@ -507,6 +561,31 @@ export function AppShell() {
 
   useEffect(() => {
     if (!auth || auth.isPlatformOwner) return;
+    let cancelled = false;
+    void api.get<CompanyLookup[]>("/companies").then((companies) => {
+      if (cancelled) return;
+      setWorkspaceCompanies(companies);
+      const selected = companies.some((company) => company.id === activeCompanyId)
+        ? activeCompanyId
+        : (companies.find((company) => company.id === auth.companyId)?.id ?? companies[0]?.id ?? "");
+      if (selected && selected !== activeCompanyId) {
+        setActiveCompanyId(selected);
+        setActiveCompanyIdState(selected);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [auth?.accessToken, auth?.companyId, auth?.isPlatformOwner]);
+
+  function switchCompany(companyId: string) {
+    if (!companyId || companyId === activeCompanyId) return;
+    setActiveCompanyId(companyId);
+    setActiveCompanyIdState(companyId);
+    setAccountMenuOpen(false);
+    navigate("/app", { replace: true });
+  }
+
+  useEffect(() => {
+    if (!auth || auth.isPlatformOwner) return;
     const shouldLoadCompanySummary = location.pathname === "/app" || location.pathname.startsWith("/companies") || location.pathname.startsWith("/help/quick-start");
     if (!shouldLoadCompanySummary) return;
 
@@ -527,7 +606,7 @@ export function AppShell() {
       return;
     }
 
-    const paymentConfirmationsEnabled = featureAccess?.featureKeys.includes("public_payment_confirmation") ?? false;
+    const paymentConfirmationsEnabled = hasFeature(featureAccess, "public_payment_confirmation");
 
     const refreshPendingPaymentConfirmations = () => {
       if (!paymentConfirmationsEnabled) {
@@ -610,7 +689,6 @@ export function AppShell() {
           hint: getFeatureRequirementLabel(featureAccess, "payment_tracking"),
           badgeKey: "payments",
         },
-        { label: "Subscriptions", path: "/subscriptions", icon: "repeat", disabled: !featureKeys.has("recurring_invoices"), hint: getFeatureRequirementLabel(featureAccess, "recurring_invoices") },
       ];
   const tenantPurchaseLinks: NavEntry[] = auth?.isPlatformOwner
     ? []
@@ -681,7 +759,7 @@ export function AppShell() {
     ["/", "/settings", "/help/quick-start"].includes(location.pathname) &&
     installPrompt.shouldShowPrompt,
   );
-  const currentPageLabel = getPageLabel(location.pathname, auth?.isPlatformOwner ?? false);
+  const currentPageLabel = getWorkspacePageTitle(location.pathname, auth?.isPlatformOwner ?? false);
   const navSections: NavSection[] = auth?.isPlatformOwner
     ? [
         { title: "Main", items: [{ label: "Dashboard", path: "/", icon: "dashboard" }, { label: "Subscribers", path: "/subscribers", icon: "users" }] },
@@ -689,7 +767,7 @@ export function AppShell() {
       ]
     : [
         { title: "Main", items: tenantMainLinks },
-        { title: "Sales", groups: [{ key: "sales", label: "Sales", icon: "invoice", items: tenantSalesLinks, activePrefixes: ["/sales", "/invoices", "/payments", "/subscriptions"] }] },
+        { title: "Sales", groups: [{ key: "sales", label: "Sales", icon: "invoice", items: tenantSalesLinks, activePrefixes: ["/sales", "/invoices", "/payments"] }] },
         { title: "Purchases", groups: [{ key: "purchases", label: "Purchases", icon: "document", items: tenantPurchaseLinks, activePrefixes: ["/purchases"] }] },
         { title: "Finance", groups: [{ key: "finance", label: "Finance", icon: "finance", items: financeLinks, activePrefixes: ["/finance"] }] },
         { title: "Foundation", groups: [{ key: "foundation", label: "Foundation", icon: "list", items: foundationLinks, activePrefixes: ["/foundation"] }] },
@@ -702,7 +780,7 @@ export function AppShell() {
     }
 
     const activeGroupKeys = [
-      (location.pathname.startsWith("/sales") || location.pathname.startsWith("/invoices") || location.pathname.startsWith("/payments") || location.pathname.startsWith("/subscriptions")) && "sales",
+      (location.pathname.startsWith("/sales") || location.pathname.startsWith("/invoices") || location.pathname.startsWith("/payments")) && "sales",
       location.pathname.startsWith("/purchases") && "purchases",
       (location.pathname.startsWith("/finance") || /^\/customers\/[^/]+\/statement(?:\/|$)/.test(location.pathname) || (location.pathname === "/customers" && location.hash === "#statement-of-account")) && "finance",
       location.pathname.startsWith("/foundation") && "foundation",
@@ -759,7 +837,7 @@ export function AppShell() {
             <span className="nav-link-icon">{renderNavIcon(item.icon)}</span>
             <span>{item.label}</span>
           </span>
-          <span className="nav-link-badge nav-link-badge-muted">{(item.hint ?? "").replace("Available on ", "")}</span>
+          <span className="nav-link-badge nav-link-badge-muted">{getSubscribedPackageLabel(featureAccess)}</span>
         </button>
       );
     }
@@ -832,7 +910,8 @@ export function AppShell() {
   const billingReminder = showBillingReminder ? getBillingReminderCopy() : null;
 
   return (
-    <div className="app-shell">
+    <>
+      <div className="app-shell">
       <div
         className={`sidebar-backdrop ${mobileNavOpen ? "is-visible" : ""}`}
         aria-hidden={mobileNavOpen ? "false" : "true"}
@@ -884,7 +963,7 @@ export function AppShell() {
           <p className="sidebar-helper">
             {auth?.isPlatformOwner
               ? "Manage subscriber businesses across the Recurvos platform"
-              : "Manage subscriptions, invoices, and payments in one place"}
+              : "Manage invoices and payments in one place"}
           </p>
         </div>
         <div className="sidebar-scroll-nav">
@@ -948,7 +1027,7 @@ export function AppShell() {
           <Link className="inline-link" to="/terms" state={{ backgroundLocation: location }}>Terms</Link>
         </div>
       </aside>
-      <main ref={contentRef} className="content">
+      <main className="content">
         <div ref={appbarRef} className="appbar-stack">
         <header className="mobile-appbar">
           <button
@@ -963,7 +1042,7 @@ export function AppShell() {
           </button>
           <div className="mobile-appbar-copy">
             <p className="eyebrow">{auth?.isPlatformOwner ? "Recurvos Platform" : "Recurvos Account"}</p>
-            <strong>{currentPageLabel}</strong>
+            <h1>{currentPageLabel}</h1>
             <span className="mobile-appbar-subtitle">{auth?.isPlatformOwner ? auth?.companyName : auth?.companyName ?? "Account"}</span>
           </div>
           <button
@@ -1019,6 +1098,12 @@ export function AppShell() {
                     <p className="desktop-account-dropdown-note">Platform owner account</p>
                   ) : (
                     <>
+                      <label className="form-label">
+                        Company workspace
+                        <select value={activeCompanyId} onChange={(event) => switchCompany(event.target.value)}>
+                          {workspaceCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+                        </select>
+                      </label>
                       <div className="desktop-account-dropdown-meta">
                         <div className="desktop-account-dropdown-row">
                           <span className="desktop-account-dropdown-label">Package</span>
@@ -1039,7 +1124,7 @@ export function AppShell() {
                   <p className="desktop-account-dropdown-note">
                     {auth?.isPlatformOwner
                       ? "Manage subscriber businesses across the Recurvos platform"
-                      : "Manage subscriptions, invoices, and payments in one place"}
+                      : "Manage invoices and payments in one place"}
                   </p>
                 </div>
               ) : null}
@@ -1047,7 +1132,7 @@ export function AppShell() {
           </div>
         </header>
         </div>
-        <div className="content-body">
+        <div ref={contentBodyRef} className="content-body">
           {billingReminder ? (
             <section className={`billing-reminder-banner billing-reminder-banner-${billingReminder.tone}`}>
               <div>
@@ -1110,21 +1195,6 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
-      {showFloatingQuickStart ? (
-        <button
-          type="button"
-          className="quickstart-float-button"
-          onClick={() => {
-            setMobileNavOpen(false);
-            navigate("/help/quick-start");
-          }}
-        >
-          <span className="quickstart-float-kicker">Quick Start</span>
-          {pendingSetupCount && pendingSetupCount > 0 ? (
-            <strong>{pendingSetupCount}</strong>
-          ) : null}
-        </button>
-      ) : null}
       <ConfirmModal
         open={showSignOutConfirm}
         title="Sign out"
@@ -1137,6 +1207,25 @@ export function AppShell() {
         }}
         onCancel={() => setShowSignOutConfirm(false)}
       />
-    </div>
+      </div>
+      {showFloatingQuickStart && typeof document !== "undefined" ? createPortal(
+        <div className="quickstart-float-layer">
+          <button
+            type="button"
+            className="quickstart-float-button"
+            onClick={() => {
+              setMobileNavOpen(false);
+              navigate("/help/quick-start");
+            }}
+          >
+            <span className="quickstart-float-kicker">Quick Start</span>
+            {pendingSetupCount && pendingSetupCount > 0 ? (
+              <strong>{pendingSetupCount}</strong>
+            ) : null}
+          </button>
+        </div>,
+        document.body,
+      ) : null}
+    </>
   );
 }

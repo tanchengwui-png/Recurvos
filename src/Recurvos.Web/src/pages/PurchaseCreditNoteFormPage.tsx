@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { PurchaseBill, PurchaseCreditNote } from "../types";
@@ -61,11 +63,9 @@ export function PurchaseCreditNoteFormPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Create Purchase Credit Note</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/credit-notes")}>Back</button>
-      </header>
+      <FormPageHeader backLabel="Back to Credit Notes" backHref="/purchases/credit-notes" breadcrumbs={<><span>Credit Notes</span><span>/</span><span>New Credit Note</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <TransactionFormCard title="Credit note details" description="Supplier, bill details and credit lines.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           <label className="form-label">Purchase Bill<input className="text-input" value={purchaseBill?.purchaseBillNumber ?? ""} readOnly /></label>
@@ -104,6 +104,7 @@ export function PurchaseCreditNoteFormPage() {
           <button type="button" className="button button-primary" onClick={() => void submit()}>Apply credit note</button>
         </div>
       </section>
+      </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>
   );

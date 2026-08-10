@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { CurrencySelect } from "../components/ui/CurrencySelect";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
+import { normaliseCurrencyCode, validateCurrency } from "../lib/currency";
 import { formatCurrency } from "../lib/format";
 import type { CurrencyDefinition, MasterDataSnapshot, PurchaseBill, PurchasePayment } from "../types";
 
@@ -22,6 +26,7 @@ export function PurchasePaymentFormPage() {
   const [currencies, setCurrencies] = useState<CurrencyDefinition[]>([]);
   const [paymentDateUtc, setPaymentDateUtc] = useState(new Date().toISOString().slice(0, 10));
   const [currency, setCurrency] = useState("");
+  const [currencyError, setCurrencyError] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
   const [contactName, setContactName] = useState("");
@@ -89,6 +94,8 @@ export function PurchasePaymentFormPage() {
   const total = activeAllocations.reduce((sum, item) => sum + item.allocatedAmount, 0);
 
   async function submit() {
+    const nextCurrencyError = validateCurrency(currency, currencies);
+    if (nextCurrencyError) { setCurrencyError(nextCurrencyError); document.getElementById("purchase-payment-currency")?.focus(); return; }
     if (activeAllocations.length === 0) {
       setError("At least one purchase bill allocation is required.");
       return;
@@ -100,7 +107,7 @@ export function PurchasePaymentFormPage() {
       action: async () => {
         const payload = {
           paymentDateUtc: new Date(`${paymentDateUtc}T00:00:00Z`).toISOString(),
-          currency,
+          currency: normaliseCurrencyCode(currency),
           referenceNo,
           notes,
           allocations: activeAllocations.map((item) => ({
@@ -116,21 +123,16 @@ export function PurchasePaymentFormPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Record Purchase Payment</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/payments")}>Back</button>
-      </header>
+      <FormPageHeader backLabel="Back to Payments" backHref="/purchases/payments" breadcrumbs={<><span>Payments</span><span>/</span><span>New Payment</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <TransactionFormCard title="Payment details" description="Payment date, currency, reference and bill allocations.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           <label className="form-label">Supplier<input className="text-input" value={contactName} readOnly /></label>
           <label className="form-label">Payment Date<input type="date" className="text-input" value={paymentDateUtc} onChange={(event) => setPaymentDateUtc(event.target.value)} /></label>
           <label className="form-label">
             Currency
-            <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-              <option value="">Select currency</option>
-              {currencies.map((item) => <option key={item.id} value={item.code}>{`${item.code} · ${item.name}`}</option>)}
-            </select>
+            <CurrencySelect id="purchase-payment-currency" value={currency} currencies={currencies} error={currencyError} onChange={(value) => { setCurrency(value); setCurrencyError(""); }} />
           </label>
           <label className="form-label">Reference No<input className="text-input" value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} /></label>
           <label className="form-label master-data-form-wide">Notes<input className="text-input" value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
@@ -166,6 +168,7 @@ export function PurchasePaymentFormPage() {
           <button type="button" className="button button-primary" onClick={() => void submit()}>Post payment</button>
         </div>
       </section>
+      </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>
   );

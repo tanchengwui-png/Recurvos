@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { ListToolbar } from "../components/ListToolbar";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -12,6 +14,7 @@ import type { CompanyLookup, GoodsReceivedNote, GoodsReceivedNoteListItem } from
 
 export function GoodsReceivedNotesPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [items, setItems] = useState<GoodsReceivedNoteListItem[]>([]);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [search, setSearch] = useState("");
@@ -40,7 +43,7 @@ export function GoodsReceivedNotesPage() {
 
   function getActions(item: GoodsReceivedNoteListItem) {
     return [
-      { label: "View", onClick: () => navigate(`/purchases/grns/${item.id}`) },
+      { label: "View details", onClick: () => navigate(`/purchases/grns/${item.id}`, { state: { backgroundLocation: location } }) },
       ...(item.status === "Draft" ? [{ label: "Edit", onClick: () => navigate(`/purchases/grns/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{
         label: "Mark as Received",
@@ -90,12 +93,8 @@ export function GoodsReceivedNotesPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Goods Received Notes</h2></div>
-        <button type="button" className="button button-primary" onClick={() => navigate("/purchases/grns/new")}>Create GRN</button>
-      </header>
       <ResponseToast message={message} tone="success" />
-      <div className="catalog-toolbar card subtle-card">
+      <ListToolbar>
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search GRN, purchase order, supplier, or reference" />
         <select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>
           <option value="">All companies</option>
@@ -110,8 +109,9 @@ export function GoodsReceivedNotesPage() {
           <option value="FullyBilled">Fully Billed</option>
           <option value="Cancelled">Cancelled</option>
         </select>
-      </div>
+      </ListToolbar>
       <section className="card">
+        <ListCardHeader title="Goods received notes" count={sortedItems.length} countLabel={sortedItems.length === 1 ? "note" : "notes"} actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/grns/new")}>Create GRN</button>} />
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>GRN No</th><th>Date</th><th>Supplier</th><th>Source PO</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>

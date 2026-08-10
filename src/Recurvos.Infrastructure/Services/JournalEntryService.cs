@@ -32,7 +32,7 @@ public sealed class JournalEntryService(AppDbContext db, ICurrentUserService cur
     {
         var companyId = await ValidateRequestAsync(request, null, ct);
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        var company = await db.Companies.FirstAsync(x => x.Id == companyId && x.SubscriberId == UserId, ct);
+        var company = await db.Companies.FirstAsync(x => x.Id == companyId && x.Id == ActiveCompanyId, ct);
         var item = new JournalEntry { CompanyId = companyId, JournalNumber = $"JE-{company.JournalEntrySequence++.ToString().PadLeft(6, '0')}", JournalDateUtc = request.JournalDateUtc.ToUniversalTime(), Currency = request.Currency.Trim().ToUpperInvariant(), ExchangeRate = request.ExchangeRate, ReferenceNo = request.ReferenceNo.Trim(), Description = request.Description.Trim() };
         item.Lines = await BuildLinesAsync(companyId, request, ct);
         db.JournalEntries.Add(item);
@@ -78,7 +78,7 @@ public sealed class JournalEntryService(AppDbContext db, ICurrentUserService cur
         var source = await LoadOwnedAsync(id, ct); if (source is null) return null;
         if (source.Status != JournalEntryStatus.Posted || source.ReversedByJournalEntryId.HasValue) throw new InvalidOperationException("Only an unreversed posted journal entry can be reversed.");
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
-        var company = await db.Companies.FirstAsync(x => x.Id == source.CompanyId && x.SubscriberId == UserId, ct);
+        var company = await db.Companies.FirstAsync(x => x.Id == source.CompanyId && x.Id == ActiveCompanyId, ct);
         var reversal = new JournalEntry { CompanyId = source.CompanyId, JournalNumber = $"JE-{company.JournalEntrySequence++.ToString().PadLeft(6, '0')}", JournalDateUtc = DateTime.UtcNow.Date, Currency = source.Currency, ExchangeRate = source.ExchangeRate, ReferenceNo = source.JournalNumber, Description = $"Reversal of {source.JournalNumber}", Status = JournalEntryStatus.Posted, ReversesJournalEntryId = source.Id, PostedAtUtc = DateTime.UtcNow, PostedByUserId = UserId };
         reversal.Lines = source.Lines.OrderBy(x => x.SortOrder).Select((x, i) => new JournalEntryLine { SortOrder = i + 1, AccountId = x.AccountId, AccountCodeSnapshot = x.AccountCodeSnapshot, AccountNameSnapshot = x.AccountNameSnapshot, Description = x.Description, DebitAmount = x.CreditAmount, CreditAmount = x.DebitAmount, BaseDebitAmount = x.BaseCreditAmount, BaseCreditAmount = x.BaseDebitAmount }).ToList();
         source.Status = JournalEntryStatus.Reversed; source.ReversedByJournalEntryId = reversal.Id; source.ReversedByJournalEntry = reversal; source.UpdatedAtUtc = DateTime.UtcNow;
@@ -124,7 +124,8 @@ public sealed class JournalEntryService(AppDbContext db, ICurrentUserService cur
         if (Math.Round(lines.Sum(x => x.DebitAmount), 2) != Math.Round(lines.Sum(x => x.CreditAmount), 2)) throw new InvalidOperationException("Total debits must equal total credits.");
     }
     private Guid UserId => currentUser.UserId ?? throw new UnauthorizedAccessException();
-    private IQueryable<Guid> OwnedCompanyIds() => db.Companies.Where(x => x.SubscriberId == UserId).Select(x => x.Id);
+    private Guid ActiveCompanyId => currentUser.CompanyId ?? throw new UnauthorizedAccessException();
+    private IQueryable<Guid> OwnedCompanyIds() => db.Companies.Where(x => x.Id == ActiveCompanyId).Select(x => x.Id);
     private Task<JournalEntry?> LoadOwnedAsync(Guid id, CancellationToken ct) => db.JournalEntries.Include(x => x.Company).Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == id && OwnedCompanyIds().Contains(x.CompanyId), ct);
     private async Task<JournalEntry> LoadRequiredAsync(Guid id, CancellationToken ct) => await LoadOwnedAsync(id, ct) ?? throw new InvalidOperationException("Journal entry was not found.");
     private static JournalEntryListItemDto MapList(JournalEntry x) => new(x.Id, x.CompanyId, x.Company?.Name ?? "", x.JournalNumber, x.JournalDateUtc, x.Currency, x.ExchangeRate, x.ReferenceNo, x.Description, x.Lines.Sum(l => l.DebitAmount), x.Lines.Sum(l => l.CreditAmount), x.Status, x.ReversesJournalEntryId, x.ReversedByJournalEntryId);

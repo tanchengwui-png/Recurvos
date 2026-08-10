@@ -2,9 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { api } from "../lib/api";
+import { defaultCurrencyCode, normaliseCurrencyCode, validateCurrency } from "../lib/currency";
 import { formatCurrency } from "../lib/format";
 import { resolveProductUnitPrice } from "../lib/productPricing";
+import { CurrencySelect } from "../components/ui/CurrencySelect";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, PriceLevel, Product, SalesQuotation, TaxCode } from "../types";
 
 type LineForm = { productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
@@ -25,6 +29,7 @@ export function SalesQuotationFormPage() {
   const [documentDateUtc, setDocumentDateUtc] = useState(new Date().toISOString().slice(0, 10));
   const [expiryDateUtc, setExpiryDateUtc] = useState("");
   const [currency, setCurrency] = useState("");
+  const [currencyError, setCurrencyError] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineForm[]>([{ ...emptyLine }]);
@@ -42,32 +47,68 @@ export function SalesQuotationFormPage() {
       ]);
       const activeCurrencies = snapshot.currencies.filter((item) => item.isActive);
       const activePriceLevels = snapshot.priceLevels.filter((item) => item.isActive);
-      const activeTaxCodes = snapshot.taxCodes.filter((item) => item.isActive && (item.scope === "Sales" || item.scope === "Both"));
       setCompanies(companyList);
       setContacts(contactList);
       setCurrencies(activeCurrencies);
       setPriceLevels(activePriceLevels);
-      setTaxCodes(activeTaxCodes);
       setProducts(productResult.items);
       if (quotation) {
         setCompanyId(quotation.companyId);
         setContactId(quotation.contactId);
         setDocumentDateUtc(quotation.documentDateUtc.slice(0, 10));
         setExpiryDateUtc(quotation.expiryDateUtc?.slice(0, 10) ?? "");
-        setCurrency(quotation.currency);
+        setCurrency(normaliseCurrencyCode(quotation.currency));
         setReferenceNo(quotation.referenceNo);
         setNotes(quotation.notes);
         setLines(quotation.lines.map((line) => ({ productId: line.productId ?? "", taxCodeId: line.taxCodeId ?? "", description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })));
       } else {
         setCompanyId(companyList[0]?.id ?? "");
         setContactId(contactList[0]?.id ?? "");
-        setCurrency(activeCurrencies[0]?.code ?? "");
+        setCurrency(defaultCurrencyCode(activeCurrencies, companyList[0]?.homeCurrency));
       }
     }
     void load();
   }, [id]);
 
-  const filteredProducts = products.filter((item) => item.companyId === companyId);
+  useEffect(() => {
+    if (!companyId) {
+      setTaxCodes([]);
+      return;
+    }
+
+    let cancelled = false;
+    void api.get<TaxCode[]>(`/master-data/tax-codes?companyId=${companyId}&isActive=true`).then((companyTaxCodes) => {
+      if (cancelled) return;
+      const salesTaxCodes = companyTaxCodes.filter((item) => item.scope === "Sales" || item.scope === "Both");
+      setTaxCodes(salesTaxCodes);
+      setLines((current) => current.map((line) => salesTaxCodes.some((item) => item.id === line.taxCodeId)
+        ? line
+        : { ...line, taxCodeId: "", taxRate: 0 }));
+    }).catch(() => {
+      if (!cancelled) setError("Unable to load tax codes for the selected company.");
+    });
+    return () => { cancelled = true; };
+  }, [companyId]);
+
+  useEffect(() => {
+    if (!companyId) return;
+    let cancelled = false;
+    void api.get<CurrencyDefinition[]>(`/master-data/currencies?companyId=${companyId}`).then((companyCurrencies) => {
+      if (cancelled) return;
+      const activeCurrencies = companyCurrencies.filter((item) => item.isActive);
+      setCurrencies(activeCurrencies);
+      setCurrency((current) => {
+        const validCurrent = validateCurrency(current, activeCurrencies) === "";
+        return validCurrent ? normaliseCurrencyCode(current) : defaultCurrencyCode(activeCurrencies, companies.find((company) => company.id === companyId)?.homeCurrency);
+      });
+    }).catch(() => {
+      if (!cancelled) setCurrencyError("Unable to load currencies for the selected company.");
+    });
+    return () => { cancelled = true; };
+  }, [companyId, companies]);
+
+  const filteredProducts = products.filter((item) => item.companyId === companyId && item.isSelling);
+  const companyContacts = contacts.filter((item) => item.companyIds.length === 0 || item.companyIds.includes(companyId));
   const selectedContact = contacts.find((item) => item.id === contactId);
   const selectedPriceLevel = priceLevels.find((item) =>
     selectedContact?.priceLevel
@@ -108,6 +149,12 @@ export function SalesQuotationFormPage() {
   }
 
   async function submit() {
+    const nextCurrencyError = validateCurrency(currency, currencies);
+    if (nextCurrencyError) {
+      setCurrencyError(nextCurrencyError);
+      document.getElementById("quotation-currency")?.focus();
+      return;
+    }
     if (lines.some((line) => !line.taxCodeId)) {
       setError("Select a tax code for each line.");
       return;
@@ -124,7 +171,7 @@ export function SalesQuotationFormPage() {
             contactId,
             documentDateUtc: new Date(`${documentDateUtc}T00:00:00Z`).toISOString(),
             expiryDateUtc: expiryDateUtc ? new Date(`${expiryDateUtc}T00:00:00Z`).toISOString() : null,
-            currency,
+            currency: normaliseCurrencyCode(currency),
             referenceNo,
             notes,
             lines: lines.map((line) => ({ productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
@@ -141,23 +188,18 @@ export function SalesQuotationFormPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>{id ? "Edit Sales Quotation" : "Create Sales Quotation"}</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/sales/quotations")}>Back to quotations</button>
-      </header>
+      <FormPageHeader backLabel="Back to Quotations" backHref="/sales/quotations" breadcrumbs={<><span>Quotations</span><span>/</span><span>{id ? "Edit Quotation" : "New Quotation"}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <TransactionFormCard title="Quotation details" description="Customer, dates, currency, reference and line items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
-          <label className="form-label">Company<select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="form-label">Contact<select value={contactId} onChange={(event) => setContactId(event.target.value)}>{contacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
+          <label className="form-label">Company<select value={companyId} onChange={(event) => { const nextCompanyId = event.target.value; setCompanyId(nextCompanyId); setContactId(contacts.find((contact) => contact.companyIds.length === 0 || contact.companyIds.includes(nextCompanyId))?.id ?? ""); setCurrencyError(""); }}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="form-label">Contact<select value={contactId} onChange={(event) => setContactId(event.target.value)}>{companyContacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
           <label className="form-label">Document Date<input type="date" className="text-input" value={documentDateUtc} onChange={(event) => setDocumentDateUtc(event.target.value)} /></label>
           <label className="form-label">Expiry Date<input type="date" className="text-input" value={expiryDateUtc} onChange={(event) => setExpiryDateUtc(event.target.value)} /></label>
           <label className="form-label">
             Currency
-            <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-              <option value="">Select currency</option>
-              {currencies.map((item) => <option key={item.id} value={item.code}>{`${item.code} · ${item.name}`}</option>)}
-            </select>
+            <CurrencySelect id="quotation-currency" value={currency} currencies={currencies} error={currencyError} onChange={(value) => { setCurrency(value); setCurrencyError(""); }} />
           </label>
           <label className="form-label">Reference<input className="text-input" value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} /></label>
           <label className="form-label master-data-form-wide">Notes<input className="text-input" value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
@@ -216,6 +258,7 @@ export function SalesQuotationFormPage() {
           <button type="button" className="button button-primary" onClick={() => void submit()}>{id ? "Update quotation" : "Create quotation"}</button>
         </div>
       </section>
+      </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>
   );

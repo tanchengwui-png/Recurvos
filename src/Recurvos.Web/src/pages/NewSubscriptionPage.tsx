@@ -3,6 +3,9 @@ import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { FormActionSection } from "../components/ui/FormActionSection";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { BillingReadiness, CompanyLookup, Customer, ProductPlan, Subscription } from "../types";
@@ -130,7 +133,7 @@ export function NewSubscriptionPage() {
       setBillingReadiness(readiness);
       setForm((current) => ({
         ...current,
-        customerId: customers.some((customer) => customer.id === current.customerId) ? current.customerId : customers[0]?.id ?? "",
+        customerId: customers.some((customer) => customer.id === current.customerId && (customer.companyIds.length === 0 || customer.companyIds.includes(current.companyId))) ? current.customerId : customers.find((customer) => customer.companyIds.length === 0 || customer.companyIds.includes(current.companyId))?.id ?? "",
         productPlanId: companyPlans.some((plan) => plan.id === current.productPlanId) ? current.productPlanId : companyPlans[0]?.id ?? "",
       }));
     }
@@ -162,6 +165,8 @@ export function NewSubscriptionPage() {
       };
     });
   }
+
+  const companyCustomers = customers.filter((customer) => customer.companyIds.length === 0 || customer.companyIds.includes(form.companyId));
 
   function removeDraftItem(productPlanId: string) {
     setForm((current) => ({
@@ -221,18 +226,13 @@ export function NewSubscriptionPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>Start Customer Billing</h2>
-          <p className="page-subtitle">Create a new subscription.</p>
-        </div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/subscriptions")}>Back to subscriptions</button>
-      </header>
+      <FormPageHeader backLabel="Back to Subscriptions" backHref="/subscriptions" breadcrumbs={<><span>Subscriptions</span><span>/</span><span>New Subscription</span></>} />
       {billingReadiness && !billingReadiness.isReady ? (
         <HelperText>
           {`Complete the company billing profile before starting subscriptions: ${billingReadiness.items.filter((item) => item.required && !item.done).map((item) => item.title).join(", ")}.`}
         </HelperText>
       ) : null}
+      <TransactionFormCard title="Subscription details" description="Customer, plans, billing schedule and subscription items.">
       <section className="card subscription-create-page-card">
         <form id="subscription-create-form" className="form-stack" onSubmit={createSubscription}>
           <label className="form-label">
@@ -246,7 +246,7 @@ export function NewSubscriptionPage() {
           <label className="form-label">
             Customer
             <select value={form.customerId} onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}>
-              {customers.map((customer) => (
+              {companyCustomers.map((customer) => (
                 <option key={customer.id} value={customer.id}>{customer.name}</option>
               ))}
             </select>
@@ -310,12 +310,13 @@ export function NewSubscriptionPage() {
               {`Before creating a subscription, complete: ${missingBillingItems.map((item) => item.title).join(", ")}.`}
             </HelperText>
           ) : null}
-          <div className="subscription-create-actions">
-            <button type="submit" className="button button-primary" disabled={form.items.length === 0 || billingReadiness === null}>Create subscription</button>
-            <button type="button" className="button button-secondary" onClick={() => navigate("/subscriptions")}>Cancel</button>
-          </div>
+          <FormActionSection className="subscription-create-actions">
+            <div />
+            <div><button type="button" className="button button-secondary" onClick={() => navigate("/subscriptions")}>Cancel</button><button type="submit" className="button button-primary" disabled={form.items.length === 0 || billingReadiness === null}>Create subscription</button></div>
+          </FormActionSection>
         </form>
       </section>
+      </TransactionFormCard>
       <ConfirmModal
         open={confirmState !== null}
         title={confirmState?.title ?? ""}

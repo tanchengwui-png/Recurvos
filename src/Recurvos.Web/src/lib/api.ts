@@ -1,4 +1,4 @@
-import { getAuth, setAuth } from "./auth";
+import { getActiveCompanyId, getAuth, setAuth } from "./auth";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7001/api";
 
@@ -19,6 +19,10 @@ const cacheTtlByPath: Record<string, number> = {
 
 function invalidateReadCache() {
   readCache.clear();
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("recurvos:company-changed", invalidateReadCache);
 }
 
 export function buildApiUrl(path: string) {
@@ -216,6 +220,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (auth?.accessToken) {
     headers.set("Authorization", `Bearer ${auth.accessToken}`);
   }
+  const activeCompanyId = getActiveCompanyId();
+  if (activeCompanyId) {
+    headers.set("X-Recurvos-Company-Id", activeCompanyId);
+  }
 
   const response = await fetch(buildApiUrl(path), { ...init, headers });
   if (response.status === 401 && auth?.refreshToken) {
@@ -255,6 +263,10 @@ async function requestBlob(path: string, init?: RequestInit): Promise<{ blob: Bl
   const headers = new Headers(init?.headers);
   if (auth?.accessToken) {
     headers.set("Authorization", `Bearer ${auth.accessToken}`);
+  }
+  const activeCompanyId = getActiveCompanyId();
+  if (activeCompanyId) {
+    headers.set("X-Recurvos-Company-Id", activeCompanyId);
   }
 
   const response = await fetch(buildApiUrl(path), { ...init, headers });

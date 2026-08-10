@@ -49,6 +49,8 @@ public sealed class CustomerAddressInput
 
 public sealed class CustomerRequest
 {
+    public IReadOnlyCollection<Guid> CompanyIds { get; set; } = Array.Empty<Guid>();
+
     [Required, MaxLength(200)]
     public string Name { get; set; } = string.Empty;
 
@@ -143,6 +145,8 @@ public sealed class CustomerRequest
 
 public sealed class CustomerDto
 {
+    public IReadOnlyCollection<Guid> CompanyIds { get; set; } = Array.Empty<Guid>();
+
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;

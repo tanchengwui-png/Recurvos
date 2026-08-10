@@ -15,7 +15,7 @@ public sealed class StatementService(
     {
         var contact = await dbContext.Customers
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.SubscriberId == GetSubscriberId() && x.Id == query.ContactId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && x.Id == query.ContactId, cancellationToken)
             ?? throw new InvalidOperationException("The selected contact could not be found.");
 
         ValidateStatementType(contact, query.StatementType);
@@ -686,9 +686,10 @@ public sealed class StatementService(
     }
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
+    private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
 
     private IQueryable<Guid> OwnedCompanyIdsQuery() => dbContext.Companies
-        .Where(x => x.SubscriberId == GetSubscriberId())
+        .Where(x => x.Id == GetCompanyId())
         .Select(x => x.Id);
 
     private sealed record AgingDocument(Guid DocumentId, DateTime DueDateUtc, decimal OutstandingAmount, string CurrencyCode, string DocumentNumber);

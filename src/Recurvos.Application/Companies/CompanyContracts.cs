@@ -46,6 +46,12 @@ public sealed class CompanyFactoryResetRequest
     public string ConfirmationText { get; set; } = string.Empty;
 }
 
+public sealed class CompanyMembershipUpsertRequest
+{
+    public string UserEmail { get; set; } = string.Empty;
+    public string Role { get; set; } = "Viewer";
+}
+
 public sealed class CompanyAddressUpsertRequest
 {
     [JsonPropertyName("id")]
@@ -121,4 +127,5 @@ public interface ICompanyService
     Task<CompanyLookupDto?> RemoveLogoAsync(Guid id, CancellationToken cancellationToken = default);
     Task<CompanyLogoFile?> GetLogoAsync(Guid id, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<ProductPlanDto>> GetRecurringPlansAsync(Guid companyId, CancellationToken cancellationToken = default);
+    Task GrantMembershipAsync(Guid companyId, CompanyMembershipUpsertRequest request, CancellationToken cancellationToken = default);
 }

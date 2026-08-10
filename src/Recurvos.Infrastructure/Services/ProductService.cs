@@ -87,11 +87,11 @@ public sealed class ProductService(
         var normalizedCustomPurchasePrices = NormalizeCustomPrices(request.CustomPurchasePrices);
         await ValidateCustomPriceReferencesAsync(companyId, request.BaseUnitLabel, normalizedUomConversions, normalizedCustomSalesPrices, cancellationToken);
         await ValidateCustomPriceReferencesAsync(companyId, request.BaseUnitLabel, normalizedUomConversions, normalizedCustomPurchasePrices, cancellationToken);
-        var inventoryAccount = await ResolveAccountSelectionAsync(companyId, request.TrackInventory ? request.InventoryAccountId : null, request.TrackInventory ? request.InventoryAccount : string.Empty, AccountType.Asset, "Inventory account", cancellationToken);
-        var incomeAccount = await ResolveAccountSelectionAsync(companyId, request.IsSelling ? request.IncomeAccountId : null, request.IsSelling ? request.IncomeAccount : string.Empty, AccountType.Revenue, "Income account", cancellationToken);
-        var expenseAccount = await ResolveAccountSelectionAsync(companyId, request.IsBuying ? request.ExpenseAccountId : null, request.IsBuying ? request.ExpenseAccount : string.Empty, AccountType.Expense, "Expense account", cancellationToken);
-        var salesTaxCode = await ResolveTaxCodeAsync(companyId, request.IsSelling ? request.SalesTaxCodeId : null, request.IsSelling ? request.SalesTaxCode : string.Empty, TaxScope.Sales, "Sales tax", cancellationToken);
-        var purchaseTaxCode = await ResolveTaxCodeAsync(companyId, request.IsBuying ? request.PurchaseTaxCodeId : null, request.IsBuying ? request.PurchaseTaxCode : string.Empty, TaxScope.Purchase, "Purchase tax", cancellationToken);
+        var inventoryAccount = await ResolveAccountSelectionAsync(request.TrackInventory ? request.InventoryAccountId : null, request.TrackInventory ? request.InventoryAccount : string.Empty, AccountType.Asset, "Inventory account", cancellationToken);
+        var incomeAccount = await ResolveAccountSelectionAsync(request.IsSelling ? request.IncomeAccountId : null, request.IsSelling ? request.IncomeAccount : string.Empty, AccountType.Revenue, "Income account", cancellationToken);
+        var expenseAccount = await ResolveAccountSelectionAsync(request.IsBuying ? request.ExpenseAccountId : null, request.IsBuying ? request.ExpenseAccount : string.Empty, AccountType.Expense, "Expense account", cancellationToken);
+        var salesTaxCode = await ResolveTaxCodeAsync(request.IsSelling ? request.SalesTaxCodeId : null, request.IsSelling ? request.SalesTaxCode : string.Empty, TaxScope.Sales, "Sales tax", cancellationToken);
+        var purchaseTaxCode = await ResolveTaxCodeAsync(request.IsBuying ? request.PurchaseTaxCodeId : null, request.IsBuying ? request.PurchaseTaxCode : string.Empty, TaxScope.Purchase, "Purchase tax", cancellationToken);
         var preferredSupplier = await ResolvePreferredSupplierAsync(request.IsBuying ? request.PreferredSupplierId : null, cancellationToken);
 
         var product = new Product
@@ -173,11 +173,11 @@ public sealed class ProductService(
         var normalizedCustomPurchasePrices = NormalizeCustomPrices(request.CustomPurchasePrices);
         await ValidateCustomPriceReferencesAsync(product.CompanyId, request.BaseUnitLabel, normalizedUomConversions, normalizedCustomSalesPrices, cancellationToken);
         await ValidateCustomPriceReferencesAsync(product.CompanyId, request.BaseUnitLabel, normalizedUomConversions, normalizedCustomPurchasePrices, cancellationToken);
-        var inventoryAccount = await ResolveAccountSelectionAsync(product.CompanyId, request.TrackInventory ? request.InventoryAccountId : null, request.TrackInventory ? request.InventoryAccount : string.Empty, AccountType.Asset, "Inventory account", cancellationToken);
-        var incomeAccount = await ResolveAccountSelectionAsync(product.CompanyId, request.IsSelling ? request.IncomeAccountId : null, request.IsSelling ? request.IncomeAccount : string.Empty, AccountType.Revenue, "Income account", cancellationToken);
-        var expenseAccount = await ResolveAccountSelectionAsync(product.CompanyId, request.IsBuying ? request.ExpenseAccountId : null, request.IsBuying ? request.ExpenseAccount : string.Empty, AccountType.Expense, "Expense account", cancellationToken);
-        var salesTaxCode = await ResolveTaxCodeAsync(product.CompanyId, request.IsSelling ? request.SalesTaxCodeId : null, request.IsSelling ? request.SalesTaxCode : string.Empty, TaxScope.Sales, "Sales tax", cancellationToken);
-        var purchaseTaxCode = await ResolveTaxCodeAsync(product.CompanyId, request.IsBuying ? request.PurchaseTaxCodeId : null, request.IsBuying ? request.PurchaseTaxCode : string.Empty, TaxScope.Purchase, "Purchase tax", cancellationToken);
+        var inventoryAccount = await ResolveAccountSelectionAsync(request.TrackInventory ? request.InventoryAccountId : null, request.TrackInventory ? request.InventoryAccount : string.Empty, AccountType.Asset, "Inventory account", cancellationToken);
+        var incomeAccount = await ResolveAccountSelectionAsync(request.IsSelling ? request.IncomeAccountId : null, request.IsSelling ? request.IncomeAccount : string.Empty, AccountType.Revenue, "Income account", cancellationToken);
+        var expenseAccount = await ResolveAccountSelectionAsync(request.IsBuying ? request.ExpenseAccountId : null, request.IsBuying ? request.ExpenseAccount : string.Empty, AccountType.Expense, "Expense account", cancellationToken);
+        var salesTaxCode = await ResolveTaxCodeAsync(request.IsSelling ? request.SalesTaxCodeId : null, request.IsSelling ? request.SalesTaxCode : string.Empty, TaxScope.Sales, "Sales tax", cancellationToken);
+        var purchaseTaxCode = await ResolveTaxCodeAsync(request.IsBuying ? request.PurchaseTaxCodeId : null, request.IsBuying ? request.PurchaseTaxCode : string.Empty, TaxScope.Purchase, "Purchase tax", cancellationToken);
         var preferredSupplier = await ResolvePreferredSupplierAsync(request.IsBuying ? request.PreferredSupplierId : null, cancellationToken);
 
         product.Name = request.Name.Trim();
@@ -469,6 +469,8 @@ public sealed class ProductService(
             DeserializeList<string>(product.ProductGroupsJson),
             product.SalesPrice,
             product.PurchasePrice,
+            product.IsSelling,
+            product.IsBuying,
             product.BaseUnitLabel,
             product.HasMultipleUoms,
             DeserializeList<ProductUomConversionDto>(product.UomConversionsJson),
@@ -554,12 +556,15 @@ public sealed class ProductService(
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
 
-    private IQueryable<Guid> OwnedCompanyIdsQuery() =>
-        dbContext.Companies.Where(x => x.SubscriberId == GetSubscriberId()).Select(x => x.Id);
+    private IQueryable<Guid> OwnedCompanyIdsQuery()
+    {
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        return dbContext.Companies.Where(x => x.Id == companyId).Select(x => x.Id);
+    }
 
     private async Task EnsureCompanyAccessAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        var hasAccess = await dbContext.Companies.AnyAsync(x => x.Id == companyId && x.SubscriberId == GetSubscriberId(), cancellationToken);
+        var hasAccess = companyId == (currentUserService.CompanyId ?? throw new UnauthorizedAccessException());
         if (!hasAccess)
         {
             throw new UnauthorizedAccessException();
@@ -573,8 +578,9 @@ public sealed class ProductService(
             return;
         }
 
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
         var availableGroupNames = await dbContext.ProductGroups
-            .Where(x => x.SubscriberId == GetSubscriberId())
+            .Where(x => x.CompanyId == activeCompanyId)
             .Select(x => x.Name)
             .ToListAsync(cancellationToken);
 
@@ -602,7 +608,7 @@ public sealed class ProductService(
             return;
         }
 
-        var subscriberId = GetSubscriberId();
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
         var validUoms = uomConversions
             .Select(value => value.Label)
             .Append(baseUnitLabel.Trim())
@@ -617,14 +623,14 @@ public sealed class ProductService(
         var knownContactIds = contactIds.Length == 0
             ? new HashSet<Guid>()
             : (await dbContext.Customers
-                .Where(x => x.SubscriberId == subscriberId && contactIds.Contains(x.Id))
+                .Where(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && contactIds.Contains(x.Id))
                 .Select(x => x.Id)
                 .ToListAsync(cancellationToken))
                 .ToHashSet();
 
         var validGroups = values.Any(value => value.TargetType.Equals("ContactGroup", StringComparison.OrdinalIgnoreCase))
             ? (await dbContext.ContactGroups
-                .Where(x => x.SubscriberId == subscriberId)
+                .Where(x => x.CompanyId == activeCompanyId)
                 .Select(x => x.Name)
                 .ToListAsync(cancellationToken))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
@@ -662,20 +668,28 @@ public sealed class ProductService(
         }
     }
 
-    private async Task<(Guid? AccountId, string AccountCode)> ResolveAccountSelectionAsync(Guid companyId, Guid? accountId, string accountCode, AccountType requiredType, string fieldName, CancellationToken cancellationToken)
+    private async Task<(Guid? AccountId, string AccountCode)> ResolveAccountSelectionAsync(Guid? accountId, string accountCode, AccountType requiredType, string fieldName, CancellationToken cancellationToken)
     {
         if (!accountId.HasValue && string.IsNullOrWhiteSpace(accountCode))
         {
             return (null, string.Empty);
         }
 
-        var query = dbContext.Accounts.Where(x => x.CompanyId == companyId && x.Type == requiredType);
+        var sharedAccountCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var query = dbContext.Accounts.Where(x => x.CompanyId == sharedAccountCompanyId && x.Type == requiredType);
         Account? account;
         if (accountId.HasValue && accountId.Value != Guid.Empty)
         {
             account = await query.FirstOrDefaultAsync(x => x.Id == accountId.Value, cancellationToken);
         }
         else
+        {
+            account = null;
+        }
+
+        // Account codes are shared across the subscriber's companies. Prefer an ID,
+        // then resolve the submitted code in the shared chart and required account type.
+        if (account is null && !string.IsNullOrWhiteSpace(accountCode))
         {
             var normalizedCode = accountCode.Trim().ToUpperInvariant();
             account = await query.FirstOrDefaultAsync(x => x.Code.ToUpper() == normalizedCode, cancellationToken);
@@ -689,20 +703,28 @@ public sealed class ProductService(
         return (account.Id, account.Code);
     }
 
-    private async Task<(Guid? TaxCodeId, string TaxCodeCode)> ResolveTaxCodeAsync(Guid companyId, Guid? taxCodeId, string taxCodeCode, TaxScope requiredScope, string fieldName, CancellationToken cancellationToken)
+    private async Task<(Guid? TaxCodeId, string TaxCodeCode)> ResolveTaxCodeAsync(Guid? taxCodeId, string taxCodeCode, TaxScope requiredScope, string fieldName, CancellationToken cancellationToken)
     {
         if (!taxCodeId.HasValue && string.IsNullOrWhiteSpace(taxCodeCode))
         {
             return (null, string.Empty);
         }
 
-        var query = dbContext.TaxCodes.Where(x => x.CompanyId == companyId && (x.Scope == requiredScope || x.Scope == TaxScope.Both));
+        var sharedMasterDataCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var query = dbContext.TaxCodes.Where(x => x.CompanyId == sharedMasterDataCompanyId && (x.Scope == requiredScope || x.Scope == TaxScope.Both));
         TaxCode? taxCode;
         if (taxCodeId.HasValue && taxCodeId.Value != Guid.Empty)
         {
             taxCode = await query.FirstOrDefaultAsync(x => x.Id == taxCodeId.Value, cancellationToken);
         }
         else
+        {
+            taxCode = null;
+        }
+
+        // Tax codes are shared across the subscriber's companies. Resolve a submitted
+        // code in the shared master-data list if its ID is unavailable or stale.
+        if (taxCode is null && !string.IsNullOrWhiteSpace(taxCodeCode))
         {
             var normalizedCode = taxCodeCode.Trim().ToUpperInvariant();
             taxCode = await query.FirstOrDefaultAsync(x => x.Code.ToUpper() == normalizedCode, cancellationToken);
@@ -723,8 +745,9 @@ public sealed class ProductService(
             return (null, string.Empty);
         }
 
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
         var supplier = await dbContext.Customers
-            .Where(x => x.SubscriberId == GetSubscriberId() && x.Id == supplierId.Value)
+            .Where(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && x.Id == supplierId.Value)
             .Select(x => new { x.Id, x.Name, x.ContactType })
             .FirstOrDefaultAsync(cancellationToken);
 

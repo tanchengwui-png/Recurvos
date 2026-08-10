@@ -105,6 +105,13 @@ public sealed class AuthService(
 
         dbContext.Companies.Add(company);
         dbContext.Users.Add(user);
+        dbContext.CompanyMemberships.Add(new CompanyMembership
+        {
+            User = user,
+            Company = company,
+            Role = CompanyMembershipRole.Owner,
+            IsActive = true,
+        });
         dbContext.SubscriberAccounts.Add(subscriberAccount);
         await dbContext.SaveChangesAsync(cancellationToken);
 

@@ -131,6 +131,101 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
     }
 
     [Fact]
+    public async Task ReportEntitlements_AreInherited_ByEveryHigherPackage_AndDashboardIsAvailable()
+    {
+        await _factory.EnsureSeededAsync();
+
+        var cases = new[]
+        {
+            (Email: "recurvos-basic@hotmail.com", PackageCode: "starter", Basic: true, Growth: false, Premium: false),
+            (Email: "recurvos-growth@hotmail.com", PackageCode: "growth", Basic: true, Growth: true, Premium: false),
+            (Email: "recurvos-premium@hotmail.com", PackageCode: "premium", Basic: true, Growth: true, Premium: true),
+        };
+
+        foreach (var testCase in cases)
+        {
+            using var loginClient = _factory.CreateClient();
+            var loginResponse = await loginClient.PostAsJsonAsync("/api/auth/login", new
+            {
+                email = testCase.Email,
+                password = "P@ssw0rd!@#$%"
+            });
+            loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            var auth = await loginResponse.Content.ReadFromJsonAsync<TestAuthResponse>(TestWebApplicationFactory.JsonOptions);
+
+            using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), auth!.AccessToken);
+            var access = await client.GetFromJsonAsync<FeatureAccessView>("/api/settings/feature-access", TestWebApplicationFactory.JsonOptions);
+
+            access.Should().NotBeNull();
+            access!.PackageCode.Should().Be(testCase.PackageCode);
+            access.FeatureKeys.Contains("basic_reports", StringComparer.OrdinalIgnoreCase).Should().Be(testCase.Basic);
+            access.FeatureKeys.Contains("growth_reports", StringComparer.OrdinalIgnoreCase).Should().Be(testCase.Growth);
+            access.FeatureKeys.Contains("premium_reports", StringComparer.OrdinalIgnoreCase).Should().Be(testCase.Premium);
+
+            // The dashboard is available independently of report-tier entitlements.
+            (await client.GetAsync("/api/dashboard/summary")).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+    }
+
+    [Fact]
+    public async Task Reconciliation_RepairsNewerActivePremiumAccountState_AndRestoresEntitlements()
+    {
+        await _factory.EnsureSeededAsync();
+        using var loginClient = _factory.CreateClient();
+        var loginResponse = await loginClient.PostAsJsonAsync("/api/auth/login", new
+        {
+            email = "recurvos-premium@hotmail.com",
+            password = "P@ssw0rd!@#$%"
+        });
+        loginResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var auth = await loginResponse.Content.ReadFromJsonAsync<TestAuthResponse>(TestWebApplicationFactory.JsonOptions);
+
+        await using (var arrangeScope = _factory.Services.CreateAsyncScope())
+        {
+            var dbContext = arrangeScope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var company = await dbContext.Companies
+                .Include(x => x.SubscriberAccount)
+                .SingleAsync(x => x.Email == "recurvos-premium@hotmail.com");
+            var account = company.SubscriberAccount!;
+            var nowUtc = DateTime.UtcNow;
+
+            company.SelectedPackage = "premium";
+            company.PackageStatus = "past_due";
+            company.PackageGracePeriodEndsAtUtc = null;
+            company.UpdatedAtUtc = nowUtc.AddMinutes(-1);
+            account.BillingPackageCode = "premium";
+            account.BillingPendingPackageCode = null;
+            account.BillingStatus = "active";
+            account.BillingGracePeriodEndsAtUtc = null;
+            account.BillingProjectionUpdatedAtUtc = nowUtc;
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using (var reconcileScope = _factory.Services.CreateAsyncScope())
+        {
+            var migrationService = reconcileScope.ServiceProvider.GetRequiredService<SubscriberAccountBillingMigrationService>();
+            await migrationService.ReconcileAsync();
+        }
+
+        using var client = TestWebApplicationFactory.Authorize(_factory.CreateClient(), auth!.AccessToken);
+        var access = await client.GetFromJsonAsync<FeatureAccessView>("/api/settings/feature-access", TestWebApplicationFactory.JsonOptions);
+
+        access.Should().NotBeNull();
+        access!.PackageCode.Should().Be("premium");
+        access.PackageStatus.Should().Be("active");
+        access.FeatureKeys.Should().Contain("manual_invoices");
+        access.FeatureKeys.Should().Contain("recurring_invoices");
+        access.FeatureKeys.Should().Contain("payment_tracking");
+
+        await using var assertScope = _factory.Services.CreateAsyncScope();
+        var assertDbContext = assertScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var repairedCompany = await assertDbContext.Companies.SingleAsync(x => x.Email == "recurvos-premium@hotmail.com");
+        repairedCompany.PackageStatus.Should().Be("active");
+        var accountId = repairedCompany.SubscriberAccountId!.Value;
+        (await assertDbContext.SubscriberAccountBillingEvents.AnyAsync(x => x.SubscriberAccountId == accountId && x.EventType == "billing.legacy.repaired-from-account-active")).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task CancelPendingUpgrade_VoidsInvoice_And_RestoresActivePackageState()
     {
         await _factory.EnsureSeededAsync();
@@ -914,10 +1009,10 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         result.Should().NotBeNull();
         result!.SuccessCount.Should().Be(2);
 
-        var firstCustomer = result.Customers.Single(x => x.Id == firstCustomerId);
-        var secondCustomer = result.Customers.Single(x => x.Id == secondCustomerId);
-        firstCustomer.Groups.Should().BeEquivalentTo(new[] { "Supplier", "VIP" }, options => options.WithStrictOrdering());
-        secondCustomer.Groups.Should().BeEquivalentTo(new[] { "Employee", "VIP" }, options => options.WithStrictOrdering());
+        var updatedFirstCustomer = result.Customers.Single(x => x.Id == firstCustomerId);
+        var updatedSecondCustomer = result.Customers.Single(x => x.Id == secondCustomerId);
+        updatedFirstCustomer.Groups.Should().BeEquivalentTo(new[] { "Supplier", "VIP" }, options => options.WithStrictOrdering());
+        updatedSecondCustomer.Groups.Should().BeEquivalentTo(new[] { "Employee", "VIP" }, options => options.WithStrictOrdering());
 
         await using var verifyScope = _factory.Services.CreateAsyncScope();
         var verifyDbContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -1019,12 +1114,12 @@ public sealed class BillingIntegrationTests : IClassFixture<TestWebApplicationFa
         result.Should().NotBeNull();
         result!.SuccessCount.Should().Be(2);
 
-        var firstCustomer = result.Customers.Single(x => x.Id == firstCustomerId);
-        var secondCustomer = result.Customers.Single(x => x.Id == secondCustomerId);
-        firstCustomer.Addresses.Should().ContainSingle(x => x.AddressName == "HQ");
-        secondCustomer.Addresses.Should().ContainSingle(x => x.AddressName == "Billing");
-        firstCustomer.Addresses.Should().NotContain(x => x.AddressName == "Warehouse");
-        secondCustomer.Addresses.Should().NotContain(x => x.AddressName == "Warehouse");
+        var updatedFirstCustomer = result.Customers.Single(x => x.Id == firstCustomerId);
+        var updatedSecondCustomer = result.Customers.Single(x => x.Id == secondCustomerId);
+        updatedFirstCustomer.Addresses.Should().ContainSingle(x => x.AddressName == "HQ");
+        updatedSecondCustomer.Addresses.Should().ContainSingle(x => x.AddressName == "Billing");
+        updatedFirstCustomer.Addresses.Should().NotContain(x => x.AddressName == "Warehouse");
+        updatedSecondCustomer.Addresses.Should().NotContain(x => x.AddressName == "Warehouse");
     }
 
     [Fact]

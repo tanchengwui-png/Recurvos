@@ -1549,10 +1549,10 @@ public sealed class SettingsService(
 
     private async Task<Guid> GetOwnedCompanyIdAsync(Guid? companyId, CancellationToken cancellationToken)
     {
-        var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        var resolvedCompanyId = companyId ?? currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var resolvedCompanyId = companyId ?? activeCompanyId;
         var hasAccess = await dbContext.Companies.AnyAsync(
-            x => x.Id == resolvedCompanyId && x.SubscriberId == subscriberId && !x.IsPlatformAccount,
+            x => x.Id == resolvedCompanyId && x.Id == activeCompanyId && !x.IsPlatformAccount,
             cancellationToken);
 
         if (!hasAccess)

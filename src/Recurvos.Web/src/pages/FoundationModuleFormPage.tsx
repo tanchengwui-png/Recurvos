@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormSection } from "../components/ui/FormSection";
+import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { api } from "../lib/api";
 import type { MasterDataSnapshot } from "../types";
 import { foundationModules, type FoundationField, type FoundationModuleConfig, type FoundationRecord } from "./foundationModules";
@@ -163,6 +167,9 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
       const result = id
         ? await api.put<FoundationRecord>(`${moduleConfig.apiPath}/${id}`, payload)
         : await api.post<FoundationRecord>(moduleConfig.apiPath, payload);
+      if (moduleConfig.key === "chart-of-accounts") {
+        window.dispatchEvent(new Event("recurvos:accounts-changed"));
+      }
       navigate(`${moduleConfig.path}/${result.id}`);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : `Unable to save ${moduleConfig.singularLabel}.`);
@@ -171,21 +178,17 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>{id ? `Edit ${moduleConfig.label}` : `Create ${moduleConfig.label}`}</h2>
-          <p className="page-subtitle">{moduleConfig.description}</p>
-        </div>
-        <button type="button" className="button button-secondary" onClick={() => navigate(moduleConfig.path)}>
-          Back to {moduleConfig.label.toLowerCase()}
-        </button>
-      </header>
+    <StandardFormLayout className="page standard-form-page foundation-form-page">
+      <FormPageHeader backLabel={`Back to ${moduleConfig.label}`} backHref={moduleConfig.path} breadcrumbs={<><span>{moduleConfig.label}</span><span>/</span><span>{id ? `Edit ${moduleConfig.label}` : `New ${moduleConfig.label}`}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
       {loading ? (
         <section className="card"><p className="muted">Loading {moduleConfig.singularLabel}...</p></section>
       ) : (
-        <section className="card">
+        <FormSection
+          title={`${id ? "Edit" : "New"} ${moduleConfig.singularLabel}`}
+          description={`Enter the details for this ${moduleConfig.singularLabel}.`}
+          number="01"
+        >
           <div className="master-data-form-grid master-data-form-grid-wide">
             {formFields.map((field) => {
               if (field.type === "checkbox") {
@@ -252,13 +255,16 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
               );
             })}
           </div>
-          <div className="contact-page-actions">
-            <button type="button" className="button button-secondary" onClick={() => navigate(moduleConfig.path)}>Cancel</button>
-            <button type="button" className="button button-primary" onClick={() => setConfirmOpen(true)}>
-              {id ? `Update ${moduleConfig.singularLabel}` : `Create ${moduleConfig.singularLabel}`}
-            </button>
-          </div>
-        </section>
+          <FormActionSection>
+            <div />
+            <div>
+              <button type="button" className="button button-secondary" onClick={() => navigate(moduleConfig.path)}>Cancel</button>
+              <button type="button" className="button button-primary" onClick={() => setConfirmOpen(true)}>
+                {id ? `Update ${moduleConfig.singularLabel}` : `Create ${moduleConfig.singularLabel}`}
+              </button>
+            </div>
+          </FormActionSection>
+        </FormSection>
       )}
       <ConfirmModal
         open={confirmOpen}
@@ -274,6 +280,6 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
         }}
         onCancel={() => setConfirmOpen(false)}
       />
-    </div>
+    </StandardFormLayout>
   );
 }

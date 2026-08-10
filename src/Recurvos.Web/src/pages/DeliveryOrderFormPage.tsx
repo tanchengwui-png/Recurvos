@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { DeliveryOrder, MasterDataSnapshot, SalesOrder, SalesOrderListItem, Warehouse } from "../types";
+import type { DeliveryOrder, SalesOrder, SalesOrderListItem, Warehouse } from "../types";
 
 type LineForm = {
   salesOrderLineId: string;
@@ -38,15 +40,12 @@ export function DeliveryOrderFormPage() {
 
   useEffect(() => {
     async function load() {
-      const [orderOptions, record, snapshot] = await Promise.all([
+      const [orderOptions, record] = await Promise.all([
         id ? Promise.resolve([] as SalesOrderListItem[]) : api.get<SalesOrderListItem[]>("/sales/orders"),
         id ? api.get<DeliveryOrder>(`/sales/delivery-orders/${id}`) : Promise.resolve(null),
-        api.get<MasterDataSnapshot>("/master-data"),
       ]);
-      const activeWarehouses = snapshot.warehouses.filter((item) => item.isActive);
       const eligibleOrderOptions = orderOptions.filter((item) => item.status === "Confirmed" || item.status === "PartiallyDelivered");
       setSalesOrderOptions(eligibleOrderOptions);
-      setWarehouses(activeWarehouses);
 
       const sourceOrderId = record?.salesOrderId ?? salesOrderId;
       const order = sourceOrderId ? await api.get<SalesOrder>(`/sales/orders/${sourceOrderId}`) : null;
@@ -57,7 +56,7 @@ export function DeliveryOrderFormPage() {
 
       if (record) {
         setCompanyId(record.companyId);
-        setWarehouseId(record.warehouseId ?? activeWarehouses[0]?.id ?? "");
+        setWarehouseId(record.warehouseId ?? "");
         setDocumentDateUtc(record.documentDateUtc.slice(0, 10));
         setReferenceNo(record.referenceNo);
         setNotes(record.notes);
@@ -87,6 +86,24 @@ export function DeliveryOrderFormPage() {
 
     void load();
   }, [id, salesOrderId]);
+
+  useEffect(() => {
+    if (!companyId) {
+      setWarehouses([]);
+      return;
+    }
+
+    let cancelled = false;
+    void api.get<Warehouse[]>(`/master-data/warehouses?companyId=${companyId}&isActive=true`).then((companyWarehouses) => {
+      if (cancelled) return;
+      setWarehouses(companyWarehouses);
+      setWarehouseId((current) => companyWarehouses.some((warehouse) => warehouse.id === current) ? current : companyWarehouses[0]?.id ?? "");
+    }).catch(() => {
+      if (!cancelled) setError("Unable to load warehouses for the selected company.");
+    });
+
+    return () => { cancelled = true; };
+  }, [companyId]);
 
   useEffect(() => {
     if (warehouseId || warehouses.length === 0) {
@@ -200,11 +217,9 @@ export function DeliveryOrderFormPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>{id ? "Edit Delivery Order" : "Create Delivery Order"}</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/sales/delivery-orders")}>Back to delivery orders</button>
-      </header>
+      <FormPageHeader backLabel="Back to Delivery Orders" backHref="/sales/delivery-orders" breadcrumbs={<><span>Delivery Orders</span><span>/</span><span>{id ? "Edit Delivery Order" : "New Delivery Order"}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <TransactionFormCard title="Delivery order details" description="Customer, dates, source order and delivery lines.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           {id ? (
@@ -269,6 +284,7 @@ export function DeliveryOrderFormPage() {
           {editable ? <button type="button" className="button button-primary" onClick={() => void submit()}>{id ? "Update delivery order" : "Create delivery order"}</button> : null}
         </div>
       </section>
+      </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>
   );

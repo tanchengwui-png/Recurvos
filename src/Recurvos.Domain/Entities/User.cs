@@ -20,6 +20,7 @@ public sealed class User : CompanyOwnedEntity
     public UserRole Role { get; set; } = UserRole.Owner;
     public Company? Company { get; set; }
     public ICollection<Company> ManagedCompanies { get; set; } = new List<Company>();
+    public ICollection<CompanyMembership> CompanyMemberships { get; set; } = new List<CompanyMembership>();
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
     public ICollection<EmailVerificationToken> EmailVerificationTokens { get; set; } = new List<EmailVerificationToken>();
     public ICollection<PasswordResetToken> PasswordResetTokens { get; set; } = new List<PasswordResetToken>();

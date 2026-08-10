@@ -17,6 +17,8 @@ public sealed class FeatureEntitlementService(
         PlatformFeatureKeys.AutoInvoiceGeneration,
         PlatformFeatureKeys.EmailReminders,
         PlatformFeatureKeys.BasicReports,
+        PlatformFeatureKeys.GrowthReports,
+        PlatformFeatureKeys.PremiumReports,
         PlatformFeatureKeys.PaymentTracking,
         PlatformFeatureKeys.FinanceExports,
         PlatformFeatureKeys.DunningWorkflows,
@@ -38,6 +40,8 @@ public sealed class FeatureEntitlementService(
         ["Subscriptions and plan management"] = PlatformFeatureKeys.RecurringInvoices,
         ["Email reminders"] = PlatformFeatureKeys.EmailReminders,
         ["Basic reports"] = PlatformFeatureKeys.BasicReports,
+        ["Growth reports"] = PlatformFeatureKeys.GrowthReports,
+        ["Premium reports"] = PlatformFeatureKeys.PremiumReports,
         ["Payment tracking"] = PlatformFeatureKeys.PaymentTracking,
         ["Finance exports"] = PlatformFeatureKeys.FinanceExports,
         ["Dunning workflows"] = PlatformFeatureKeys.DunningWorkflows,
@@ -63,6 +67,8 @@ public sealed class FeatureEntitlementService(
         [PlatformFeatureKeys.AutoInvoiceGeneration] = "automatic invoice generation",
         [PlatformFeatureKeys.EmailReminders] = "Email reminders",
         [PlatformFeatureKeys.BasicReports] = "Basic reports",
+        [PlatformFeatureKeys.GrowthReports] = "Growth reports",
+        [PlatformFeatureKeys.PremiumReports] = "Premium reports",
         [PlatformFeatureKeys.PaymentTracking] = "Payment tracking",
         [PlatformFeatureKeys.FinanceExports] = "Finance exports",
         [PlatformFeatureKeys.DunningWorkflows] = "Payment reminders",
@@ -175,21 +181,21 @@ public sealed class FeatureEntitlementService(
 
     internal static IReadOnlyCollection<string> ResolvePackageFeatureKeysForConfiguration(string packageCode, IReadOnlyCollection<string>? featureTexts = null)
     {
-        if (string.IsNullOrWhiteSpace(packageCode))
+        var normalizedPackageCode = NormalizePackageCode(packageCode);
+        if (string.IsNullOrWhiteSpace(normalizedPackageCode))
         {
             return Array.Empty<string>();
         }
 
         var resolvedFeatureTexts = featureTexts is { Count: > 0 }
             ? featureTexts
-            : GetDefaultFeatureTexts(packageCode);
+            : GetDefaultFeatureTexts(normalizedPackageCode);
 
-        var mappedFeatureKeys = resolvedFeatureTexts
-            .Select(text => FeatureTextMap.TryGetValue(text.Trim(), out var featureKey) ? featureKey : null)
-            .Where(featureKey => !string.IsNullOrWhiteSpace(featureKey))
-            .Cast<string>();
+        var inheritedFeatureTexts = GetPackageHierarchy(normalizedPackageCode)
+            .Where(code => !string.Equals(code, normalizedPackageCode, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(GetDefaultFeatureTexts);
 
-        return ExpandDependencies(mappedFeatureKeys).Where(AllFeatureKeys.Contains).ToList();
+        return ResolveFeatureKeys(normalizedPackageCode, inheritedFeatureTexts.Concat(resolvedFeatureTexts));
     }
 
     private async Task<IReadOnlyCollection<string>> ResolvePackageFeatureKeysAsync(string packageCode, CancellationToken cancellationToken)
@@ -199,18 +205,28 @@ public sealed class FeatureEntitlementService(
             return Array.Empty<string>();
         }
 
-        var package = await dbContext.PlatformPackages
-            .AsNoTracking()
-            .Include(x => x.Features)
-            .FirstOrDefaultAsync(x => x.Code == packageCode, cancellationToken);
-
-        var featureTexts = package?.Features.Select(x => x.Text).ToList();
-        if (featureTexts is null || featureTexts.Count == 0)
+        var normalizedPackageCode = NormalizePackageCode(packageCode);
+        if (string.IsNullOrWhiteSpace(normalizedPackageCode))
         {
-            featureTexts = GetDefaultFeatureTexts(packageCode).ToList();
+            return Array.Empty<string>();
         }
 
-        return ResolvePackageFeatureKeysForConfiguration(packageCode, featureTexts);
+        var hierarchy = GetPackageHierarchy(normalizedPackageCode);
+        var packages = await dbContext.PlatformPackages
+            .AsNoTracking()
+            .Include(x => x.Features)
+            .Where(x => hierarchy.Contains(x.Code))
+            .ToListAsync(cancellationToken);
+
+        var featureTexts = hierarchy.SelectMany(code =>
+        {
+            var package = packages.FirstOrDefault(x => string.Equals(x.Code, code, StringComparison.OrdinalIgnoreCase));
+            return package?.Features.Count > 0
+                ? package.Features.Select(x => x.Text)
+                : GetDefaultFeatureTexts(code);
+        });
+
+        return ResolveFeatureKeys(normalizedPackageCode, featureTexts);
     }
 
     private async Task<IReadOnlyCollection<FeatureRequirementDto>> ResolveFeatureRequirementsAsync(CancellationToken cancellationToken)
@@ -226,14 +242,9 @@ public sealed class FeatureEntitlementService(
         var requirements = new Dictionary<string, FeatureRequirementDto>(StringComparer.OrdinalIgnoreCase);
         foreach (var package in packages)
         {
-            var featureTexts = package.Features.Count > 0
-                ? package.Features.Select(x => x.Text)
-                : GetDefaultFeatureTexts(package.Code);
-            var featureKeys = ExpandDependencies(
-                featureTexts
-                    .Select(text => FeatureTextMap.TryGetValue(text.Trim(), out var featureKey) ? featureKey : null)
-                    .Where(featureKey => !string.IsNullOrWhiteSpace(featureKey))
-                    .Cast<string>());
+            var featureKeys = ResolvePackageFeatureKeysForConfiguration(
+                package.Code,
+                package.Features.Count > 0 ? package.Features.Select(x => x.Text).ToList() : null);
 
             foreach (var featureKey in featureKeys)
             {
@@ -248,7 +259,7 @@ public sealed class FeatureEntitlementService(
     }
 
     private static IReadOnlyCollection<string> GetDefaultFeatureTexts(string packageCode) =>
-        packageCode.Trim().ToLowerInvariant() switch
+        NormalizePackageCode(packageCode) switch
         {
             "starter" =>
             [
@@ -273,6 +284,7 @@ public sealed class FeatureEntitlementService(
                 "Payment record screen for customer to upload their payment",
                 "Auto receipt emails",
                 "Finance exports",
+                "Growth reports",
             ],
             "premium" =>
             [
@@ -290,9 +302,52 @@ public sealed class FeatureEntitlementService(
                 "Finance exports",
                 "Payment gateway configuration",
                 "Auto receipt emails",
+                "Premium reports",
             ],
             _ => []
         };
+
+    private static IReadOnlyCollection<string> ResolveFeatureKeys(string packageCode, IEnumerable<string> featureTexts)
+    {
+        var mappedFeatureKeys = featureTexts
+            .Select(text => FeatureTextMap.TryGetValue(text.Trim(), out var featureKey) ? featureKey : null)
+            .Where(featureKey => !string.IsNullOrWhiteSpace(featureKey))
+            .Cast<string>()
+            .ToList();
+
+        // Report tiers are package entitlements, not marketing text. This keeps the
+        // API and UI correct for existing package records that predate these labels.
+        if (GetPackageHierarchy(packageCode).Count > 0)
+        {
+            mappedFeatureKeys.Add(PlatformFeatureKeys.BasicReports);
+        }
+
+        if (GetPackageHierarchy(packageCode).Contains("growth", StringComparer.OrdinalIgnoreCase))
+        {
+            mappedFeatureKeys.Add(PlatformFeatureKeys.GrowthReports);
+        }
+
+        if (GetPackageHierarchy(packageCode).Contains("premium", StringComparer.OrdinalIgnoreCase))
+        {
+            mappedFeatureKeys.Add(PlatformFeatureKeys.PremiumReports);
+        }
+
+        return ExpandDependencies(mappedFeatureKeys).Where(AllFeatureKeys.Contains).ToList();
+    }
+
+    private static IReadOnlyList<string> GetPackageHierarchy(string packageCode) => NormalizePackageCode(packageCode) switch
+    {
+        "starter" => ["starter"],
+        "growth" => ["starter", "growth"],
+        "premium" => ["starter", "growth", "premium"],
+        _ => []
+    };
+
+    private static string NormalizePackageCode(string? packageCode) => packageCode?.Trim().ToLowerInvariant() switch
+    {
+        "basic" => "starter",
+        var code => code ?? string.Empty
+    };
 
     private static string ResolvePackageStatus(string? rawStatus, DateTime? gracePeriodEndsAtUtc)
     {

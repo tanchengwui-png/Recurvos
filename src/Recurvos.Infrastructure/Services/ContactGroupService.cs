@@ -18,13 +18,13 @@ public sealed class ContactGroupService(
     public async Task<IReadOnlyCollection<ContactGroupDto>> GetAsync(CancellationToken cancellationToken = default)
     {
         await EnsureReadAccessAsync(cancellationToken);
-        var subscriberId = GetSubscriberId();
+        var companyId = GetCompanyId();
         var groups = await dbContext.ContactGroups
-            .Where(x => x.SubscriberId == subscriberId)
+            .Where(x => x.CompanyId == companyId)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
         var customers = await dbContext.Customers
-            .Where(x => x.SubscriberId == subscriberId)
+            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
             .ToListAsync(cancellationToken);
 
         return groups.Select(group => BuildDto(group, customers)).ToList();
@@ -33,15 +33,15 @@ public sealed class ContactGroupService(
     public async Task<ContactGroupDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await EnsureReadAccessAsync(cancellationToken);
-        var subscriberId = GetSubscriberId();
-        var group = await dbContext.ContactGroups.FirstOrDefaultAsync(x => x.SubscriberId == subscriberId && x.Id == id, cancellationToken);
+        var companyId = GetCompanyId();
+        var group = await dbContext.ContactGroups.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (group is null)
         {
             return null;
         }
 
         var customers = await dbContext.Customers
-            .Where(x => x.SubscriberId == subscriberId)
+            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
             .ToListAsync(cancellationToken);
         return BuildDto(group, customers);
     }
@@ -49,19 +49,20 @@ public sealed class ContactGroupService(
     public async Task<ContactGroupDto> CreateAsync(ContactGroupRequest request, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
-        var subscriberId = GetSubscriberId();
+        var companyId = GetCompanyId();
         var normalizedName = NormalizeName(request.Name);
-        await EnsureUniqueNameAsync(subscriberId, normalizedName, null, cancellationToken);
+        await EnsureUniqueNameAsync(companyId, normalizedName, null, cancellationToken);
 
         var selectedContactIds = request.ContactIds.Distinct().ToHashSet();
         var customers = await dbContext.Customers
-            .Where(x => x.SubscriberId == subscriberId)
+            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
             .ToListAsync(cancellationToken);
         EnsureAllContactsExist(selectedContactIds, customers);
 
         var group = new ContactGroup
         {
-            SubscriberId = subscriberId,
+            CompanyId = companyId,
+            SubscriberId = GetSubscriberId(),
             Name = normalizedName,
         };
 
@@ -75,19 +76,19 @@ public sealed class ContactGroupService(
     public async Task<ContactGroupDto?> UpdateAsync(Guid id, ContactGroupRequest request, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
-        var subscriberId = GetSubscriberId();
-        var group = await dbContext.ContactGroups.FirstOrDefaultAsync(x => x.SubscriberId == subscriberId && x.Id == id, cancellationToken);
+        var companyId = GetCompanyId();
+        var group = await dbContext.ContactGroups.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (group is null)
         {
             return null;
         }
 
         var normalizedName = NormalizeName(request.Name);
-        await EnsureUniqueNameAsync(subscriberId, normalizedName, id, cancellationToken);
+        await EnsureUniqueNameAsync(companyId, normalizedName, id, cancellationToken);
 
         var selectedContactIds = request.ContactIds.Distinct().ToHashSet();
         var customers = await dbContext.Customers
-            .Where(x => x.SubscriberId == subscriberId)
+            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
             .ToListAsync(cancellationToken);
         EnsureAllContactsExist(selectedContactIds, customers);
 
@@ -103,15 +104,15 @@ public sealed class ContactGroupService(
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
-        var subscriberId = GetSubscriberId();
-        var group = await dbContext.ContactGroups.FirstOrDefaultAsync(x => x.SubscriberId == subscriberId && x.Id == id, cancellationToken);
+        var companyId = GetCompanyId();
+        var group = await dbContext.ContactGroups.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == id, cancellationToken);
         if (group is null)
         {
             return false;
         }
 
         var customers = await dbContext.Customers
-            .Where(x => x.SubscriberId == subscriberId)
+            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
             .ToListAsync(cancellationToken);
         ApplyMembership(string.Empty, group.Name, new HashSet<Guid>(), customers);
         dbContext.ContactGroups.Remove(group);
@@ -121,6 +122,7 @@ public sealed class ContactGroupService(
     }
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
+    private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
 
     private async Task EnsureReadAccessAsync(CancellationToken cancellationToken)
     {
@@ -145,11 +147,11 @@ public sealed class ContactGroupService(
         return normalized;
     }
 
-    private async Task EnsureUniqueNameAsync(Guid subscriberId, string name, Guid? excludeId, CancellationToken cancellationToken)
+    private async Task EnsureUniqueNameAsync(Guid companyId, string name, Guid? excludeId, CancellationToken cancellationToken)
     {
         var normalizedName = name.ToLower();
         var exists = await dbContext.ContactGroups.AnyAsync(
-            x => x.SubscriberId == subscriberId
+            x => x.CompanyId == companyId
                 && x.Id != excludeId
                 && x.Name.ToLower() == normalizedName,
             cancellationToken);

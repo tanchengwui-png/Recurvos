@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { ListToolbar } from "../components/ListToolbar";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
@@ -11,6 +13,7 @@ import type { CompanyLookup, PurchaseOrderListItem } from "../types";
 
 export function PurchaseOrdersPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [items, setItems] = useState<PurchaseOrderListItem[]>([]);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [search, setSearch] = useState("");
@@ -44,7 +47,7 @@ export function PurchaseOrdersPage() {
 
   function getActions(item: PurchaseOrderListItem) {
     return [
-      { label: "View", onClick: () => navigate(`/purchases/orders/${item.id}`) },
+      { label: "View details", onClick: () => navigate(`/purchases/orders/${item.id}`, { state: { backgroundLocation: location } }) },
       ...(item.status !== "Closed" && item.status !== "Cancelled" && item.status !== "PartiallyReceived" && item.status !== "FullyReceived" ? [{ label: "Edit", onClick: () => navigate(`/purchases/orders/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{ label: "Mark as Sent", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Sent" }); await load(); } }] : []),
       ...(item.status === "Sent" ? [{ label: "Approve", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Approved" }); await load(); } }] : []),
@@ -69,11 +72,7 @@ export function PurchaseOrdersPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>Purchase Orders</h2></div>
-        <button type="button" className="button button-primary" onClick={() => navigate("/purchases/orders/new")}>Create purchase order</button>
-      </header>
-      <div className="catalog-toolbar card subtle-card">
+      <ListToolbar>
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search purchase order number, supplier, or reference" />
         <select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>
           <option value="">All companies</option>
@@ -90,8 +89,9 @@ export function PurchaseOrdersPage() {
           <option value="Closed">Closed</option>
           <option value="Cancelled">Cancelled</option>
         </select>
-      </div>
+      </ListToolbar>
       <section className="card">
+        <ListCardHeader title="Purchase orders" count={sortedItems.length} countLabel={sortedItems.length === 1 ? "order" : "orders"} actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/orders/new")}>Create purchase order</button>} />
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Purchase Order No</th><th>Date</th><th>Supplier</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>

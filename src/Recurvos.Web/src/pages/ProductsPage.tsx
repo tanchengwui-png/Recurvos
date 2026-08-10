@@ -1,18 +1,29 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListToolbar } from "../components/ListToolbar";
 import { TablePagination } from "../components/TablePagination";
 import { RowActionMenu } from "../components/RowActionMenu";
-import { useDragToScroll } from "../hooks/useDragToScroll";
-import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { Button } from "../components/ui/Button";
 import { ResponseToast } from "../components/ui/Toast";
 import { TextInput } from "../components/ui/TextInput";
-import { fetchProducts } from "../hooks/useProducts";
+import { fetchProduct, fetchProducts } from "../hooks/useProducts";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { CompanyLookup, FeatureAccess, PlatformPackage, Product } from "../types";
+import type { CompanyLookup, FeatureAccess, PlatformPackage, Product, ProductDetails } from "../types";
+
+function ProductPreviewField({ label, value }: { label: string; value?: string | number | null }) {
+  return <div className="product-preview-field"><span>{label}</span><strong>{value === "" || value == null ? "—" : value}</strong></div>;
+}
+
+function ProductPreviewSection({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="product-preview-section"><h4>{title}</h4><div className="product-preview-grid">{children}</div></section>;
+}
+
+function formatQuantity(value?: number | null) {
+  return value == null ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value);
+}
 
 function AddProductMenu({ onManual, onImport, onBatchUpdate }: { onManual: () => void; onImport: () => void; onBatchUpdate: () => void }) {
   const [open, setOpen] = useState(false);
@@ -28,11 +39,11 @@ function AddProductMenu({ onManual, onImport, onBatchUpdate }: { onManual: () =>
 
   const select = (action: () => void) => { setOpen(false); action(); };
   return <div ref={menuRef} className="contact-add-menu">
-    <button type="button" className="button button-primary contact-add-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">Add Product <span aria-hidden="true">▼</span></button>
+    <button type="button" className="button button-primary contact-add-trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-haspopup="menu">Add product <span aria-hidden="true">▼</span></button>
     {open ? <div className="contact-add-popover" role="menu" aria-label="Add product actions">
-      <button type="button" role="menuitem" onClick={() => select(onManual)}>Add Manually</button>
-      <button type="button" role="menuitem" onClick={() => select(onImport)}>Import Products</button>
-      <button type="button" role="menuitem" onClick={() => select(onBatchUpdate)}>Batch Update</button>
+      <button type="button" role="menuitem" onClick={() => select(onManual)}>Add manually</button>
+      <button type="button" role="menuitem" onClick={() => select(onImport)}>Import products</button>
+      <button type="button" role="menuitem" onClick={() => select(onBatchUpdate)}>Batch update</button>
     </div> : null}
   </div>;
 }
@@ -41,9 +52,9 @@ export function ProductsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const [items, setItems] = useState<Product[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [detailProduct, setDetailProduct] = useState<ProductDetails | null>(null);
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [packageLimit, setPackageLimit] = useState<number | null>(null);
@@ -66,7 +77,6 @@ export function ProductsPage() {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const rangeStart = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const rangeEnd = totalCount === 0 ? 0 : Math.min(totalCount, currentPage * pageSize);
-  const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([items.length, search, selectedCompanyId, statusFilter, currentPage, pageSize]);
   const selectedProduct = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
 
   async function load() {
@@ -160,6 +170,21 @@ export function ProductsPage() {
   }, [selectedProduct]);
 
   useEffect(() => {
+    if (!expandedId) {
+      setDetailProduct(null);
+      return;
+    }
+
+    let active = true;
+    setDetailProduct(null);
+    void fetchProduct(expandedId)
+      .then((product) => { if (active) setDetailProduct(product); })
+      .catch(() => { if (active) setDetailProduct(null); });
+
+    return () => { active = false; };
+  }, [expandedId]);
+
+  useEffect(() => {
     if (!selectedProduct) {
       return undefined;
     }
@@ -176,18 +201,17 @@ export function ProductsPage() {
   }, [selectedProduct]);
 
   const activeProducts = items.filter((item) => item.isActive).length;
-  const subscriptionProducts = items.filter((item) => item.productType !== "One-Time").length;
   const packageLimitLabel = packageLimit === null ? "-" : packageLimit <= 0 ? "Unlimited" : String(packageLimit);
 
   function getProductActions(item: Product) {
     return [
-      { label: expandedId === item.id ? "Hide details" : "View details", onClick: () => setExpandedId((current) => current === item.id ? null : item.id) },
+      { label: "View details", onClick: () => setExpandedId(item.id) },
       { label: "Edit product", onClick: () => navigate(`/products/${item.id}/edit`) },
       {
         label: item.isActive ? "Deactivate product" : "Activate product",
         onClick: () => setConfirmState({
           title: `${item.isActive ? "Deactivate" : "Activate"} product`,
-          description: item.isActive ? "Deactivating a product also deactivates its active plans." : "Activate this product so active plans can be sold.",
+          description: item.isActive ? "This will make the product unavailable for new transactions." : "This will make the product available for new transactions.",
           action: async () => {
             await api.patch(`/products/${item.id}/status`, { isActive: !item.isActive });
             setConfirmState(null);
@@ -200,7 +224,7 @@ export function ProductsPage() {
         tone: "danger" as const,
         onClick: () => setConfirmState({
           title: "Delete product",
-          description: `Delete ${item.name}? This only works when the product has no plans.`,
+          description: `Delete ${item.name}? This only works when the product is not used by existing transactions.`,
           action: async () => {
             await api.delete(`/products/${item.id}`);
             setConfirmState(null);
@@ -212,7 +236,7 @@ export function ProductsPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page products-page">
       <header className="page-header">
         <div className="page-header-copy">
           <h2>Products</h2>
@@ -220,8 +244,8 @@ export function ProductsPage() {
       </header>
       <ResponseToast message={message} tone="success" />
 
-      <div className="catalog-toolbar card subtle-card products-filter-bar">
-        <TextInput aria-label="Search products" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product name or code" />
+      <ListToolbar className="products-filter-card">
+        <TextInput aria-label="Search products" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product name, SKU, barcode, or code" />
         <select aria-label="Filter products by company" value={selectedCompanyId ?? ""} onChange={(event) => setSelectedCompanyId(event.target.value || "")}>
           <option value="">All companies</option>
           {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
@@ -231,117 +255,100 @@ export function ProductsPage() {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
-      </div>
+      </ListToolbar>
 
-      <section className="card">
-        <div className="card-section-header">
-          <div className="section-header-cluster">
-            <h3 className="section-title">Products and plans</h3>
-            <div className="page-meta-row page-meta-row-inline" aria-label="Product summary">
-              <div className="page-meta-chips">
-                <span className="page-meta-chip">
-                  <span className="page-meta-chip-label">Total</span>
-                  <strong className="page-meta-chip-value">{totalCount}{packageLimit !== null ? ` / ${packageLimitLabel}` : ""}</strong>
-                </span>
-                <span className="page-meta-chip">
-                  <span className="page-meta-chip-label">Active</span>
-                  <strong className="page-meta-chip-value">{activeProducts}</strong>
-                </span>
-                <span className="page-meta-chip">
-                  <span className="page-meta-chip-label">Recurring</span>
-                  <strong className="page-meta-chip-value">{subscriptionProducts}</strong>
-                </span>
-              </div>
+      <section className="products-list-card">
+        <div className="card-section-header products-list-header">
+          <div className="section-header-cluster products-summary" aria-label="Product summary">
+            <h3 className="section-title">Products</h3>
+            <div className="page-meta-chips">
+              <span className="page-meta-chip">
+                <span className="page-meta-chip-label">Products</span>
+                <strong className="page-meta-chip-value">{totalCount}</strong>
+              </span>
+              <span className="page-meta-chip">
+                <span className="page-meta-chip-label">Active</span>
+                <strong className="page-meta-chip-value">{activeProducts}</strong>
+              </span>
             </div>
+            {packageLimit !== null ? <span className="products-capacity-note">{`${totalCount} / ${packageLimitLabel} used`}</span> : null}
           </div>
-          <div className="contact-page-actions">
-            <button type="button" className="button button-secondary" onClick={() => navigate("/product-groups")}>Product Groups</button>
-            <AddProductMenu onManual={() => navigate("/products/new")} onImport={() => navigate("/products/import")} onBatchUpdate={() => navigate("/products/batch-update")} />
-          </div>
+          <div className="list-card-header-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/product-groups")}>Product groups</button><AddProductMenu onManual={() => navigate("/products/new")} onImport={() => navigate("/products/import")} onBatchUpdate={() => navigate("/products/batch-update")} /></div>
         </div>
-        <div className="subscription-mobile-list">
+        <div className="product-mobile-list">
           {items.map((item) => (
-            <article key={item.id} className="subscription-mobile-card">
-              <div className="subscription-mobile-card-header">
-                <div className="subscription-mobile-identity">
+            <article key={item.id} className="product-mobile-card">
+              <div className="product-mobile-card-header">
+                <div className="product-mobile-identity">
                   <strong>{item.name}</strong>
                   <div className="eyebrow">{item.companyName}</div>
                 </div>
-                <div className="subscription-mobile-actions">
+                <div className="product-mobile-actions">
                   <RowActionMenu items={getProductActions(item)} label="More" />
                 </div>
               </div>
-              <div className="subscription-mobile-summary">
-                <div className="subscription-mobile-amount">{item.code}</div>
-                <div className="subscription-mobile-cadence">{item.productType === "One-Time" ? "One-time" : "Subscription"}</div>
+              <div className="product-mobile-summary">
+                <div className="product-mobile-amount">{item.code}</div>
+                <div className="product-mobile-uom">{item.baseUnitLabel}</div>
               </div>
-              <div className="subscription-mobile-card-topline">
-                <span className={`subscription-mobile-status ${item.isActive ? "subscription-mobile-status-active" : "subscription-mobile-status-inactive"}`}>
+              <div className="product-mobile-card-topline">
+                <span className={`product-mobile-status ${item.isActive ? "product-mobile-status-active" : "product-mobile-status-inactive"}`}>
                   {item.isActive ? "Active" : "Inactive"}
                 </span>
-                <span className="subscription-mobile-inline-note">{`${item.plansCount} plan${item.plansCount === 1 ? "" : "s"}`}</span>
+                <span className="product-mobile-inline-note">{item.productGroups.length ? item.productGroups.join(", ") : "No product group"}</span>
               </div>
-              <div className="subscription-mobile-meta">
-                <div className="subscription-mobile-meta-row">
-                  <span className="subscription-mobile-meta-label">Company</span>
-                  <span className="subscription-mobile-meta-value">{item.companyName}</span>
+              <div className="product-mobile-meta">
+                <div className="product-mobile-meta-row">
+                  <span className="product-mobile-meta-label">Company</span>
+                  <span className="product-mobile-meta-value">{item.companyName}</span>
                 </div>
-                <div className="subscription-mobile-meta-row">
-                  <span className="subscription-mobile-meta-label">Catalog</span>
-                  <span className="subscription-mobile-meta-value">{`${item.code} | ${item.productType === "One-Time" ? "One-time" : "Subscription"}`}</span>
+                <div className="product-mobile-meta-row">
+                  <span className="product-mobile-meta-label">Product code</span>
+                  <span className="product-mobile-meta-value">{item.code}</span>
                 </div>
-                <div className="subscription-mobile-meta-row">
-                  <span className="subscription-mobile-meta-label">Plans</span>
-                  <span className="subscription-mobile-meta-value">{`${item.plansCount} plan${item.plansCount === 1 ? "" : "s"}`}</span>
+                <div className="product-mobile-meta-row">
+                  <span className="product-mobile-meta-label">Sales price</span>
+                  <span className="product-mobile-meta-value">{item.salesPrice == null ? "—" : formatCurrency(item.salesPrice)}</span>
                 </div>
-                <div className="subscription-mobile-meta-row">
-                  <span className="subscription-mobile-meta-label">Default</span>
-                  <span className="subscription-mobile-meta-value">{item.defaultPlan ? `${item.defaultPlan.planName} | ${formatCurrency(item.defaultPlan.unitAmount, item.defaultPlan.currency)}` : "-"}</span>
+                <div className="product-mobile-meta-row">
+                  <span className="product-mobile-meta-label">Purchase price</span>
+                  <span className="product-mobile-meta-value">{item.purchasePrice == null ? "—" : formatCurrency(item.purchasePrice)}</span>
                 </div>
               </div>
             </article>
           ))}
         </div>
-        <div className="subscription-table-shell">
-          <div ref={topScrollRef} className="table-scroll table-scroll-top" aria-hidden="true">
-            <div ref={topInnerRef} />
-          </div>
-          <div
-            ref={(node) => {
-              tableScrollRef.current = node;
-              contentScrollRef.current = node;
-            }}
-            className="table-scroll table-scroll-bounded table-scroll-draggable"
-          >
-            <table className="catalog-table subscription-table products-table">
+        <div className="product-table-shell">
+          <div className="products-table-wrapper">
+            <table className="catalog-table products-table">
             <thead>
               <tr>
-                <th className="sticky-cell sticky-cell-left">Product Name</th>
+                <th>Product</th>
                 <th>Company</th>
                 <th>Status</th>
-                <th>Catalog</th>
-                <th>Default Plan</th>
+                <th>Product group</th>
+                <th>Sales price</th>
+                <th>Purchase price</th>
+                <th>UOM</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={5}
+                  colSpan={8}
                   title="No products yet"
-                  description="Create your first product and attach monthly, quarterly, yearly, or one-time plans."
+                  description="Create your first product to manage sales, purchasing, inventory and units of measurement."
                   actions={(
-                    <>
-                      <Button type="button" onClick={() => navigate("/products/new")}>Create first product</Button>
-                      <Button type="button" variant="secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</Button>
-                    </>
+                    <><Button type="button" onClick={() => navigate("/products/new")}>Create first product</Button><Button type="button" variant="secondary" onClick={() => navigate("/product-groups")}>Product groups</Button></>
                   )}
                 />
               ) : items.map((item) => (
                 <tr key={item.id}>
-                  <td className="sticky-cell sticky-cell-left table-primary-cell">
+                  <td className="table-primary-cell">
                     <div className="table-primary-cell-stack">
                       <div className="stack">
-                        <button type="button" className="table-link" onClick={() => navigate(`/products/${item.id}`)}>{item.name}</button>
+                        <button type="button" className="table-link" onClick={() => setExpandedId(item.id)}>{item.name}</button>
                         <div className="table-meta">
                           <span className="table-meta-item">
                             <span className={`table-meta-dot ${item.isActive ? "table-meta-dot-active" : "table-meta-dot-inactive"}`} aria-hidden="true" />
@@ -349,29 +356,24 @@ export function ProductsPage() {
                           </span>
                         </div>
                       </div>
-                      <RowActionMenu items={getProductActions(item)} />
                     </div>
                   </td>
                   <td>{item.companyName}</td>
                   <td>
                     <div>{item.isActive ? "Active" : "Inactive"}</div>
-                    <div className="eyebrow">{item.productType === "One-Time" ? "One-time" : "Subscription"}</div>
                   </td>
-                  <td>
-                    <div>{item.code}</div>
-                    <div className="eyebrow">{`${item.productType === "One-Time" ? "One-time" : "Subscription"} | ${item.plansCount} plan${item.plansCount === 1 ? "" : "s"}`}</div>
-                  </td>
-                  <td>{item.defaultPlan ? `${item.defaultPlan.planName} - ${formatCurrency(item.defaultPlan.unitAmount, item.defaultPlan.currency)}` : "-"}</td>
+                  <td>{item.productGroups.length ? item.productGroups.join(", ") : "—"}</td>
+                  <td>{item.salesPrice == null ? "—" : formatCurrency(item.salesPrice)}</td>
+                  <td>{item.purchasePrice == null ? "—" : formatCurrency(item.purchasePrice)}</td>
+                  <td>{item.baseUnitLabel}</td>
+                  <td><RowActionMenu items={getProductActions(item)} /></td>
                 </tr>
               ))}
             </tbody>
             </table>
           </div>
-          <div ref={bottomScrollRef} className="table-scroll table-scroll-bottom" aria-hidden="true">
-            <div ref={bottomInnerRef} />
-          </div>
         </div>
-        <TablePagination
+        {items.length > 0 ? <TablePagination
           currentPage={currentPage}
           pageSize={pageSize}
           totalItems={totalCount}
@@ -380,50 +382,47 @@ export function ProductsPage() {
           rangeEnd={rangeEnd}
           onPageChange={setCurrentPage}
           onPageSizeChange={setPageSize}
-        />
+        /> : null}
       </section>
       {selectedProduct ? (
-        <div className="modal-backdrop invoice-detail-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
-          <div className="card invoice-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
-            <div className="invoice-detail-drawer-header">
+        <div className="modal-backdrop product-preview-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
+          <div className="card product-preview-modal" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
+            <div className="product-preview-modal-header">
               <div>
-                <p className="eyebrow">Product detail</p>
+                <p className="eyebrow">Product summary</p>
                 <h3 id="product-detail-title">{selectedProduct.name}</h3>
                 <p className="muted">{selectedProduct.companyName}</p>
               </div>
-              <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
-            </div>
-            <div className="invoice-detail-drawer-body">
-              <div className="invoice-detail-panel">
-                <div className="invoice-detail-summary">
-                  <div className="invoice-detail-stat"><p className="eyebrow">Status</p><strong>{selectedProduct.isActive ? "Active" : "Inactive"}</strong></div>
-                  <div className="invoice-detail-stat"><p className="eyebrow">Type</p><strong>{selectedProduct.productType}</strong></div>
-                  <div className="invoice-detail-stat"><p className="eyebrow">Plans</p><strong>{selectedProduct.plansCount}</strong></div>
-                  <div className="invoice-detail-stat"><p className="eyebrow">Default plan</p><strong>{selectedProduct.defaultPlan?.planName || "-"}</strong></div>
-                </div>
-                <div className="invoice-detail-layout">
-                  <div className="invoice-detail-main">
-                    <div className="invoice-detail-block">
-                      <div className="invoice-detail-block-header"><p className="eyebrow">Catalog</p></div>
-                      <div className="invoice-detail-list">
-                        <div className="invoice-detail-list-row"><span>Name</span><strong>{selectedProduct.name}</strong></div>
-                        <div className="invoice-detail-list-row"><span>Code</span><strong>{selectedProduct.code}</strong></div>
-                        <div className="invoice-detail-list-row"><span>Category</span><strong>{selectedProduct.category || "-"}</strong></div>
-                        <div className="invoice-detail-list-row"><span>Company</span><strong>{selectedProduct.companyName}</strong></div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="invoice-detail-aside">
-                    <div className="invoice-detail-block">
-                      <div className="invoice-detail-block-header"><p className="eyebrow">Billing</p></div>
-                      <div className="invoice-detail-list">
-                        <div className="invoice-detail-list-row"><span>Subscription product</span><strong>{selectedProduct.isSubscriptionProduct ? "Yes" : "No"}</strong></div>
-                        <div className="invoice-detail-list-row invoice-detail-list-row-top"><span>Default plan</span><strong className="invoice-detail-align-right">{selectedProduct.defaultPlan ? `${selectedProduct.defaultPlan.planName} | ${selectedProduct.defaultPlan.billingLabel} | ${formatCurrency(selectedProduct.defaultPlan.unitAmount, selectedProduct.defaultPlan.currency)}` : "-"}</strong></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <div className="product-preview-modal-actions">
+                <button type="button" className="button button-secondary button-compact" onClick={() => navigate(`/products/${selectedProduct.id}/edit`)}>Edit product</button>
+                <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
               </div>
+            </div>
+            <div className="product-preview-modal-body">
+              {!detailProduct ? <p className="muted">Loading product details...</p> : <div className="product-preview-form">
+                <div className="product-preview-statuses">
+                  <span className={`status-pill ${detailProduct.isActive ? "status-pill-active" : "status-pill-inactive"}`}>{detailProduct.isActive ? "Active" : "Inactive"}</span>
+                  <span className={`status-pill ${detailProduct.trackInventory ? "" : "status-pill-inactive"}`}>{detailProduct.trackInventory ? "Inventory tracked" : "Inventory not tracked"}</span>
+                  {detailProduct.isSelling ? <span className="status-pill">For sale</span> : null}
+                  {detailProduct.isBuying ? <span className="status-pill">For purchase</span> : null}
+                </div>
+                <ProductPreviewSection title="Product information">
+                  <ProductPreviewField label="Product name" value={detailProduct.name} /><ProductPreviewField label="Product code" value={detailProduct.code} /><ProductPreviewField label="Company" value={detailProduct.companyName} /><ProductPreviewField label="Barcode" value={detailProduct.barcode} />
+                  <ProductPreviewField label="Classification code" value={detailProduct.category} /><ProductPreviewField label="Product groups" value={detailProduct.productGroups.join(", ")} /><ProductPreviewField label="Bin location" value={detailProduct.binLocation} /><ProductPreviewField label="Description" value={detailProduct.description} />
+                </ProductPreviewSection>
+                <ProductPreviewSection title="Inventory">
+                  <ProductPreviewField label="Inventory account" value={detailProduct.trackInventory ? detailProduct.inventoryAccount : "Not tracked"} /><ProductPreviewField label="Reorder level" value={detailProduct.trackInventory ? formatQuantity(detailProduct.reorderLevel) : null} /><ProductPreviewField label="Opening quantity" value={detailProduct.trackInventory ? formatQuantity(detailProduct.openingQuantity) : null} /><ProductPreviewField label="Opening cost" value={detailProduct.trackInventory && detailProduct.openingCost != null ? formatCurrency(detailProduct.openingCost) : null} />
+                </ProductPreviewSection>
+                <ProductPreviewSection title="Sales">
+                  <ProductPreviewField label="Sales price" value={detailProduct.isSelling && detailProduct.salesPrice != null ? formatCurrency(detailProduct.salesPrice) : null} /><ProductPreviewField label="Sales tax" value={detailProduct.isSelling ? detailProduct.salesTaxCode : null} /><ProductPreviewField label="Income account" value={detailProduct.isSelling ? detailProduct.incomeAccount : null} /><ProductPreviewField label="Sales description" value={detailProduct.isSelling ? detailProduct.salesDescription : null} />
+                </ProductPreviewSection>
+                <ProductPreviewSection title="Purchases">
+                  <ProductPreviewField label="Purchase price" value={detailProduct.isBuying && detailProduct.purchasePrice != null ? formatCurrency(detailProduct.purchasePrice) : null} /><ProductPreviewField label="Purchase tax" value={detailProduct.isBuying ? detailProduct.purchaseTaxCode : null} /><ProductPreviewField label="Expense account" value={detailProduct.isBuying ? detailProduct.expenseAccount : null} /><ProductPreviewField label="Preferred supplier" value={detailProduct.isBuying ? detailProduct.preferredSupplierName : null} />
+                </ProductPreviewSection>
+                <ProductPreviewSection title="Units of measurement">
+                  <ProductPreviewField label="Base unit" value={detailProduct.baseUnitLabel} /><ProductPreviewField label="Multiple units" value={detailProduct.hasMultipleUoms ? "Enabled" : "Disabled"} /><ProductPreviewField label="Additional UOMs" value={detailProduct.uomConversions.length} /><ProductPreviewField label="Custom prices" value={detailProduct.customSalesPrices.length + detailProduct.customPurchasePrices.length} />
+                </ProductPreviewSection>
+              </div>}
             </div>
           </div>
         </div>

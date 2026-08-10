@@ -36,7 +36,8 @@ public sealed class SubscriptionService(
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.RecurringInvoices, cancellationToken);
         ThrowIfInvalid(SubscriptionValidators.ValidateRequest(request));
 
-        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.SubscriberId == GetSubscriberId() && x.Id == request.CustomerId, cancellationToken)
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && x.Id == request.CustomerId, cancellationToken)
             ?? throw new InvalidOperationException("Customer not found.");
 
         var productPlanIds = request.Items.Select(x => x.ProductPlanId).Distinct().ToList();
@@ -563,8 +564,11 @@ public sealed class SubscriptionService(
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
 
-    private IQueryable<Guid> OwnedCompanyIdsQuery() =>
-        dbContext.Companies.Where(x => x.SubscriberId == GetSubscriberId()).Select(x => x.Id);
+    private IQueryable<Guid> OwnedCompanyIdsQuery()
+    {
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        return dbContext.Companies.Where(x => x.Id == companyId).Select(x => x.Id);
+    }
 
     private static void ValidateTrialWindow(DateTime? trialStartUtc, DateTime? trialEndUtc)
     {

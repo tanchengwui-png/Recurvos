@@ -7,6 +7,7 @@ using Recurvos.Application.Platform;
 using Recurvos.Application.ProductPlans;
 using Recurvos.Application.SubscriberAccounts;
 using Recurvos.Domain.Enums;
+using Recurvos.Domain.Entities;
 using Recurvos.Infrastructure.Configuration;
 using Recurvos.Infrastructure.Persistence;
 using System.Text.RegularExpressions;
@@ -28,12 +29,12 @@ public sealed class CompanyService(
 
     public async Task<IReadOnlyCollection<CompanyLookupDto>> GetOwnedAsync(CancellationToken cancellationToken = default)
     {
-        var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
+        var userId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
 
         var companies = await dbContext.Companies
             .AsNoTracking()
             .Include(x => x.Addresses)
-            .Where(x => x.SubscriberId == subscriberId && !x.IsPlatformAccount)
+            .Where(x => x.Memberships.Any(m => m.UserId == userId && m.IsActive) && !x.IsPlatformAccount)
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
 
@@ -74,17 +75,24 @@ public sealed class CompanyService(
         ApplyAddresses(company, request.Addresses, allowLegacyFallback: true, legacyFallbackAddress: request.Address);
 
         dbContext.Companies.Add(company);
+        dbContext.CompanyMemberships.Add(new CompanyMembership
+        {
+            Company = company,
+            UserId = subscriberId,
+            Role = CompanyMembershipRole.Owner,
+            IsActive = true,
+        });
         await dbContext.SaveChangesAsync(cancellationToken);
         return MapLookup(company);
     }
 
     public async Task<CompanyLookupDto?> UpdateAsync(Guid id, CompanyUpsertRequest request, CancellationToken cancellationToken = default)
     {
-        var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
+        var userId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
         var company = await dbContext.Companies
             .Include(x => x.Addresses)
             .FirstOrDefaultAsync(
-            x => x.Id == id && x.SubscriberId == subscriberId && !x.IsPlatformAccount,
+            x => x.Id == id && x.Memberships.Any(m => m.UserId == userId && m.IsActive && (m.Role == CompanyMembershipRole.Owner || m.Role == CompanyMembershipRole.Admin)) && !x.IsPlatformAccount,
             cancellationToken);
         if (company is null)
         {
@@ -121,7 +129,7 @@ public sealed class CompanyService(
 
     public async Task FactoryResetAsync(Guid id, CompanyFactoryResetRequest request, CancellationToken cancellationToken = default)
     {
-        var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
+        var userId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
         if (!string.Equals(currentUserService.Role, "Owner", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(currentUserService.Role, "Admin", StringComparison.OrdinalIgnoreCase))
         {
@@ -134,7 +142,7 @@ public sealed class CompanyService(
         }
 
         var targetCompany = await dbContext.Companies
-            .Where(x => x.Id == id && x.SubscriberId == subscriberId && !x.IsPlatformAccount)
+            .Where(x => x.Id == id && x.Memberships.Any(m => m.UserId == userId && m.IsActive && (m.Role == CompanyMembershipRole.Owner || m.Role == CompanyMembershipRole.Admin)) && !x.IsPlatformAccount)
             .Select(x => new
             {
                 x.Id,
@@ -146,6 +154,11 @@ public sealed class CompanyService(
         if (targetCompany is null)
         {
             throw new KeyNotFoundException("Company not found.");
+        }
+
+        if (await dbContext.Users.AnyAsync(x => x.CompanyId == id, cancellationToken))
+        {
+            throw new InvalidOperationException("This company is the primary workspace for one or more user accounts and cannot be removed from Factory Reset.");
         }
 
         var targetCompanyIds = new[] { id };
@@ -217,30 +230,14 @@ public sealed class CompanyService(
         await dbContext.Products.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
         await dbContext.CompanyInvoiceSettings.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
 
-        var preservedCompany = await dbContext.Companies.FirstOrDefaultAsync(x => x.Id == id, cancellationToken)
-            ?? throw new KeyNotFoundException("Company not found.");
+        var deleted = await dbContext.Companies
+            .Where(x => x.Id == id && !x.IsPlatformAccount)
+            .ExecuteDeleteAsync(cancellationToken);
+        if (deleted != 1)
+        {
+            throw new KeyNotFoundException("Company not found.");
+        }
 
-        preservedCompany.Name = string.Empty;
-        preservedCompany.LegalName = null;
-        preservedCompany.RegistrationNumberType = null;
-        preservedCompany.RegistrationNumber = string.Empty;
-        preservedCompany.OldRegistrationNumber = null;
-        preservedCompany.Tin = null;
-        preservedCompany.MsicCode = null;
-        preservedCompany.TourismTaxRegistrationNumber = null;
-        preservedCompany.HomeCountry = null;
-        preservedCompany.Email = string.Empty;
-        preservedCompany.Phone = string.Empty;
-        preservedCompany.Address = string.Empty;
-        preservedCompany.Industry = null;
-        preservedCompany.NatureOfBusiness = null;
-        preservedCompany.LogoPath = null;
-        preservedCompany.IsActive = true;
-        preservedCompany.Currency = "MYR";
-        preservedCompany.InvoiceSequence = 1000;
-        preservedCompany.UpdatedAtUtc = DateTime.UtcNow;
-
-        await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         ClearCompanyStorageArtifacts(targetCompanyIds, filePaths);
@@ -252,7 +249,7 @@ public sealed class CompanyService(
         var company = await dbContext.Companies
             .Include(x => x.Addresses)
             .FirstOrDefaultAsync(
-            x => x.Id == id && x.SubscriberId == subscriberId && !x.IsPlatformAccount,
+            x => x.Id == id && x.Memberships.Any(m => m.UserId == subscriberId && m.IsActive && (m.Role == CompanyMembershipRole.Owner || m.Role == CompanyMembershipRole.Admin)) && !x.IsPlatformAccount,
             cancellationToken);
         if (company is null)
         {
@@ -297,7 +294,7 @@ public sealed class CompanyService(
         var company = await dbContext.Companies
             .Include(x => x.Addresses)
             .FirstOrDefaultAsync(
-            x => x.Id == id && x.SubscriberId == subscriberId && !x.IsPlatformAccount,
+            x => x.Id == id && x.Memberships.Any(m => m.UserId == subscriberId && m.IsActive) && !x.IsPlatformAccount,
             cancellationToken);
         if (company is null || string.IsNullOrWhiteSpace(company.LogoPath) || !File.Exists(company.LogoPath))
         {
@@ -324,7 +321,7 @@ public sealed class CompanyService(
         var company = await dbContext.Companies
             .Include(x => x.Addresses)
             .FirstOrDefaultAsync(
-            x => x.Id == id && x.SubscriberId == subscriberId && !x.IsPlatformAccount,
+            x => x.Id == id && x.Memberships.Any(m => m.UserId == subscriberId && m.IsActive && (m.Role == CompanyMembershipRole.Owner || m.Role == CompanyMembershipRole.Admin)) && !x.IsPlatformAccount,
             cancellationToken);
         if (company is null)
         {
@@ -364,7 +361,7 @@ public sealed class CompanyService(
     public async Task<IReadOnlyCollection<ProductPlanDto>> GetRecurringPlansAsync(Guid companyId, CancellationToken cancellationToken = default)
     {
         var subscriberId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        var hasAccess = await dbContext.Companies.AnyAsync(x => x.Id == companyId && x.SubscriberId == subscriberId, cancellationToken);
+        var hasAccess = await dbContext.CompanyMemberships.AnyAsync(x => x.CompanyId == companyId && x.UserId == subscriberId && x.IsActive, cancellationToken);
         if (!hasAccess)
         {
             throw new UnauthorizedAccessException();
@@ -395,6 +392,39 @@ public sealed class CompanyService(
                 x.CreatedAtUtc,
                 x.UpdatedAtUtc))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task GrantMembershipAsync(Guid companyId, CompanyMembershipUpsertRequest request, CancellationToken cancellationToken = default)
+    {
+        var currentUserId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
+        var canManage = await dbContext.CompanyMemberships.AnyAsync(x => x.CompanyId == companyId && x.UserId == currentUserId && x.IsActive
+            && (x.Role == CompanyMembershipRole.Owner || x.Role == CompanyMembershipRole.Admin), cancellationToken);
+        if (!canManage)
+        {
+            throw new UnauthorizedAccessException();
+        }
+
+        var normalizedEmail = request.UserEmail.Trim().ToLowerInvariant();
+        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email.ToLower() == normalizedEmail && x.IsActive, cancellationToken)
+            ?? throw new InvalidOperationException("No active user exists with that email address.");
+        if (!Enum.TryParse<CompanyMembershipRole>(request.Role, true, out var role))
+        {
+            throw new InvalidOperationException("Select a valid company role.");
+        }
+
+        var membership = await dbContext.CompanyMemberships.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.UserId == user.Id, cancellationToken);
+        if (membership is null)
+        {
+            dbContext.CompanyMemberships.Add(new CompanyMembership { CompanyId = companyId, UserId = user.Id, Role = role, IsActive = true });
+        }
+        else
+        {
+            membership.Role = role;
+            membership.IsActive = true;
+            membership.UpdatedAtUtc = DateTime.UtcNow;
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private static CompanyLookupDto MapLookup(Domain.Entities.Company company) =>

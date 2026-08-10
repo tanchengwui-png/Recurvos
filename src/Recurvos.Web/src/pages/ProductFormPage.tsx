@@ -3,9 +3,13 @@ import type { FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { StandardFormLayout } from "../components/ui/StandardFormLayout";
+import { AccountSelect } from "../components/ui/AccountSelect";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api } from "../lib/api";
-import type { SearchableSelectOption } from "../lib/localeOptions";
+import { standardUomOptions, type SearchableSelectOption } from "../lib/localeOptions";
 import { downloadPricingTemplate, readPricingWorkbook } from "../lib/productCustomPriceWorkbook";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { CompanyLookup, ContactGroup, Customer, MasterDataSnapshot, PlatformUploadPolicy, PriceLevel, ProductCustomPrice, ProductCustomPriceTargetType, ProductDetails, ProductGroup, ProductUomConversion } from "../types";
@@ -668,16 +672,7 @@ export function ProductFormPage() {
   }, [editingProductId, imageFile, imageRemoved]);
 
   const requiredMark = <span className="form-required-indicator" aria-hidden="true">*</span>;
-  const accountOptions = (masterData?.accounts ?? [])
-    .filter((account) => account.isActive)
-    .map((account) => ({
-      value: account.code,
-      label: `${account.code} - ${account.name}`,
-      keywords: [account.name, account.type, account.currencyCode],
-    }));
-  const inventoryAccountOptions = mergeMissingSelection(accountOptions.filter((option) => option.keywords?.includes("Asset")), form.inventoryAccount);
-  const incomeAccountOptions = mergeMissingSelection(accountOptions.filter((option) => option.keywords?.includes("Revenue")), form.incomeAccount);
-  const expenseAccountOptions = mergeMissingSelection(accountOptions.filter((option) => option.keywords?.includes("Expense")), form.expenseAccount);
+  const baseUomOptions = mergeMissingSelection(standardUomOptions, form.baseUnitLabel);
   const salesTaxOptions = mergeMissingSelection((masterData?.taxCodes ?? [])
     .filter((taxCode) => taxCode.isActive && (taxCode.scope === "Sales" || taxCode.scope === "Both"))
     .map((taxCode) => ({ value: taxCode.code, label: `${taxCode.code} - ${taxCode.name}` })), form.salesTaxCode);
@@ -688,6 +683,7 @@ export function ProductFormPage() {
     .filter((category) => category.isActive)
     .map((category) => ({ value: category.code, label: `${category.code} - ${category.name}`, keywords: [category.name, category.description || ""] })), form.category);
   const contactOptions = contacts
+    .filter((contact) => contact.companyIds.length === 0 || contact.companyIds.includes(form.companyId))
     .map((contact) => ({
       value: contact.id,
       label: getContactDisplayName(contact),
@@ -695,6 +691,7 @@ export function ProductFormPage() {
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
   const supplierOptions = suppliers
+    .filter((supplier) => supplier.companyIds.length === 0 || supplier.companyIds.includes(form.companyId))
     .map((supplier) => ({
       value: supplier.id,
       label: supplier.legalName || supplier.name,
@@ -962,9 +959,11 @@ export function ProductFormPage() {
     event.preventDefault();
     setFormError("");
 
-    const inventoryAccountId = masterData?.accounts.find((account) => account.code === form.inventoryAccount)?.id ?? null;
-    const incomeAccountId = masterData?.accounts.find((account) => account.code === form.incomeAccount)?.id ?? null;
-    const expenseAccountId = masterData?.accounts.find((account) => account.code === form.expenseAccount)?.id ?? null;
+    // The API resolves account codes from the shared chart and validates their
+    // required type. Keeping IDs null avoids stale lookups while the form is open.
+    const inventoryAccountId = null;
+    const incomeAccountId = null;
+    const expenseAccountId = null;
     const salesTaxCodeId = masterData?.taxCodes.find((taxCode) => taxCode.code === form.salesTaxCode)?.id ?? null;
     const purchaseTaxCodeId = masterData?.taxCodes.find((taxCode) => taxCode.code === form.purchaseTaxCode)?.id ?? null;
     const preferredSupplierName = suppliers.find((supplier) => supplier.id === form.preferredSupplierId)?.legalName || suppliers.find((supplier) => supplier.id === form.preferredSupplierId)?.name || "";
@@ -1123,39 +1122,35 @@ export function ProductFormPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>{editingProductId ? "Update product profile" : "Create product profile"}</h2>
-        </div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/products")}>Back to products</button>
-      </header>
-      <section className="card company-profile-card">
-        <form id="product-form" className="form-stack company-profile-form" onSubmit={submit}>
-          <section className="company-profile-section" aria-labelledby="product-information-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-information-title" className="section-title">Product Information</h3>
+    <div className="page product-create-page">
+      <StandardFormLayout className="product-create-content standard-form-page">
+      <FormPageHeader backLabel="Back to Products" backHref="/products" breadcrumbs={<><span>Products</span><span>/</span><span>{editingProductId ? "Edit Product" : "New Product"}</span></>} />
+        <form id="product-form" className="form-stack product-create-form" onSubmit={submit}>
+          <section className="product-form-section" aria-labelledby="product-information-title">
+            <div className="product-form-section-header">
+              <span className="product-form-section-number">01</span><div><h3 id="product-information-title">Product information</h3><p>Core identity, grouping and classification.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="form-label company-profile-field">
+            <div className="product-form-section-body product-form-grid">
+              <label className="form-label product-form-field">
                 Company
                 <select value={form.companyId} disabled={Boolean(editingProductId)} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
                   {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
                 </select>
               </label>
-              <label className="form-label company-profile-field">
+              <label className="form-label product-form-field">
                 <span className="form-label-inline">Product Name {requiredMark}</span>
                 <input className="text-input" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="form-label product-form-field">
                 SKU / Code
                 <input className="text-input" value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: normalizeProductCode(event.target.value) }))} />
+                <span className="product-field-guidance">Use an uppercase SKU or code such as STARTER or GROWTH-PLAN.</span>
               </label>
-              <label className="form-label company-profile-field">
+              <label className="form-label product-form-field">
                 Barcode
                 <input className="text-input" value={form.barcode} onChange={(event) => setForm((current) => ({ ...current, barcode: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field company-profile-field-wide">
+              <label className="form-label product-form-field product-form-field-wide">
                 Product Group(s)
                 <MultiValueLookup
                   values={form.productGroups}
@@ -1169,7 +1164,7 @@ export function ProductFormPage() {
                   allowCreate={false}
                 />
               </label>
-              <label className="form-label company-profile-field company-profile-field-wide">
+              <label className="form-label product-form-field product-form-field-wide">
                 Classification Code
                 <SearchableSelect
                   value={form.category}
@@ -1181,32 +1176,36 @@ export function ProductFormPage() {
                   clearable
                 />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="form-label product-form-field">
                 Bin Location
                 <input className="text-input" value={form.binLocation} onChange={(event) => setForm((current) => ({ ...current, binLocation: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field company-profile-field-wide">
+              <label className="form-label product-form-field product-form-field-wide">
                 Description
                 <textarea className="company-profile-textarea" rows={4} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
               </label>
             </div>
-            <div className="company-profile-logo-layout">
-              <div className="company-profile-logo-preview">
-                <div className="logo-preview-frame company-profile-logo-frame">
-                  {imagePreviewUrl ? <img src={imagePreviewUrl} alt="Product image preview" className="logo-preview-image" /> : <span className="muted">No product image selected</span>}
+          </section>
+
+          <section className="product-form-section" aria-labelledby="product-image-title">
+            <div className="product-form-section-header"><span className="product-form-section-number">02</span><div><h3 id="product-image-title">Product image</h3><p>Image used in catalogues and product records.</p></div></div>
+            <div className="product-form-section-body product-image-layout">
+              <div className="product-image-preview">
+                <div className="logo-preview-frame product-image-preview-frame">
+                  {imagePreviewUrl ? <img src={imagePreviewUrl} alt="Product image preview" className="logo-preview-image" /> : <><span className="product-image-icon" aria-hidden="true">▧</span><span>No product image selected</span></>}
                 </div>
                 <div className="company-profile-logo-summary">
                   <span className={`status-pill ${imagePreviewUrl ? "status-pill-active" : "status-pill-inactive"}`}>
                     {imageRemoved ? "Image will be removed" : imagePreviewUrl ? "Preview ready" : "No image uploaded"}
                   </span>
-                  <p className="muted">Use a clean square or landscape image so the catalog stays readable across devices.</p>
+                  <p className="muted">Recommended square or landscape image</p>
                 </div>
               </div>
-              <div className="company-profile-logo-controls">
-                <div className="form-label">
-                  Product Image Upload
+              <div className="product-image-controls">
+                <div>
                   <input
-                    className="text-input"
+                    className="product-image-input"
+                    id="product-image-upload"
                     type="file"
                     accept=".png,.jpg,.jpeg,.webp"
                     aria-label="Product image file"
@@ -1231,12 +1230,14 @@ export function ProductFormPage() {
                       })();
                     }}
                   />
+                  <label className="button button-secondary" htmlFor="product-image-upload">Choose image</label>
                 </div>
-                <div className="company-profile-logo-summary">
-                  {imageFile ? <p className="muted">{`Selected file: ${imageFile.name}`}</p> : null}
-                  <p className="muted">{`Size limit: ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)}. PNG, JPG, JPEG, or WEBP.`}</p>
+                <div className="product-image-meta">
+                  <p>{imageRemoved ? "No image uploaded" : imageFile ? `Selected: ${imageFile.name}` : imagePreviewUrl ? "Current image uploaded" : "No image uploaded"}</p>
+                  <p className="muted">PNG, JPG, JPEG or WEBP · Maximum {formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)}</p>
+                  <p className="muted">Recommended square or landscape image.</p>
                 </div>
-                <div className="company-profile-logo-actions">
+                <div className="product-image-actions">
                   {(imageFile || imagePreviewUrl) && !imageRemoved ? (
                     <button
                       type="button"
@@ -1267,23 +1268,23 @@ export function ProductFormPage() {
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="product-inventory-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-inventory-title" className="section-title">Inventory Settings</h3>
+          <section className="product-form-section" aria-labelledby="product-inventory-title">
+            <div className="product-form-section-header">
+              <span className="product-form-section-number">03</span><div><h3 id="product-inventory-title">Inventory</h3><p>Stock tracking and storage settings.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+            <div className="product-form-section-body product-form-grid">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>Track inventory</strong><small>Enable stock quantity, reorder and storage controls.</small></span>
                 <input type="checkbox" checked={form.trackInventory} onChange={(event) => setForm((current) => ({ ...current, trackInventory: event.target.checked }))} />
-                Track Inventory
               </label>
               {form.trackInventory ? (
                 <>
                   <label className="form-label company-profile-field company-profile-field-wide">
                     Inventory Account
-                    <SearchableSelect
+                    <AccountSelect
                       value={form.inventoryAccount}
                       onChange={(value) => setForm((current) => ({ ...current, inventoryAccount: value }))}
-                      options={inventoryAccountOptions}
+                      kind="inventory"
                       placeholder="Select inventory account"
                       searchPlaceholder="Search asset accounts"
                       ariaLabel="Inventory Account"
@@ -1305,20 +1306,20 @@ export function ProductFormPage() {
                 </>
               ) : (
                 <div className="company-profile-field company-profile-field-wide">
-                  <p className="muted">Inventory fields stay hidden until stock tracking is enabled.</p>
+                  <p className="muted">Inventory fields are available after stock tracking is enabled.</p>
                 </div>
               )}
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="product-sales-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-sales-title" className="section-title">Sales Information</h3>
+          <section className="product-form-section" aria-labelledby="product-sales-title">
+            <div className="product-form-section-header">
+              <span className="product-form-section-number">04</span><div><h3 id="product-sales-title">Sales</h3><p>Selling price, tax, income account and sales description.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+            <div className="product-form-section-body product-form-grid">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>I&apos;m selling</strong><small>Enable sales pricing, tax and income settings.</small></span>
                 <input type="checkbox" checked={form.isSelling} onChange={(event) => setForm((current) => ({ ...current, isSelling: event.target.checked }))} />
-                I&apos;m Selling
               </label>
               {form.isSelling ? (
                 <>
@@ -1340,10 +1341,10 @@ export function ProductFormPage() {
                   </label>
                   <label className="form-label company-profile-field company-profile-field-wide">
                     Income Account
-                    <SearchableSelect
+                    <AccountSelect
                       value={form.incomeAccount}
                       onChange={(value) => setForm((current) => ({ ...current, incomeAccount: value }))}
-                      options={incomeAccountOptions}
+                      kind="income"
                       placeholder="Select income account"
                       searchPlaceholder="Search revenue accounts"
                       ariaLabel="Income Account"
@@ -1357,20 +1358,20 @@ export function ProductFormPage() {
                 </>
               ) : (
                 <div className="company-profile-field company-profile-field-wide">
-                  <p className="muted">Sales pricing, tax, and revenue settings stay collapsed until selling is enabled.</p>
+                  <p className="muted">Sales fields are available after selling is enabled.</p>
                 </div>
               )}
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="product-purchase-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-purchase-title" className="section-title">Purchase Information</h3>
+          <section className="product-form-section" aria-labelledby="product-purchase-title">
+            <div className="product-form-section-header">
+              <span className="product-form-section-number">05</span><div><h3 id="product-purchase-title">Purchases</h3><p>Purchase cost, tax, supplier and expense settings.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+            <div className="product-form-section-body product-form-grid">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>I&apos;m buying</strong><small>Enable purchase cost, tax and supplier settings.</small></span>
                 <input type="checkbox" checked={form.isBuying} onChange={(event) => setForm((current) => ({ ...current, isBuying: event.target.checked }))} />
-                I&apos;m Buying
               </label>
               {form.isBuying ? (
                 <>
@@ -1392,10 +1393,10 @@ export function ProductFormPage() {
                   </label>
                   <label className="form-label company-profile-field company-profile-field-wide">
                     Expense Account
-                    <SearchableSelect
+                    <AccountSelect
                       value={form.expenseAccount}
                       onChange={(value) => setForm((current) => ({ ...current, expenseAccount: value }))}
-                      options={expenseAccountOptions}
+                      kind="expense"
                       placeholder="Select expense account"
                       searchPlaceholder="Search expense accounts"
                       ariaLabel="Expense Account"
@@ -1421,32 +1422,27 @@ export function ProductFormPage() {
                 </>
               ) : (
                 <div className="company-profile-field company-profile-field-wide">
-                  <p className="muted">Purchase cost, tax, supplier, and expense settings stay collapsed until buying is enabled.</p>
+                  <p className="muted">Purchase fields are available after buying is enabled.</p>
                 </div>
               )}
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="product-uom-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-uom-title" className="section-title">Unit of Measurement</h3>
+          <section className="product-form-section" aria-labelledby="product-uom-title">
+            <div className="product-form-section-header">
+              <span className="product-form-section-number">06</span><div><h3 id="product-uom-title">Unit of measurement</h3><p>Base unit and optional unit conversions.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="form-label company-profile-field">
-                <span className="form-label-inline">Base Unit Label {requiredMark}</span>
-                <input className="text-input" value={form.baseUnitLabel} onChange={(event) => setForm((current) => ({ ...current, baseUnitLabel: event.target.value }))} />
-              </label>
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+            <div className="product-form-section-body product-form-grid">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>Multiple UOMs</strong><small>Enable conversions and sales or purchase defaults.</small></span>
                 <input type="checkbox" checked={form.hasMultipleUoms} onChange={(event) => setForm((current) => ({ ...current, hasMultipleUoms: event.target.checked }))} />
-                Multiple UOMs
               </label>
-              {form.hasMultipleUoms ? (
-                <div className="company-profile-field company-profile-field-wide uom-config-section">
+              <div className="company-profile-field company-profile-field-wide uom-config-section">
                   <div className="table-scroll table-scroll-bounded">
                     <table className="catalog-table uom-config-table">
                       <thead>
                         <tr>
-                          <th>Label</th>
+                          <th>UOM</th>
                           <th>Rate</th>
                           <th>Sale Price</th>
                           <th>Purchase Price</th>
@@ -1459,8 +1455,17 @@ export function ProductFormPage() {
                         <tr>
                           <td>
                             <div className="uom-base-cell">
-                              <strong>{form.baseUnitLabel.trim() || "Unit"}</strong>
-                              <span className="uom-base-badge">Base</span>
+                              <SearchableSelect
+                                value={form.baseUnitLabel}
+                                onChange={(value) => setForm((current) => ({ ...current, baseUnitLabel: value }))}
+                                options={baseUomOptions}
+                                placeholder="Select base unit"
+                                searchPlaceholder="Search units"
+                                emptyText="No units found."
+                                ariaLabel="Base unit (required)"
+                                className="uom-label-select"
+                              />
+                              <span className="uom-base-badge">Required base</span>
                             </div>
                           </td>
                           <td>
@@ -1518,10 +1523,19 @@ export function ProductFormPage() {
                             <span className="muted">-</span>
                           </td>
                         </tr>
-                        {form.uomConversions.map((conversion, index) => (
+                        {form.hasMultipleUoms ? form.uomConversions.map((conversion, index) => (
                           <tr key={conversion.id}>
                             <td>
-                              <input className="text-input" value={conversion.label} onChange={(event) => updateConversion(index, { label: event.target.value })} placeholder="e.g. Carton" aria-label={`UOM label ${index + 1}`} />
+                              <SearchableSelect
+                                value={conversion.label}
+                                onChange={(value) => updateConversion(index, { label: value })}
+                                options={mergeMissingSelection(standardUomOptions, conversion.label)}
+                                placeholder="Select unit"
+                                searchPlaceholder="Search units"
+                                emptyText="No units found."
+                                ariaLabel={`UOM label ${index + 1}`}
+                                className="uom-label-select"
+                              />
                             </td>
                             <td>
                               <input className="text-input uom-rate-input" type="number" min="0.0001" step="0.0001" value={conversion.factor} onChange={(event) => updateConversion(index, { factor: event.target.value })} placeholder="0.00" aria-label={`UOM rate ${index + 1}`} />
@@ -1578,31 +1592,27 @@ export function ProductFormPage() {
                               <button type="button" className="button button-secondary button-small" onClick={() => removeConversion(index)}>Delete</button>
                             </td>
                           </tr>
-                        ))}
+                        )) : null}
                       </tbody>
                     </table>
                   </div>
                   <div className="uom-config-actions">
-                    <button type="button" className="button button-secondary" onClick={addConversion}>+ UOM</button>
+                    {form.hasMultipleUoms ? <button type="button" className="button button-secondary" onClick={addConversion}>Add UOM</button> : <span className="muted">Enable Multiple UOMs to add optional conversions.</span>}
                   </div>
-                  <HelperText>The base unit is always created automatically. Each rate is measured against the base unit, and only one default sales UOM and one default purchase UOM can be selected.</HelperText>
-                </div>
-              ) : (
-                <div className="company-profile-field company-profile-field-wide">
-                  <p className="muted">Additional unit conversions stay hidden until Multiple UOMs is enabled.</p>
-                </div>
-              )}
+                  <HelperText>Select the required base UOM in the first row. Each optional conversion rate is measured against that base, and only one default sales UOM and one default purchase UOM can be selected.</HelperText>
+              </div>
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="product-custom-sales-prices-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-custom-sales-prices-title" className="section-title">Custom Sales Prices</h3>
+          <section className="product-form-section product-custom-pricing-section" aria-labelledby="product-custom-sales-prices-title">
+            <div className="product-form-section-header">
+              <span className="product-form-section-number">07</span><div><h3 id="product-custom-sales-prices-title">Custom pricing</h3><p>Customer-specific sales and purchase prices.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+            <div className="product-form-section-body pricing-section-body">
+              <div className="pricing-settings-row">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>Enable custom sales prices</strong><small>Set sales prices for specific contacts, groups or price levels.</small></span>
                 <input type="checkbox" checked={form.hasCustomSalesPrices} onChange={(event) => setForm((current) => ({ ...current, hasCustomSalesPrices: event.target.checked }))} />
-                Enable Custom Prices
               </label>
               {form.hasCustomSalesPrices ? (
                 <div className="company-profile-field company-profile-field-wide pricing-config-section">
@@ -1743,21 +1753,14 @@ export function ProductFormPage() {
                   <HelperText>Priority is contact-specific price, then contact group, then price level, then the product default sales price.</HelperText>
                 </div>
               ) : (
-                <div className="company-profile-field company-profile-field-wide">
-                  <p className="muted">Custom sales pricing stays hidden until enabled.</p>
-                </div>
+                null
               )}
-            </div>
-          </section>
-
-          <section className="company-profile-section" aria-labelledby="product-custom-purchase-prices-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-custom-purchase-prices-title" className="section-title">Custom Purchase Prices</h3>
-            </div>
-            <div className="company-profile-fields-grid">
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+              </div>
+              <div className="pricing-section-divider" aria-hidden="true" />
+              <div className="pricing-settings-row">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>Enable custom purchase prices</strong><small>Set purchase prices for specific suppliers, groups or price levels.</small></span>
                 <input type="checkbox" checked={form.hasCustomPurchasePrices} onChange={(event) => setForm((current) => ({ ...current, hasCustomPurchasePrices: event.target.checked }))} />
-                Enable Custom Prices
               </label>
               {form.hasCustomPurchasePrices ? (
                 <div className="company-profile-field company-profile-field-wide pricing-config-section">
@@ -1898,39 +1901,38 @@ export function ProductFormPage() {
                   <HelperText>Priority is supplier-specific price, then contact group, then price level, then the product default purchase price.</HelperText>
                 </div>
               ) : (
-                <div className="company-profile-field company-profile-field-wide">
-                  <p className="muted">Custom purchase pricing stays hidden until enabled.</p>
-                </div>
+                null
               )}
+              </div>
             </div>
           </section>
 
-          <section className="company-profile-section" aria-labelledby="product-status-title">
-            <div className="company-profile-address-header">
-              <h3 id="product-status-title" className="section-title">Status</h3>
+          <section className="product-form-section" aria-labelledby="product-status-title">
+            <div className="product-form-section-header">
+              <span className="product-form-section-number">08</span><div><h3 id="product-status-title">Status</h3><p>Subscription and active-product settings.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+            <div className="product-form-section-body product-form-grid">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>Subscription product</strong><small>Allows recurring plans and subscription billing.</small></span>
                 <input type="checkbox" checked={form.isSubscriptionProduct} onChange={(event) => setForm((current) => ({ ...current, isSubscriptionProduct: event.target.checked }))} />
-                Subscription product
               </label>
-              <label className="checkbox-row company-profile-field company-profile-field-wide">
+              <label className="product-setting-row product-form-field-wide">
+                <span><strong>Active</strong><small>Product can be selected in sales and billing workflows.</small></span>
                 <input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />
-                Active
               </label>
             </div>
           </section>
 
-          {formError ? <HelperText tone="error">{formError}</HelperText> : <HelperText>Use an uppercase SKU / Code like `STARTER` or `GROWTH-PLAN`.</HelperText>}
-          <div className="subscription-create-actions company-form-actions">
-            <div className="company-form-actions-left" />
-            <div className="company-form-actions-right">
+          {formError ? <HelperText tone="error">{formError}</HelperText> : null}
+          <FormActionSection className="product-create-actions">
+            <div className="product-create-actions-note">Complete all required fields before creating the product.</div>
+            <div className="product-create-actions-buttons">
               <button type="button" className="button button-secondary" onClick={() => navigate("/products")}>Cancel</button>
-              <button type="submit" className="button button-primary" disabled={isSubmitting}>{isSubmitting ? "Saving..." : editingProductId ? "Update product" : "Create product"}</button>
+              <button type="submit" className="button button-primary" disabled={isSubmitting}>{isSubmitting ? "Creating product…" : editingProductId ? "Update product" : "Create product"}</button>
             </div>
-          </div>
+          </FormActionSection>
         </form>
-      </section>
+      </StandardFormLayout>
       <ConfirmModal
         open={confirmState !== null}
         title={confirmState?.title ?? ""}

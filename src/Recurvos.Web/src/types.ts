@@ -141,6 +141,7 @@ export type ContactAddress = {
 
 export type Customer = {
   id: string;
+  companyIds: string[];
   name: string;
   email: string;
   phoneNumber: string;
@@ -911,6 +912,8 @@ export type Product = {
   productGroups: string[];
   salesPrice?: number | null;
   purchasePrice?: number | null;
+  isSelling: boolean;
+  isBuying: boolean;
   baseUnitLabel: string;
   hasMultipleUoms: boolean;
   uomConversions: ProductUomConversion[];

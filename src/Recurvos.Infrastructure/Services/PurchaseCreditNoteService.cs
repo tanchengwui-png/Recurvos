@@ -162,7 +162,11 @@ public sealed class PurchaseCreditNoteService(
     }
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
-    private IQueryable<Guid> OwnedCompanyIdsQuery() => dbContext.Companies.Where(x => x.SubscriberId == GetSubscriberId()).Select(x => x.Id);
+    private IQueryable<Guid> OwnedCompanyIdsQuery()
+    {
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        return dbContext.Companies.Where(x => x.Id == companyId).Select(x => x.Id);
+    }
 
     private async Task<string> GeneratePurchaseCreditNoteNumberAsync(Guid companyId, CancellationToken cancellationToken)
     {

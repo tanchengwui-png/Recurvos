@@ -12,6 +12,7 @@ import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
 import { getAuth } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
+import { hasFeature } from "../lib/features";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, Payment, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
 
@@ -485,14 +486,14 @@ export function InvoicesPage() {
 
   function canGeneratePaymentLink(invoice: Invoice) {
     return invoice.balanceAmount > 0
-      && (featureAccess?.featureKeys.includes("payment_link_generation") ?? false)
+      && hasFeature(featureAccess, "payment_link_generation")
       && Boolean(invoiceSettings?.paymentGatewayReady);
   }
 
   function canSharePaymentConfirmation(invoice: Invoice) {
     return invoice.status !== "Voided"
       && invoice.balanceAmount > 0
-      && (featureAccess?.featureKeys.includes("public_payment_confirmation") ?? false);
+      && hasFeature(featureAccess, "public_payment_confirmation");
   }
 
   function canShareWhatsApp(invoice: Invoice) {
@@ -508,7 +509,7 @@ export function InvoicesPage() {
       return "Payment link";
     }
 
-    if (!(featureAccess?.featureKeys.includes("payment_link_generation") ?? false)) {
+    if (!hasFeature(featureAccess, "payment_link_generation")) {
       return "Upgrade for payment link";
     }
 
@@ -527,7 +528,7 @@ export function InvoicesPage() {
       title: !canGeneratePaymentLink(invoice)
         ? invoice.balanceAmount <= 0
           ? "This invoice has no outstanding balance."
-          : !(featureAccess?.featureKeys.includes("payment_link_generation") ?? false)
+          : !hasFeature(featureAccess, "payment_link_generation")
             ? getFeatureHint("payment_link_generation")
             : "Set up a payment gateway in Settings > Payment first."
         : undefined,
@@ -638,8 +639,8 @@ export function InvoicesPage() {
   function getInvoiceActions(item: Invoice) {
     return [
       {
-        label: expandedId === item.id ? "Hide details" : "View details",
-        onClick: () => setExpandedId((current) => current === item.id ? null : item.id),
+        label: "View details",
+        onClick: () => setExpandedId(item.id),
       },
       {
         label: "Send invoice",
@@ -680,10 +681,10 @@ export function InvoicesPage() {
       },
       {
         label: getPaymentLinkActionLabel(item),
-        disabled: !featureAccess?.featureKeys.includes("payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
+        disabled: !hasFeature(featureAccess, "payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
         title: item.balanceAmount <= 0
           ? "This invoice has no outstanding balance."
-          : !featureAccess?.featureKeys.includes("payment_link_generation")
+          : !hasFeature(featureAccess, "payment_link_generation")
             ? getFeatureHint("payment_link_generation")
             : !invoiceSettings?.paymentGatewayReady
               ? "Set up a payment gateway in Settings > Payment first."
@@ -699,36 +700,36 @@ export function InvoicesPage() {
       },
       {
         label: "Copy payment confirmation URL",
-        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("public_payment_confirmation"),
+        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !hasFeature(featureAccess, "public_payment_confirmation"),
         title: item.status === "Voided"
           ? "Voided invoices cannot issue payment confirmation links."
           : item.balanceAmount <= 0
             ? "This invoice is already fully paid."
-            : !featureAccess?.featureKeys.includes("public_payment_confirmation")
+            : !hasFeature(featureAccess, "public_payment_confirmation")
               ? getFeatureHint("public_payment_confirmation")
               : undefined,
         onClick: () => void copyPaymentConfirmationUrl(item),
       },
       {
         label: "Copy WhatsApp message",
-        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_copy_message"),
+        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !hasFeature(featureAccess, "whatsapp_copy_message"),
         title: item.status === "Voided"
           ? "Voided invoices should not be shared for payment."
           : item.balanceAmount <= 0
             ? "This invoice is already fully paid."
-            : !featureAccess?.featureKeys.includes("whatsapp_copy_message")
+            : !hasFeature(featureAccess, "whatsapp_copy_message")
               ? getFeatureHint("whatsapp_copy_message")
               : undefined,
         onClick: () => void copyWhatsAppMessage(item),
       },
       {
         label: "Copy WhatsApp browser link",
-        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !featureAccess?.featureKeys.includes("whatsapp_browser_link"),
+        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !hasFeature(featureAccess, "whatsapp_browser_link"),
         title: item.status === "Voided"
           ? "Voided invoices should not be shared for payment."
           : item.balanceAmount <= 0
             ? "This invoice is already fully paid."
-            : !featureAccess?.featureKeys.includes("whatsapp_browser_link")
+            : !hasFeature(featureAccess, "whatsapp_browser_link")
               ? getFeatureHint("whatsapp_browser_link")
               : undefined,
         onClick: () => void copyWhatsAppBrowserLink(item),
@@ -1397,15 +1398,15 @@ export function InvoicesPage() {
       {clipboardFallbackModal}
 
       {selectedInvoice ? (
-        <div className="modal-backdrop invoice-detail-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
+        <div className="modal-backdrop product-preview-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
           <div
-            className="card invoice-detail-drawer"
+            className="card product-preview-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="invoice-detail-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="invoice-detail-drawer-header">
+            <div className="product-preview-modal-header">
               <div>
                 <p className="eyebrow">Invoice detail</p>
                 <h3 id="invoice-detail-title">{selectedInvoice.invoiceNumber}</h3>
@@ -1414,7 +1415,7 @@ export function InvoicesPage() {
               <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
             </div>
 
-            <div className="invoice-detail-drawer-body">
+            <div className="product-preview-modal-body">
               <div className="invoice-detail-panel">
               <div className="invoice-detail-hero">
                 <div className="invoice-detail-hero-copy">
@@ -1473,7 +1474,7 @@ export function InvoicesPage() {
                       onClick={() => void copyPaymentConfirmationUrl(selectedInvoice)}
                       disabled={!canSharePaymentConfirmation(selectedInvoice)}
                       title={!canSharePaymentConfirmation(selectedInvoice)
-                        ? !featureAccess?.featureKeys.includes("public_payment_confirmation")
+                        ? !hasFeature(featureAccess, "public_payment_confirmation")
                           ? getFeatureHint("public_payment_confirmation")
                           : "This invoice cannot issue a payment confirmation link."
                         : undefined}
@@ -1484,8 +1485,8 @@ export function InvoicesPage() {
                       type="button"
                       className="button button-secondary"
                       onClick={() => void copyWhatsAppMessage(selectedInvoice)}
-                      disabled={!canShareWhatsApp(selectedInvoice) || !(featureAccess?.featureKeys.includes("whatsapp_copy_message") ?? false)}
-                      title={!(featureAccess?.featureKeys.includes("whatsapp_copy_message") ?? false)
+                      disabled={!canShareWhatsApp(selectedInvoice) || !hasFeature(featureAccess, "whatsapp_copy_message")}
+                      title={!hasFeature(featureAccess, "whatsapp_copy_message")
                         ? getFeatureHint("whatsapp_copy_message")
                         : undefined}
                     >

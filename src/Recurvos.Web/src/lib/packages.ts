@@ -105,6 +105,18 @@ export const packageFeatureDefinitions: PackageFeatureDefinition[] = [
     category: "Finance",
   },
   {
+    value: "Growth reports",
+    label: "Growth reports",
+    description: "Use the reports available to Growth subscribers.",
+    category: "Finance",
+  },
+  {
+    value: "Premium reports",
+    label: "Premium reports",
+    description: "Use the reports available only to Premium subscribers.",
+    category: "Finance",
+  },
+  {
     value: "Auto invoice notification (Email)",
     label: "Invoice emails",
     description: "Send invoices and billing reminder emails to customers.",

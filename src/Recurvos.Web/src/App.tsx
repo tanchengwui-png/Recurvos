@@ -1,11 +1,12 @@
 import { Suspense, lazy, type ReactElement } from "react";
 import type { Location } from "react-router-dom";
-import { Navigate, Route, BrowserRouter as Router, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, BrowserRouter as Router, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { ChunkLoadErrorBoundary } from "./components/ChunkLoadErrorBoundary";
 import { getAuth } from "./lib/auth";
 import { isAppSiteHost } from "./lib/siteUrls";
 import { ToastProvider } from "./components/ui/Toast";
+import { RecordDetailsModal } from "./components/RecordDetailsModal";
 
 const CompaniesPage = lazy(() => import("./pages/CompaniesPage").then((module) => ({ default: module.CompaniesPage })));
 const CompanyFormPage = lazy(() => import("./pages/CompanyFormPage").then((module) => ({ default: module.CompanyFormPage })));
@@ -131,6 +132,11 @@ function TenantRoute({ children }: { children: ReactElement }) {
 function PlatformRoute({ children }: { children: ReactElement }) {
   const auth = getAuth();
   return auth?.isPlatformOwner ? children : <Navigate to="/" replace />;
+}
+
+function RecordDetailRouteModal({ children, fallbackPath }: { children: ReactElement; fallbackPath: string }) {
+  const navigate = useNavigate();
+  return <RecordDetailsModal eyebrow="Record summary" title="Details" onClose={() => navigate(fallbackPath)}>{children}</RecordDetailsModal>;
 }
 
 function infoPageConfig(path: "/privacy" | "/terms" | "/support") {
@@ -332,6 +338,23 @@ function AppRoutes() {
             {renderInfoRoute("/privacy", true)}
             {renderInfoRoute("/terms", true)}
             {renderInfoRoute("/support", true)}
+            <Route path="/sales/quotations/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/sales/quotations"><SalesQuotationDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/sales/orders/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/sales/orders"><SalesOrderDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/sales/delivery-orders/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/sales/delivery-orders"><DeliveryOrderDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/purchases/orders/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/purchases/orders"><PurchaseOrderDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/purchases/grns/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/purchases/grns"><GoodsReceivedNoteDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/purchases/bills/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/purchases/bills"><PurchaseBillDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/purchases/payments/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/purchases/payments"><PurchasePaymentDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/purchases/credit-notes/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/purchases/credit-notes"><PurchaseCreditNoteDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/purchases/refunds/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/purchases/refunds"><PurchaseRefundDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/finance/journal-entries/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/finance/journal-entries"><JournalEntryDetailsPage /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/foundation/chart-of-accounts/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/foundation/chart-of-accounts"><FoundationModuleDetailsPage moduleKey="chart-of-accounts" /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/foundation/tax-codes/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/foundation/tax-codes"><FoundationModuleDetailsPage moduleKey="tax-codes" /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/foundation/payment-terms/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/foundation/payment-terms"><FoundationModuleDetailsPage moduleKey="payment-terms" /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/foundation/warehouses/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/foundation/warehouses"><FoundationModuleDetailsPage moduleKey="warehouses" /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/foundation/currencies/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/foundation/currencies"><FoundationModuleDetailsPage moduleKey="currencies" /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/foundation/product-categories/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/foundation/product-categories"><FoundationModuleDetailsPage moduleKey="product-categories" /></RecordDetailRouteModal></TenantRoute>} />
+            <Route path="/foundation/price-levels/:id" element={<TenantRoute><RecordDetailRouteModal fallbackPath="/foundation/price-levels"><FoundationModuleDetailsPage moduleKey="price-levels" /></RecordDetailRouteModal></TenantRoute>} />
           </Routes>
         ) : null}
         </>

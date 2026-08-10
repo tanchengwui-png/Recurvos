@@ -7,6 +7,17 @@ export type SearchableSelectOption = SelectOption & {
   keywords?: string[];
 };
 
+export const standardUomOptions: SearchableSelectOption[] = [
+  ["Unit", "Unit"], ["Each", "Each (EA)"], ["Piece", "Piece (PC)"], ["Pair", "Pair (PR)"], ["Set", "Set"], ["Dozen", "Dozen (DZ)"],
+  ["Pack", "Pack (PK)"], ["Box", "Box (BX)"], ["Carton", "Carton (CTN)"], ["Case", "Case (CS)"], ["Pallet", "Pallet (PLT)"], ["Bundle", "Bundle (BDL)"], ["Bag", "Bag (BAG)"], ["Roll", "Roll (RL)"], ["Ream", "Ream (RM)"], ["Sheet", "Sheet (SHT)"], ["Tray", "Tray (TRY)"],
+  ["Bottle", "Bottle (BTL)"], ["Can", "Can (CAN)"], ["Jar", "Jar (JAR)"], ["Tube", "Tube (TUB)"],
+  ["Milligram", "Milligram (mg)"], ["Gram", "Gram (g)"], ["Kilogram", "Kilogram (kg)"], ["Tonne", "Tonne (t)"], ["Ounce", "Ounce (oz)"], ["Pound", "Pound (lb)"],
+  ["Millilitre", "Millilitre (ml)"], ["Litre", "Litre (L)"], ["Gallon", "Gallon (gal)"],
+  ["Millimetre", "Millimetre (mm)"], ["Centimetre", "Centimetre (cm)"], ["Metre", "Metre (m)"], ["Kilometre", "Kilometre (km)"], ["Inch", "Inch (in)"], ["Foot", "Foot (ft)"], ["Yard", "Yard (yd)"],
+  ["Square metre", "Square metre (m²)"], ["Cubic metre", "Cubic metre (m³)"],
+  ["Minute", "Minute (min)"], ["Hour", "Hour (hr)"], ["Day", "Day"], ["Week", "Week"], ["Month", "Month"], ["Year", "Year"],
+].map(([value, label]) => ({ value, label, keywords: [value, label] }));
+
 type CountryDialingDefinition = {
   isoCode: string;
   dialCode: string;

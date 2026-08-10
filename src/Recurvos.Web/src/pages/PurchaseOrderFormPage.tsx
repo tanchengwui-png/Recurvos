@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { CurrencySelect } from "../components/ui/CurrencySelect";
+import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
+import { normaliseCurrencyCode, validateCurrency } from "../lib/currency";
 import { formatCurrency } from "../lib/format";
 import { resolveProductUnitPrice } from "../lib/productPricing";
 import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, Product, PurchaseOrder, TaxCode } from "../types";
@@ -26,6 +30,7 @@ export function PurchaseOrderFormPage() {
   const [contactId, setContactId] = useState("");
   const [documentDateUtc, setDocumentDateUtc] = useState(new Date().toISOString().slice(0, 10));
   const [currency, setCurrency] = useState("");
+  const [currencyError, setCurrencyError] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineForm[]>([{ ...emptyLine }]);
@@ -66,7 +71,8 @@ export function PurchaseOrderFormPage() {
     void load();
   }, [id]);
 
-  const filteredProducts = products.filter((item) => item.companyId === companyId);
+  const filteredProducts = products.filter((item) => item.companyId === companyId && item.isBuying);
+  const companyContacts = contacts.filter((item) => item.companyIds.length === 0 || item.companyIds.includes(companyId));
   const subtotal = lines.reduce((sum, line) => sum + (line.quantity * line.unitPrice), 0);
   const tax = lines.reduce((sum, line) => sum + (line.quantity * line.unitPrice * (line.taxRate / 100)), 0);
   const total = subtotal + tax;
@@ -91,6 +97,8 @@ export function PurchaseOrderFormPage() {
   }
 
   async function submit() {
+    const nextCurrencyError = validateCurrency(currency, currencies);
+    if (nextCurrencyError) { setCurrencyError(nextCurrencyError); document.getElementById("purchase-order-currency")?.focus(); return; }
     if (lines.some((line) => !line.taxCodeId)) {
       setError("Select a tax code for each line.");
       return;
@@ -106,7 +114,7 @@ export function PurchaseOrderFormPage() {
             companyId,
             contactId,
             documentDateUtc: new Date(`${documentDateUtc}T00:00:00Z`).toISOString(),
-            currency,
+            currency: normaliseCurrencyCode(currency),
             referenceNo,
             notes,
             lines: lines.map((line) => ({ productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
@@ -123,22 +131,17 @@ export function PurchaseOrderFormPage() {
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy"><h2>{id ? "Edit Purchase Order" : "Create Purchase Order"}</h2></div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/orders")}>Back to purchase orders</button>
-      </header>
+      <FormPageHeader backLabel="Back to Purchase Orders" backHref="/purchases/orders" breadcrumbs={<><span>Purchase Orders</span><span>/</span><span>{id ? "Edit Purchase Order" : "New Purchase Order"}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <TransactionFormCard title="Purchase order details" description="Supplier, dates, currency, reference and line items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
-          <label className="form-label">Company<select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label className="form-label">Supplier<select value={contactId} onChange={(event) => setContactId(event.target.value)}>{contacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
+          <label className="form-label">Company<select value={companyId} onChange={(event) => { const nextCompanyId = event.target.value; setCompanyId(nextCompanyId); setContactId(contacts.find((contact) => contact.companyIds.length === 0 || contact.companyIds.includes(nextCompanyId))?.id ?? ""); }}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="form-label">Supplier<select value={contactId} onChange={(event) => setContactId(event.target.value)}>{companyContacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
           <label className="form-label">Document Date<input type="date" className="text-input" value={documentDateUtc} onChange={(event) => setDocumentDateUtc(event.target.value)} /></label>
           <label className="form-label">
             Currency
-            <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-              <option value="">Select currency</option>
-              {currencies.map((item) => <option key={item.id} value={item.code}>{`${item.code} · ${item.name}`}</option>)}
-            </select>
+            <CurrencySelect id="purchase-order-currency" value={currency} currencies={currencies} error={currencyError} onChange={(value) => { setCurrency(value); setCurrencyError(""); }} />
           </label>
           <label className="form-label">Reference<input className="text-input" value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} /></label>
           <label className="form-label master-data-form-wide">Notes<input className="text-input" value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
@@ -191,6 +194,7 @@ export function PurchaseOrderFormPage() {
           <button type="button" className="button button-primary" onClick={() => void submit()}>{id ? "Update purchase order" : "Create purchase order"}</button>
         </div>
       </section>
+      </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>
   );

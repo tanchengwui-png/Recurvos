@@ -4,6 +4,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { MsicCodeModal } from "../components/MsicCodeModal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
+import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageHeader } from "../components/ui/FormPageHeader";
+import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { PhoneNumberField } from "../components/ui/PhoneNumberField";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api, buildApiUrl } from "../lib/api";
@@ -549,25 +552,20 @@ export function CompanyFormPage() {
   const requiredMark = <span className="form-required-indicator" aria-hidden="true">*</span>;
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>{editingCompanyId ? "Update billing profile" : "Create billing profile"}</h2>
-        </div>
-        <button type="button" className="button button-secondary" onClick={() => navigate("/companies")}>Back to companies</button>
-      </header>
-      <section className="card company-profile-card">
-        <form id="company-form" className="form-stack company-profile-form" onSubmit={submit}>
-          <section className="company-profile-section" aria-labelledby="company-information-title">
-            <div className="company-profile-address-header">
-              <h3 id="company-information-title" className="section-title">Company Information</h3>
+    <div className="page company-create-page">
+      <StandardFormLayout className="company-create-content standard-form-page">
+      <FormPageHeader backLabel="Back to Companies" backHref="/companies" breadcrumbs={<><span>Companies</span><span>/</span><span>{editingCompanyId ? "Edit Company" : "New Company"}</span></>} />
+        <form id="company-form" className="company-create-form" onSubmit={submit}>
+          <section className="company-form-section" aria-labelledby="company-information-title">
+            <div className="company-form-section-header">
+              <div className="company-form-section-icon" aria-hidden="true">01</div><div><h3 id="company-information-title">Company Information</h3><p>Legal identity, registration and home settings.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="form-label company-profile-field">
+            <div className="company-form-grid">
+              <label className="company-form-field">
                 <span className="form-label-inline">Legal Name {requiredMark}</span>
                 <input className="text-input" value={form.legalName} onChange={(event) => setForm((current) => ({ ...current, legalName: event.target.value, name: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 Registration Number Type
                 <select value={form.registrationNumberType} onChange={(event) => setForm((current) => ({ ...current, registrationNumberType: event.target.value }))}>
                   <option value="">Select registration type</option>
@@ -576,23 +574,23 @@ export function CompanyFormPage() {
                   ))}
                 </select>
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 <span className="form-label-inline">Registration Number {requiredMark}</span>
                 <input className="text-input" value={form.registrationNumber} onChange={(event) => setForm((current) => ({ ...current, registrationNumber: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 Old Registration Number
                 <input className="text-input" value={form.oldRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, oldRegistrationNumber: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 TIN
                 <input className="text-input" value={form.tin} onChange={(event) => setForm((current) => ({ ...current, tin: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 Tourism Tax Registration Number
                 <input className="text-input" value={form.tourismTaxRegistrationNumber} onChange={(event) => setForm((current) => ({ ...current, tourismTaxRegistrationNumber: event.target.value }))} />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 <span className="form-label-inline">Home Country {requiredMark}</span>
                 <SearchableSelect
                   value={form.homeCountry}
@@ -603,7 +601,7 @@ export function CompanyFormPage() {
                   ariaLabel="Home Country"
                 />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 <span className="form-label-inline">Home Currency {requiredMark}</span>
                 <select value={form.homeCurrency} onChange={(event) => setForm((current) => ({ ...current, homeCurrency: event.target.value }))}>
                   {availableCurrencyOptions.map((option) => (
@@ -613,12 +611,12 @@ export function CompanyFormPage() {
               </label>
             </div>
           </section>
-          <section className="company-profile-section" aria-labelledby="company-business-information-title">
-            <div className="company-profile-address-header">
-              <h3 id="company-business-information-title" className="section-title">Business Information</h3>
+          <section className="company-form-section" aria-labelledby="company-business-information-title">
+            <div className="company-form-section-header">
+              <div className="company-form-section-icon" aria-hidden="true">02</div><div><h3 id="company-business-information-title">Business Information</h3><p>Official MSIC classification and business activity.</p></div>
             </div>
-            <div className="company-profile-fields-grid">
-              <label className="form-label company-profile-field company-profile-field-wide">
+            <div className="company-form-grid">
+              <label className="company-form-field company-form-field--full">
                 MSIC Code
                 <button type="button" className="text-input msic-picker-trigger" onClick={() => setIsMsicModalOpen(true)}>
                   <span className={selectedMsicEntry ? "msic-picker-trigger-value" : "msic-picker-trigger-placeholder"}>
@@ -626,28 +624,28 @@ export function CompanyFormPage() {
                   </span>
                 </button>
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 Industry
                 <input className="text-input" value={form.industry} readOnly placeholder="Selected from official MSIC code" />
               </label>
-              <label className="form-label company-profile-field">
+              <label className="company-form-field">
                 Nature of Business
                 <input className="text-input" value={form.natureOfBusiness} readOnly placeholder="Selected from official MSIC code" />
               </label>
             </div>
           </section>
-          <section className="company-profile-section" aria-labelledby="company-contact-title">
-            <div className="company-profile-address-header">
-              <h3 id="company-contact-title" className="section-title">Contact</h3>
+          <section className="company-form-section" aria-labelledby="company-contact-title">
+            <div className="company-form-section-header">
+              <div className="company-form-section-icon" aria-hidden="true">03</div><div><h3 id="company-contact-title">Contact</h3><p>Primary billing and business contact details.</p></div>
             </div>
-            <div className="company-profile-split">
-              <div className="company-profile-column">
-                <label className="form-label company-profile-field">
+            <div className="company-contact-grid">
+              <div>
+                <label className="company-form-field">
                   <span className="form-label-inline">Email {requiredMark}</span>
                   <input className="text-input" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
                 </label>
               </div>
-              <div className="company-profile-column">
+              <div className="company-contact-phone">
                 <PhoneNumberField
                   countryCodeId="company-phone-country-code"
                   phoneNumberId="company-phone-number"
@@ -660,20 +658,20 @@ export function CompanyFormPage() {
               </div>
             </div>
           </section>
-          <section className="company-profile-address-section" aria-labelledby="company-address-information-title">
-            <div className="company-profile-address-header">
-              <h3 id="company-address-information-title" className="section-title">Address List</h3>
-              <p className="muted">Add one or more company addresses. Choose separate billing and shipping defaults for downstream workflows.</p>
+          <section className="company-form-section company-address-section" aria-labelledby="company-address-information-title">
+            <div className="company-form-section-header company-address-section-header">
+              <div className="company-form-section-icon" aria-hidden="true">04</div><div><h3 id="company-address-information-title">Address List</h3><p>Billing, shipping and operating locations.</p></div>
+              <button type="button" className="company-add-address" onClick={addAddress}><span aria-hidden="true">+</span>Add address</button>
             </div>
-            <div className="company-profile-address-list">
+            <div className="company-address-list">
               {addresses.map((address, index) => {
                 const isMalaysiaAddress = isMalaysiaCountry(address.country);
                 const summaryLines = getAddressSummaryLines(address);
                 const isExpanded = expandedAddressIds.includes(address.clientId);
 
                 return (
-                  <article key={address.clientId} className={`company-profile-address-card ${isExpanded ? "company-profile-address-card-expanded" : "company-profile-address-card-collapsed"}`}>
-                    <div className="company-profile-address-card-header">
+                  <article key={address.clientId} className={`company-address-card ${isExpanded ? "company-address-card-expanded" : "company-address-card-collapsed"}`}>
+                    <div className="company-address-header">
                       <div className="company-profile-address-card-heading">
                         <div className="company-profile-address-title-row">
                           <h4>{getCompanyAddressTitle(address, index)}</h4>
@@ -690,7 +688,7 @@ export function CompanyFormPage() {
                           </div>
                         ) : null}
                       </div>
-                      <div className="company-profile-address-card-actions">
+                      <div className="company-address-actions">
                         {!address.isDefaultBilling ? (
                           <button type="button" className="button button-secondary button-small" onClick={() => setDefaultAddress(address.clientId, "billing")}>
                             Set Billing
@@ -710,26 +708,26 @@ export function CompanyFormPage() {
                       </div>
                     </div>
                     {isExpanded ? (
-                      <div className="company-profile-address-card-grid">
-                        <div className="company-profile-field">
+                      <div className="company-address-body company-form-grid">
+                        <div className="company-form-field">
                           <input className="text-input" value={address.addressName} onChange={(event) => updateAddress(address.clientId, { addressName: event.target.value })} placeholder="Address Name *" aria-label="Address Name" />
                         </div>
-                        <div className="company-profile-field">
+                        <div className="company-form-field">
                           <input className="text-input" value={address.addressLine1} onChange={(event) => updateAddress(address.clientId, { addressLine1: event.target.value })} autoComplete="address-line1" placeholder="Address Line 1 *" aria-label="Address Line 1" />
                         </div>
-                        <div className="company-profile-field">
+                        <div className="company-form-field">
                           <input className="text-input" value={address.addressLine2} onChange={(event) => updateAddress(address.clientId, { addressLine2: event.target.value })} autoComplete="address-line2" placeholder="Address Line 2" aria-label="Address Line 2" />
                         </div>
-                        <div className="company-profile-field">
+                        <div className="company-form-field">
                           <input className="text-input" value={address.addressLine3} onChange={(event) => updateAddress(address.clientId, { addressLine3: event.target.value })} autoComplete="address-line3" placeholder="Address Line 3" aria-label="Address Line 3" />
                         </div>
-                        <div className="company-profile-field">
+                        <div className="company-form-field">
                           <input className="text-input" value={address.city} onChange={(event) => updateAddress(address.clientId, { city: event.target.value })} autoComplete="address-level2" placeholder="City *" aria-label="City" />
                         </div>
-                        <div className="company-profile-field">
+                        <div className="company-form-field">
                           <input className="text-input" value={address.postcode} onChange={(event) => updateAddress(address.clientId, { postcode: event.target.value })} autoComplete="postal-code" placeholder="Postal Code *" aria-label="Postal Code" />
                         </div>
-                        <div className="company-profile-field company-profile-address-card-wide">
+                        <div className="company-form-field company-form-field--full">
                           <SearchableSelect
                             value={address.country}
                             onChange={(value) => updateAddressCountry(address.clientId, value)}
@@ -740,7 +738,7 @@ export function CompanyFormPage() {
                             clearable
                           />
                         </div>
-                        <div className="company-profile-field">
+                        <div className="company-form-field">
                           {isMalaysiaAddress ? (
                             <select value={address.state} onChange={(event) => updateAddress(address.clientId, { state: event.target.value })} autoComplete="address-level1" required aria-label="State">
                               <option value="">State *</option>
@@ -758,24 +756,20 @@ export function CompanyFormPage() {
                 );
               })}
             </div>
-            <div className="company-profile-address-actions">
-              <button type="button" className="button button-secondary" onClick={addAddress}>+ Add New Address</button>
-            </div>
           </section>
-          <section className="company-profile-logo-section" aria-labelledby="company-logo-title">
-            <div className="company-profile-address-header">
-              <h3 id="company-logo-title" className="section-title">Company Logo</h3>
-              <p className="muted">Upload the logo that appears on your invoice header. You can add, replace, or remove it here before saving.</p>
+          <section className="company-form-section company-logo-section" aria-labelledby="company-logo-title">
+            <div className="company-form-section-header">
+              <div className="company-form-section-icon" aria-hidden="true">05</div><div><h3 id="company-logo-title">Logo and Status</h3><p>Invoice branding and company activation.</p></div>
             </div>
-            <div className="company-profile-logo-layout">
-              <div className="company-profile-logo-preview">
-                <div className="logo-preview-frame company-profile-logo-frame">
-                  {logoPreviewUrl ? <img src={logoPreviewUrl} alt="Company logo preview" className="logo-preview-image" /> : <span className="muted">No logo selected</span>}
-                </div>
-                <div className="company-profile-logo-summary">
-                  <span className={`status-pill ${logoInsight === "Looks good for invoices" ? "status-pill-active" : "status-pill-inactive"}`}>
-                    {logoRemoved ? "Logo will be removed" : logoInsight || (activeCompany?.hasLogo ? "Current logo" : "Preview pending")}
-                  </span>
+            <div className="company-logo-layout">
+              <div className="company-logo-preview">
+                {logoPreviewUrl ? <img src={logoPreviewUrl} alt="Company logo preview" className="logo-preview-image" /> : <span className="muted">No logo selected</span>}
+                <div className="company-logo-summary">
+                  {logoRemoved || logoInsight || activeCompany?.hasLogo ? (
+                    <span className={`status-pill ${logoInsight === "Looks good for invoices" ? "status-pill-active" : "status-pill-inactive"}`}>
+                      {logoRemoved ? "Logo will be removed" : logoInsight || "Current logo uploaded"}
+                    </span>
+                  ) : null}
                   {logoMeta ? (
                     <>
                       {logoMeta.warning ? <HelperText>{logoMeta.warning}</HelperText> : null}
@@ -785,10 +779,11 @@ export function CompanyFormPage() {
                   )}
                 </div>
               </div>
-              <div className="company-profile-logo-controls">
-                <div className="form-label">
+              <div className="company-logo-upload">
+                <label className="company-logo-trigger">
+                  <span aria-hidden="true">↑</span>Choose logo
                   <input
-                    className="text-input"
+                    className="company-logo-file-input"
                     type="file"
                     accept=".png,.jpg,.jpeg,.webp"
                     aria-label="Logo file"
@@ -813,14 +808,13 @@ export function CompanyFormPage() {
                       })();
                     }}
                   />
-                </div>
-                <div className="company-profile-logo-summary">
-                  {logoRemoved ? <p className="muted">Current logo will be removed when you save.</p> : null}
-                  {!logoRemoved && !logoFile ? <p className="muted">{`Current: ${activeCompany?.hasLogo ? "Logo uploaded" : "No logo uploaded"}`}</p> : null}
+                </label>
+                <div className="company-logo-summary">
+                  <p className="muted">{logoRemoved ? "Logo will be removed when you save." : logoFile ? `Selected: ${logoFile.name}` : activeCompany?.hasLogo ? "Current logo uploaded" : "No logo uploaded"}</p>
                   {logoMeta ? <p className="muted">{`Image size: ${logoMeta.width} x ${logoMeta.height}px`}</p> : null}
                   <p className="muted">{`Size limit: ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)}. PNG, JPG, JPEG, or WEBP.`}</p>
                 </div>
-                <div className="company-profile-logo-actions">
+                <div className="company-logo-actions">
                   {(logoFile || activeCompany?.hasLogo) && !logoRemoved ? (
                     <button
                       type="button"
@@ -849,11 +843,11 @@ export function CompanyFormPage() {
                 </div>
               </div>
             </div>
-          </section>
-          <label className="checkbox-row">
+            <label className="company-active-setting">
+            <span><strong>Active company</strong><small>This company can issue invoices and receive payments.</small></span>
             <input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />
-            Active
-          </label>
+            </label>
+          </section>
           {canFactoryReset ? (
             <section className="company-profile-danger-zone" aria-labelledby="company-factory-reset-title">
               <div className="company-profile-address-header">
@@ -863,8 +857,9 @@ export function CompanyFormPage() {
             </section>
           ) : null}
           {error ? <HelperText tone="error">{error}</HelperText> : null}
-          <div className="subscription-create-actions company-form-actions">
+          <FormActionSection className="company-create-actions">
             <div className="company-form-actions-left">
+              <p className="company-create-required-note">Complete all required fields before creating the company.</p>
               {canFactoryReset ? (
                 <button type="button" className="button button-danger" onClick={() => setFactoryResetState({ step: "warning", confirmationText: "", error: "", isSubmitting: false })}>
                   Factory Reset
@@ -875,9 +870,9 @@ export function CompanyFormPage() {
               <button type="button" className="button button-secondary" onClick={() => navigate("/companies")}>Cancel</button>
               <button type="submit" className="button button-primary">{editingCompanyId ? "Update company" : "Create company"}</button>
             </div>
-          </div>
+          </FormActionSection>
         </form>
-      </section>
+      </StandardFormLayout>
       {isMsicModalOpen ? (
         <MsicCodeModal
           initialCode={form.msicCode}
@@ -905,10 +900,10 @@ export function CompanyFormPage() {
         <div className="modal-backdrop" role="presentation" onClick={() => !factoryResetState.isSubmitting && setFactoryResetState(null)}>
           <div className="modal-card card factory-reset-modal" role="dialog" aria-modal="true" aria-labelledby="factory-reset-modal-title" onClick={(event) => event.stopPropagation()}>
             <p className="eyebrow">Danger zone</p>
-            <h3 id="factory-reset-modal-title">Factory reset company data</h3>
+            <h3 id="factory-reset-modal-title">Remove company and its data</h3>
             {factoryResetState.step === "warning" ? (
               <>
-                <p className="muted">This will permanently clear all records, logos, contact information, address information, company settings, products, subscriptions, invoices, payments, cached company data, and related metadata for this company only.</p>
+                <p className="muted">This will permanently remove the company, its records, files, settings, products, subscriptions, invoices, payments, cached data, and related metadata.</p>
                 <HelperText tone="error">This action cannot be undone.</HelperText>
                 <label className="form-label factory-reset-modal-field">
                   Type <strong>{FACTORY_RESET_CONFIRMATION}</strong> to continue
@@ -923,7 +918,7 @@ export function CompanyFormPage() {
               </>
             ) : (
               <>
-                <p className="muted">Final confirmation: the reset will start immediately and remove all related billing profile data for this company only.</p>
+                <p className="muted">Final confirmation: the company and all of its related data will be removed immediately.</p>
                 <HelperText tone="error">This action cannot be undone.</HelperText>
               </>
             )}
@@ -965,7 +960,7 @@ export function CompanyFormPage() {
                     navigate("/companies", {
                       replace: true,
                       state: {
-                        flashMessage: "Factory reset complete. Selected company data has been cleared.",
+                        flashMessage: "Factory reset complete. The selected company and its data have been removed.",
                         removedCompanyId: editingCompanyId,
                       },
                     });

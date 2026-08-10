@@ -37,5 +37,6 @@ public sealed class Company : BaseEntity
     public CompanyInvoiceSettings? InvoiceSettings { get; set; }
     public ICollection<CompanyAddress> Addresses { get; set; } = new List<CompanyAddress>();
     public ICollection<User> Users { get; set; } = new List<User>();
+    public ICollection<CompanyMembership> Memberships { get; set; } = new List<CompanyMembership>();
     public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
 }

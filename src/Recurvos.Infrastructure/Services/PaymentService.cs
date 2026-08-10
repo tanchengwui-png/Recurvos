@@ -474,7 +474,7 @@ public sealed class PaymentService(
                     var subscriberCompany = await dbContext.Companies.FirstOrDefaultAsync(
                         x => x.Id == payment.Invoice.SubscriberCompanyId.Value,
                         cancellationToken);
-                    if (subscriberCompany?.SubscriberId is Guid subscriberId)
+                    if (subscriberCompany is not null)
                     {
                         var paidAtUtc = payment.PaidAtUtc ?? DateTime.UtcNow;
                         var isUpgradePayment = !string.IsNullOrWhiteSpace(subscriberCompany.PendingPackageCode)
@@ -486,9 +486,19 @@ public sealed class PaymentService(
                             subscriberCompany.PendingPackageCode = null;
                         }
 
-                        var subscriberCompanies = await dbContext.Companies
-                            .Where(x => x.SubscriberId == subscriberId && !x.IsPlatformAccount)
-                            .ToListAsync(cancellationToken);
+                        var subscriberCompaniesQuery = dbContext.Companies
+                            .Where(x => !x.IsPlatformAccount);
+
+                        IReadOnlyCollection<Company> subscriberCompanies = subscriberCompany.SubscriberAccountId is Guid subscriberAccountId
+                            ? await subscriberCompaniesQuery
+                                .Where(x => x.SubscriberAccountId == subscriberAccountId)
+                                .ToListAsync(cancellationToken)
+                            : subscriberCompany.SubscriberId is Guid subscriberId
+                                ? await subscriberCompaniesQuery
+                                    .Where(x => x.SubscriberId == subscriberId)
+                                    .ToListAsync(cancellationToken)
+                                : [subscriberCompany];
+
                         foreach (var company in subscriberCompanies)
                         {
                             company.PackageStatus = "active";

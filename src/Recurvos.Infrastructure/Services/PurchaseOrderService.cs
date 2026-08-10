@@ -184,7 +184,8 @@ public sealed class PurchaseOrderService(
 
     private async Task<Customer> LoadSupplierAsync(Guid contactId, CancellationToken cancellationToken)
     {
-        var contact = await dbContext.Customers.FirstOrDefaultAsync(x => x.SubscriberId == GetSubscriberId() && x.Id == contactId, cancellationToken)
+        var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var contact = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && x.Id == contactId, cancellationToken)
             ?? throw new InvalidOperationException("Supplier not found.");
         if (!contact.ContactType.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(x => x.Equals("Supplier", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Selected contact is not a supplier.");
@@ -193,12 +194,16 @@ public sealed class PurchaseOrderService(
 
     private async Task EnsureCompanyAccessAsync(Guid companyId, CancellationToken cancellationToken)
     {
-        var hasAccess = await dbContext.Companies.AnyAsync(x => x.Id == companyId && x.SubscriberId == GetSubscriberId(), cancellationToken);
+        var hasAccess = companyId == (currentUserService.CompanyId ?? throw new UnauthorizedAccessException());
         if (!hasAccess) throw new UnauthorizedAccessException();
     }
 
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
-    private IQueryable<Guid> OwnedCompanyIdsQuery() => dbContext.Companies.Where(x => x.SubscriberId == GetSubscriberId()).Select(x => x.Id);
+    private IQueryable<Guid> OwnedCompanyIdsQuery()
+    {
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        return dbContext.Companies.Where(x => x.Id == companyId).Select(x => x.Id);
+    }
 
     private async Task<string> GeneratePurchaseOrderNumberAsync(Guid companyId, CancellationToken cancellationToken)
     {

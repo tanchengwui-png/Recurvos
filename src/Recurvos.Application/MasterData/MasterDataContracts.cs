@@ -14,6 +14,8 @@ public sealed record MasterDataSnapshotDto(
 
 public class MasterDataQueryRequest
 {
+    public Guid? CompanyId { get; set; }
+
     [MaxLength(200)]
     public string? Search { get; set; }
 
