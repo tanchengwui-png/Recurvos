@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { HelperText } from "../components/ui/HelperText";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { FormSection } from "../components/ui/FormSection";
 import { StandardFormLayout } from "../components/ui/StandardFormLayout";
@@ -10,11 +11,11 @@ import { fetchProducts } from "../hooks/useProducts";
 import type { Product } from "../types";
 
 const fields = [
-  ["Name", "Name", "text"], ["Code", "Code", "text"], ["Description", "Description", "text"], ["Barcode", "Barcode", "text"], ["Category", "Category", "text"], ["ProductGroups", "Product Groups", "groups"], ["BinLocation", "Bin Location", "text"], ["TrackInventory", "Track Inventory", "boolean"], ["ReorderLevel", "Reorder Level", "number"], ["OpeningQuantity", "Opening Quantity", "number"], ["OpeningCost", "Opening Cost", "number"], ["IsSelling", "Selling", "boolean"], ["SalesPrice", "Sales Price", "number"], ["SalesDescription", "Sales Description", "text"], ["IsBuying", "Buying", "boolean"], ["PurchasePrice", "Purchase Price", "number"], ["PurchaseDescription", "Purchase Description", "text"], ["BaseUnitLabel", "Base Unit", "text"], ["IsSubscriptionProduct", "Subscription Product", "boolean"], ["IsActive", "Status", "boolean"],
+  ["Name", "Name", "text"], ["Code", "Code", "text"], ["Description", "Description", "text"], ["Barcode", "Barcode", "text"], ["Category", "Category", "text"], ["ProductGroups", "Product Groups", "groups"], ["BinLocation", "Bin Location", "text"], ["TrackInventory", "Track Inventory", "boolean"], ["ReorderLevel", "Reorder Level", "number"], ["OpeningQuantity", "Opening Quantity", "number"], ["OpeningCost", "Opening Cost", "number"], ["IsSelling", "Selling", "boolean"], ["SalesPrice", "Sales Price", "number"], ["SalesDescription", "Sales Description", "text"], ["IsBuying", "Buying", "boolean"], ["PurchasePrice", "Purchase Price", "number"], ["PurchaseDescription", "Purchase Description", "text"], ["BaseUnitLabel", "Base Unit", "text"], ["IsActive", "Status", "boolean"],
 ] as const;
 
 export function ProductBatchUpdatePage() {
-  const navigate = useNavigate(); const [products, setProducts] = useState<Product[]>([]); const [selected, setSelected] = useState<string[]>([]); const [selectedFields, setSelectedFields] = useState<string[]>([]); const [values, setValues] = useState<Record<string, string>>({ IsActive: "true", IsSelling: "true", IsBuying: "false", TrackInventory: "false", IsSubscriptionProduct: "false", BaseUnitLabel: "Unit" }); const [groupsMode, setGroupsMode] = useState("Replace"); const [message, setMessage] = useState(""); const [saving, setSaving] = useState(false);
+  const navigate = useNavigate(); const [products, setProducts] = useState<Product[]>([]); const [selected, setSelected] = useState<string[]>([]); const [selectedFields, setSelectedFields] = useState<string[]>([]); const [values, setValues] = useState<Record<string, string>>({ IsActive: "true", IsSelling: "true", IsBuying: "false", TrackInventory: "false", BaseUnitLabel: "Unit" }); const [groupsMode, setGroupsMode] = useState("Replace"); const [message, setMessage] = useState(""); const [saving, setSaving] = useState(false);
   useEffect(() => { void fetchProducts({ search: "", isActive: "all", page: 1, pageSize: 10000 }).then((result) => setProducts(result.items)).catch(() => setMessage("Unable to load products.")); }, []);
   const selectedSet = new Set(selected);
   const toggleField = (key: string) => setSelectedFields((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
@@ -34,6 +35,8 @@ export function ProductBatchUpdatePage() {
 
       <StandardFormLayout className="standard-form-page product-batch-update-layout">
         <div className="product-batch-update-form">
+          <FormPageBody>
+          <div className="form-page-content">
           <FormSection
             number="01"
             title="Select products"
@@ -81,6 +84,9 @@ export function ProductBatchUpdatePage() {
             <p className="product-batch-helper-text">Only the selected fields will be updated. Leave fields unselected to keep their current values.</p>
           </FormSection>
 
+          {message && products.length > 0 ? <HelperText>{message}</HelperText> : null}
+          </div>
+
           <FormActionSection className="product-batch-update-actions">
             <p aria-live="polite">{selected.length} products selected</p>
             <div>
@@ -88,7 +94,7 @@ export function ProductBatchUpdatePage() {
               <button type="button" className="button button-primary" disabled={!selected.length || !selectedFields.length || saving} onClick={() => void submit()}>{saving ? "Updating..." : `Update ${selected.length} Product${selected.length === 1 ? "" : "s"}`}</button>
             </div>
           </FormActionSection>
-          {message && products.length > 0 ? <HelperText>{message}</HelperText> : null}
+          </FormPageBody>
         </div>
       </StandardFormLayout>
     </div>

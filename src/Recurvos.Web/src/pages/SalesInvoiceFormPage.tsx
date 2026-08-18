@@ -131,7 +131,7 @@ export function SalesInvoiceFormPage() {
     if (nextSource === "delivery-order") {
       const record = await api.get<DeliveryOrder>(`/sales/delivery-orders/${nextSourceId}`);
       setDeliveryOrder(record);
-      const order = await api.get<SalesOrder>(`/sales/orders/${record.salesOrderId}`);
+      const order = record.salesOrderId ? await api.get<SalesOrder>(`/sales/orders/${record.salesOrderId}`) : null;
       setSalesOrder(order);
       setLines(record.lines
         .map((line) => ({
@@ -139,8 +139,14 @@ export function SalesInvoiceFormPage() {
           description: line.description,
           quantity: line.quantity,
           alreadyInvoiced: line.invoicedQuantity,
-          remainingQuantity: Math.max(0, line.quantity - line.invoicedQuantity),
-          selectedQuantity: Math.max(0, line.quantity - line.invoicedQuantity),
+          remainingQuantity: Math.max(0, Math.min(
+            line.quantity - line.invoicedQuantity,
+            order ? (order.lines.find((orderLine) => orderLine.id === line.salesOrderLineId)?.quantity ?? 0) - (order.lines.find((orderLine) => orderLine.id === line.salesOrderLineId)?.invoicedQuantity ?? 0) : line.quantity - line.invoicedQuantity,
+          )),
+          selectedQuantity: Math.max(0, Math.min(
+            line.quantity - line.invoicedQuantity,
+            order ? (order.lines.find((orderLine) => orderLine.id === line.salesOrderLineId)?.quantity ?? 0) - (order.lines.find((orderLine) => orderLine.id === line.salesOrderLineId)?.invoicedQuantity ?? 0) : line.quantity - line.invoicedQuantity,
+          )),
           unitAmount: line.unitPrice,
         }))
         .filter((line) => line.remainingQuantity > 0));
@@ -184,7 +190,7 @@ export function SalesInvoiceFormPage() {
   async function submit() {
     const activeLines = lines.filter((line) => line.selectedQuantity > 0);
     if (activeLines.length === 0) {
-      setError("At least one line with remaining quantity is required.");
+      setError("At least one item with remaining quantity is required.");
       return;
     }
 
@@ -223,7 +229,7 @@ export function SalesInvoiceFormPage() {
     <div className="page">
       <FormPageHeader backLabel="Back to Invoices" backHref={backPath} breadcrumbs={<><span>Invoices</span><span>/</span><span>New Invoice</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-      <TransactionFormCard title="Invoice details" description="Customer, dates, source document and invoice lines.">
+      <TransactionFormCard title="Invoice details" description="Customer, dates, source document and invoice items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           <label className="form-label">
@@ -267,10 +273,10 @@ export function SalesInvoiceFormPage() {
         <HelperText>Select a sales order or delivery order with remaining billable quantity.</HelperText>
       </section>
       <section className="card">
-        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Invoice Lines</h3></div></div>
+        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Invoice Items</h3></div></div>
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
-            <thead><tr><th>Description</th><th>Source Qty</th><th>Already Invoiced</th><th>Remaining</th><th>Invoice Qty</th><th>Unit Amount</th><th>Total</th></tr></thead>
+          <thead><tr><th>Description</th><th>Source Qty</th><th>Already Invoiced</th><th>Available to Invoice</th><th>Invoice Qty</th><th>Unit Amount</th><th>Total</th></tr></thead>
             <tbody>
               {lines.length === 0 ? (
                 <tr><td colSpan={7} className="empty-table-cell">No remaining quantity available to invoice.</td></tr>
@@ -293,11 +299,11 @@ export function SalesInvoiceFormPage() {
             <span className="page-meta-chip"><span className="page-meta-chip-label">Subtotal</span><strong className="page-meta-chip-value">{formatCurrency(subtotal, currency)}</strong></span>
           </div>
         </div>
-        <div className="contact-page-actions">
+      </section>
+        <div className="contact-page-actions form-footer-create">
           <button type="button" className="button button-secondary" onClick={() => navigate(backPath)}>Cancel</button>
           <button type="button" className="button button-primary" onClick={() => void submit()}>Create invoice</button>
         </div>
-      </section>
       </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

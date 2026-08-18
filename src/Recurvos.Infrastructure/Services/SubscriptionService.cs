@@ -37,7 +37,7 @@ public sealed class SubscriptionService(
         ThrowIfInvalid(SubscriptionValidators.ValidateRequest(request));
 
         var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
-        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && x.Id == request.CustomerId, cancellationToken)
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyId == activeCompanyId && x.Id == request.CustomerId, cancellationToken)
             ?? throw new InvalidOperationException("Customer not found.");
 
         var productPlanIds = request.Items.Select(x => x.ProductPlanId).Distinct().ToList();

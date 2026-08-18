@@ -10,6 +10,7 @@ import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
 import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import type { BillingReadiness, CompanyLookup, ProductPlan, Subscription } from "../types";
 
@@ -213,7 +214,7 @@ export function SubscriptionsPage() {
 
     setItems(subscriptions);
 
-    const activeCompanyId = companyList[0]?.id || "";
+    const activeCompanyId = resolveActiveCompanyId(companyList);
     if (!activeCompanyId) {
       return;
     }

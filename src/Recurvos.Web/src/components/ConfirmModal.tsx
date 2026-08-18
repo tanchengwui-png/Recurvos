@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { HelperText } from "./ui/HelperText";
 
 type ConfirmModalProps = {
   open: boolean;
   title: string;
   description: string;
+  details?: ReactNode;
   confirmLabel: string;
+  confirmDisabled?: boolean;
   onConfirm: () => Promise<void> | void;
   onCancel: () => void;
 };
 
-export function ConfirmModal({ open, title, description, confirmLabel, onConfirm, onCancel }: ConfirmModalProps) {
+export function ConfirmModal({ open, title, description, details, confirmLabel, confirmDisabled = false, onConfirm, onCancel }: ConfirmModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
@@ -30,13 +32,14 @@ export function ConfirmModal({ open, title, description, confirmLabel, onConfirm
       <div className="modal-card card" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
         <h3 id="confirm-modal-title">{title}</h3>
         <p className="muted">{description}</p>
+        {details ? <div className="confirm-modal-details">{details}</div> : null}
         {submitError ? <HelperText tone="error">{submitError}</HelperText> : null}
         <div className="modal-actions">
           <button type="button" className="button button-secondary" disabled={isSubmitting} onClick={onCancel}>Cancel</button>
           <button
             type="button"
             className="button button-primary"
-            disabled={isSubmitting}
+            disabled={isSubmitting || confirmDisabled}
             onClick={async () => {
               if (isSubmitting) {
                 return;

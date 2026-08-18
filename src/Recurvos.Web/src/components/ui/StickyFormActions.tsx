@@ -11,5 +11,5 @@ type StickyFormActionsProps = {
  * surface and its responsive layout.
  */
 export function StickyFormActions({ children, className = "" }: StickyFormActionsProps) {
-  return <footer className={`sticky-form-actions ${className}`.trim()}>{children}</footer>;
+  return <div className="form-action-footer-boundary"><footer className={`sticky-form-actions ${className}`.trim()}>{children}</footer></div>;
 }

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { fetchProductPlans } from "../hooks/useProductPlans";
 import { fetchProducts } from "../hooks/useProducts";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import { hasAnyFeature, hasFeature } from "../lib/features";
 import type { BillingReadiness, CompanyLookup, FeatureAccess } from "../types";
 
@@ -97,6 +98,7 @@ export function QuickStartPage() {
   useEffect(() => {
     void (async () => {
       const companyList = await api.get<CompanyLookup[]>("/companies");
+      const activeCompanyId = resolveActiveCompanyId(companyList);
       const access = await api.get<FeatureAccess>("/settings/feature-access");
       const [products, plans, customers, subscriptions, invoices, payments, readiness] = await Promise.all([
         fetchProducts({ search: "", isActive: "all", page: 1, pageSize: 1 }),
@@ -105,7 +107,7 @@ export function QuickStartPage() {
         hasFeature(access, "recurring_invoices") ? api.get<unknown[]>("/subscriptions") : Promise.resolve([]),
         hasAnyFeature(access, ["manual_invoices", "recurring_invoices"]) ? api.get<unknown[]>("/invoices") : Promise.resolve([]),
         hasFeature(access, "payment_tracking") ? api.get<unknown[]>("/payments") : Promise.resolve([]),
-        companyList[0]?.id ? api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyList[0].id}`) : Promise.resolve(null),
+        activeCompanyId ? api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${activeCompanyId}`) : Promise.resolve(null),
       ]);
 
       setCompanies(companyList);

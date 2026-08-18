@@ -59,11 +59,11 @@ public sealed class InvoicesController(IInvoiceService invoiceService) : Control
 
     [HttpPost("{id:guid}/send")]
     [Authorize(Policy = "ManageBilling")]
-    public async Task<IActionResult> Send(Guid id, CancellationToken cancellationToken)
+    public async Task<IActionResult> Send(Guid id, SendInvoiceRequest? request, CancellationToken cancellationToken)
     {
         try
         {
-            return await invoiceService.SendInvoiceAsync(id, cancellationToken) ? Accepted() : NotFound();
+            return await invoiceService.SendInvoiceAsync(id, request, cancellationToken) ? Accepted() : NotFound();
         }
         catch (InvalidOperationException exception)
         {

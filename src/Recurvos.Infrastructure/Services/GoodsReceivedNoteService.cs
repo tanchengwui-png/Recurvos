@@ -29,7 +29,14 @@ public sealed class GoodsReceivedNoteService(
         if (query.Status.HasValue) items = items.Where(x => x.Status == query.Status.Value);
 
         var result = await items.OrderByDescending(x => x.DocumentDateUtc).ThenByDescending(x => x.CreatedAtUtc).ToListAsync(cancellationToken);
-        return result.Select(MapList).ToList();
+        var purchaseOrderIds = result.Where(x => x.PurchaseOrderId.HasValue).Select(x => x.PurchaseOrderId!.Value).Distinct().ToList();
+        var purchaseOrderIdsWithBills = await dbContext.PurchaseBills
+            .Where(x => purchaseOrderIds.Contains(x.PurchaseOrderId!.Value))
+            .Select(x => x.PurchaseOrderId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+        var billedPurchaseOrderIds = purchaseOrderIdsWithBills.ToHashSet();
+        return result.Select(x => MapList(x, x.PurchaseOrderId.HasValue && billedPurchaseOrderIds.Contains(x.PurchaseOrderId.Value))).ToList();
     }
 
     public async Task<GoodsReceivedNoteDetailsDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -48,7 +55,10 @@ public sealed class GoodsReceivedNoteService(
 
     public async Task<GoodsReceivedNoteDetailsDto> CreateAsync(GoodsReceivedNoteUpsertRequest request, CancellationToken cancellationToken = default)
     {
-        var purchaseOrder = await ValidateCommonAsync(request.CompanyId, request.PurchaseOrderId, request.Lines, cancellationToken);
+        if (!request.PurchaseOrderId.HasValue)
+            return await CreateDirectAsync(request, cancellationToken);
+
+        var purchaseOrder = await ValidateCommonAsync(request.CompanyId, request.PurchaseOrderId.Value, request.Lines, cancellationToken);
         PurchaseWorkflowRules.EnsurePurchaseOrderAllowsReceiving(purchaseOrder);
         var warehouseId = await ValidateWarehouseAsync(purchaseOrder.CompanyId, request.WarehouseId, cancellationToken);
         var currency = await ValidateCurrencyAsync(purchaseOrder.CompanyId, purchaseOrder.Currency, cancellationToken);
@@ -91,7 +101,15 @@ public sealed class GoodsReceivedNoteService(
         if (entity.Status != GoodsReceivedNoteStatus.Draft)
             throw new InvalidOperationException("Only draft GRNs can be edited.");
 
-        var purchaseOrder = await ValidateCommonAsync(request.CompanyId, request.PurchaseOrderId, request.Lines, cancellationToken);
+        if (!entity.PurchaseOrderId.HasValue)
+        {
+            if (request.PurchaseOrderId.HasValue)
+                throw new InvalidOperationException("A standalone GRN cannot be linked to a purchase order after it is created.");
+            return await UpdateDirectAsync(entity, request, cancellationToken);
+        }
+        if (!request.PurchaseOrderId.HasValue)
+            throw new InvalidOperationException("A purchase-order GRN cannot remove its source purchase order.");
+        var purchaseOrder = await ValidateCommonAsync(request.CompanyId, request.PurchaseOrderId.Value, request.Lines, cancellationToken);
         PurchaseWorkflowRules.EnsurePurchaseOrderAllowsReceiving(purchaseOrder);
         var warehouseId = await ValidateWarehouseAsync(purchaseOrder.CompanyId, request.WarehouseId, cancellationToken);
         if (entity.CompanyId != purchaseOrder.CompanyId || entity.PurchaseOrderId != purchaseOrder.Id)
@@ -118,36 +136,49 @@ public sealed class GoodsReceivedNoteService(
             .FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == id, cancellationToken);
         if (entity is null) return null;
 
-        var purchaseOrder = await dbContext.PurchaseOrders.Include(x => x.Lines)
-            .FirstAsync(x => x.Id == entity.PurchaseOrderId, cancellationToken);
+        var purchaseOrder = entity.PurchaseOrderId.HasValue
+            ? await dbContext.PurchaseOrders.Include(x => x.Lines).FirstAsync(x => x.Id == entity.PurchaseOrderId.Value, cancellationToken)
+            : null;
+
+        if (request.Status == GoodsReceivedNoteStatus.Cancelled
+            && await dbContext.PurchaseBills.AnyAsync(x => x.GoodsReceivedNoteId == entity.Id, cancellationToken))
+        {
+            throw new InvalidOperationException("GRNs linked to purchase bills cannot be cancelled.");
+        }
 
         PurchaseWorkflowRules.EnsureGoodsReceivedNoteManualStatusTransition(entity.Status, request.Status);
 
-        var oldPurchaseOrderStatusSnapshot = purchaseOrder.Status.ToString();
+        var oldPurchaseOrderStatusSnapshot = purchaseOrder?.Status.ToString();
 
         if (entity.Status == GoodsReceivedNoteStatus.Draft && request.Status == GoodsReceivedNoteStatus.Received)
         {
-            PurchaseWorkflowRules.EnsurePurchaseOrderAllowsReceiving(purchaseOrder);
-            EnsureQuantitiesCanBeReceived(entity, purchaseOrder);
-            ApplyReceivedQuantities(entity, purchaseOrder, 1m);
-            purchaseOrder.Status = PurchaseWorkflowRules.ResolvePurchaseOrderStatus(purchaseOrder, PurchaseOrderStatus.Approved);
+            if (purchaseOrder is not null)
+            {
+                PurchaseWorkflowRules.EnsurePurchaseOrderAllowsReceiving(purchaseOrder);
+                EnsureQuantitiesCanBeReceived(entity, purchaseOrder);
+                ApplyReceivedQuantities(entity, purchaseOrder, 1m);
+                purchaseOrder.Status = PurchaseWorkflowRules.ResolvePurchaseOrderStatus(purchaseOrder, PurchaseOrderStatus.Approved);
+            }
             await inventoryMovementService.ApplyGoodsReceivedNoteAsync(entity, 1m, cancellationToken);
         }
         else if (entity.Status == GoodsReceivedNoteStatus.Received && request.Status == GoodsReceivedNoteStatus.Cancelled)
         {
-            ApplyReceivedQuantities(entity, purchaseOrder, -1m);
-            purchaseOrder.Status = PurchaseWorkflowRules.ResolvePurchaseOrderStatus(purchaseOrder, PurchaseOrderStatus.Approved);
+            if (purchaseOrder is not null)
+            {
+                ApplyReceivedQuantities(entity, purchaseOrder, -1m);
+                purchaseOrder.Status = PurchaseWorkflowRules.ResolvePurchaseOrderStatus(purchaseOrder, PurchaseOrderStatus.Approved);
+            }
             await inventoryMovementService.ApplyGoodsReceivedNoteAsync(entity, -1m, cancellationToken);
         }
 
         var oldStatus = entity.Status.ToString();
         entity.Status = request.Status;
         entity.UpdatedAtUtc = DateTime.UtcNow;
-        purchaseOrder.UpdatedAtUtc = DateTime.UtcNow;
+        if (purchaseOrder is not null) purchaseOrder.UpdatedAtUtc = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteChangeAsync("goods-received-note.status-updated", nameof(GoodsReceivedNote), entity.Id.ToString(), oldStatus, request.Status.ToString(), entity.GoodsReceivedNoteNumber, cancellationToken);
         await auditService.WriteAsync(request.Status == GoodsReceivedNoteStatus.Received ? "goods-received-note.quantities-applied" : "goods-received-note.quantities-reversed", nameof(GoodsReceivedNote), entity.Id.ToString(), entity.GoodsReceivedNoteNumber, cancellationToken);
-        if (oldPurchaseOrderStatusSnapshot != purchaseOrder.Status.ToString())
+        if (purchaseOrder is not null && oldPurchaseOrderStatusSnapshot != purchaseOrder.Status.ToString())
         {
             await auditService.WriteChangeAsync("purchase-order.status-auto-updated", nameof(PurchaseOrder), purchaseOrder.Id.ToString(), oldPurchaseOrderStatusSnapshot, purchaseOrder.Status.ToString(), purchaseOrder.PurchaseOrderNumber, cancellationToken);
         }
@@ -166,6 +197,102 @@ public sealed class GoodsReceivedNoteService(
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("goods-received-note.deleted", nameof(GoodsReceivedNote), entity.Id.ToString(), entity.GoodsReceivedNoteNumber, cancellationToken);
         return true;
+    }
+
+    private async Task<GoodsReceivedNoteDetailsDto> CreateDirectAsync(GoodsReceivedNoteUpsertRequest request, CancellationToken cancellationToken)
+    {
+        var (companyId, contact) = await ValidateDirectCommonAsync(request, cancellationToken);
+        var warehouseId = await ValidateWarehouseAsync(companyId, request.WarehouseId, cancellationToken);
+        var currency = await NormalizeAndValidateCurrencyAsync(companyId, request.Currency, contact.Currency, cancellationToken);
+        var entity = new GoodsReceivedNote
+        {
+            CompanyId = companyId,
+            GoodsReceivedNoteNumber = await GenerateGoodsReceivedNoteNumberAsync(companyId, cancellationToken),
+            PurchaseOrderId = null,
+            PurchaseOrderNumber = string.Empty,
+            CreatedFromDocumentId = null,
+            CreatedFromDocumentNumber = string.Empty,
+            CreatedFromDocumentType = string.Empty,
+            WarehouseId = warehouseId,
+            ContactId = contact.Id,
+            ContactName = string.IsNullOrWhiteSpace(contact.LegalName) ? contact.Name : contact.LegalName,
+            ContactEmail = contact.Email,
+            ContactPhoneNumber = contact.PhoneNumber,
+            DocumentDateUtc = request.DocumentDateUtc.ToUniversalTime(),
+            Currency = currency,
+            ReferenceNo = request.ReferenceNo.Trim(),
+            Notes = request.Notes.Trim(),
+        };
+        await ApplyDirectLinesAsync(entity, request.Lines, cancellationToken);
+        dbContext.GoodsReceivedNotes.Add(entity);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("goods-received-note.created", nameof(GoodsReceivedNote), entity.Id.ToString(), entity.GoodsReceivedNoteNumber, cancellationToken);
+        var created = await LoadOrThrowAsync(entity.Id, cancellationToken);
+        return MapDetails(created, await LoadRelatedDocumentsAsync(created.Id, created.CompanyId, cancellationToken));
+    }
+
+    private async Task<GoodsReceivedNoteDetailsDto> UpdateDirectAsync(GoodsReceivedNote entity, GoodsReceivedNoteUpsertRequest request, CancellationToken cancellationToken)
+    {
+        var (companyId, contact) = await ValidateDirectCommonAsync(request, cancellationToken);
+        if (entity.CompanyId != companyId) throw new InvalidOperationException("GRN company cannot be changed.");
+        var warehouseId = await ValidateWarehouseAsync(companyId, request.WarehouseId, cancellationToken);
+        var currency = await NormalizeAndValidateCurrencyAsync(companyId, request.Currency, contact.Currency, cancellationToken);
+        entity.WarehouseId = warehouseId;
+        entity.ContactId = contact.Id;
+        entity.ContactName = string.IsNullOrWhiteSpace(contact.LegalName) ? contact.Name : contact.LegalName;
+        entity.ContactEmail = contact.Email;
+        entity.ContactPhoneNumber = contact.PhoneNumber;
+        entity.DocumentDateUtc = request.DocumentDateUtc.ToUniversalTime();
+        entity.Currency = currency;
+        entity.ReferenceNo = request.ReferenceNo.Trim();
+        entity.Notes = request.Notes.Trim();
+        entity.UpdatedAtUtc = DateTime.UtcNow;
+        dbContext.GoodsReceivedNoteLines.RemoveRange(entity.Lines);
+        entity.Lines.Clear();
+        await ApplyDirectLinesAsync(entity, request.Lines, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("goods-received-note.updated", nameof(GoodsReceivedNote), entity.Id.ToString(), entity.GoodsReceivedNoteNumber, cancellationToken);
+        var updated = await LoadOrThrowAsync(entity.Id, cancellationToken);
+        return MapDetails(updated, await LoadRelatedDocumentsAsync(updated.Id, updated.CompanyId, cancellationToken));
+    }
+
+    private async Task<(Guid CompanyId, Customer Contact)> ValidateDirectCommonAsync(GoodsReceivedNoteUpsertRequest request, CancellationToken cancellationToken)
+    {
+        if (!request.CompanyId.HasValue || request.CompanyId == Guid.Empty) throw new InvalidOperationException("Company is required.");
+        await EnsureCompanyAccessAsync(request.CompanyId.Value, cancellationToken);
+        if (request.Lines.Count == 0) throw new InvalidOperationException("At least one line is required.");
+        if (request.Lines.Any(line => line.PurchaseOrderLineId.HasValue)) throw new InvalidOperationException("Standalone GRN lines cannot reference purchase order lines.");
+        if (request.Lines.Any(line => string.IsNullOrWhiteSpace(line.Description))) throw new InvalidOperationException("Each line requires a description.");
+        return (request.CompanyId.Value, await LoadSupplierAsync(request.ContactId, cancellationToken));
+    }
+
+    private async Task ApplyDirectLinesAsync(GoodsReceivedNote entity, IReadOnlyCollection<GoodsReceivedNoteLineRequest> requests, CancellationToken cancellationToken)
+    {
+        var subtotal = 0m;
+        var tax = 0m;
+        var sortOrder = 1;
+        var lines = new List<GoodsReceivedNoteLine>();
+        foreach (var request in requests)
+        {
+            var taxCode = await LoadTaxCodeAsync(entity.CompanyId, request.TaxCodeId, cancellationToken);
+            var product = await LoadProductAsync(entity.CompanyId, request.ProductId, cancellationToken);
+            var taxRate = taxCode?.Rate ?? request.TaxRate;
+            var lineSubtotal = Math.Round(request.Quantity * request.UnitPrice, 2, MidpointRounding.AwayFromZero);
+            var lineTax = Math.Round(lineSubtotal * (taxRate / 100m), 2, MidpointRounding.AwayFromZero);
+            lines.Add(new GoodsReceivedNoteLine
+            {
+                SortOrder = sortOrder++, ProductId = product?.Id, TaxCodeId = taxCode?.Id,
+                ProductNameSnapshot = product?.Name ?? string.Empty, Description = request.Description.Trim(),
+                Quantity = request.Quantity, UnitPrice = request.UnitPrice, TaxRate = taxRate,
+                TaxAmount = lineTax, LineTotal = lineSubtotal + lineTax,
+            });
+            subtotal += lineSubtotal;
+            tax += lineTax;
+        }
+        entity.Lines = lines;
+        entity.Subtotal = subtotal;
+        entity.TaxAmount = tax;
+        entity.TotalAmount = subtotal + tax;
     }
 
     private async Task<PurchaseOrder> ValidateCommonAsync(Guid? companyId, Guid purchaseOrderId, IReadOnlyCollection<GoodsReceivedNoteLineRequest> lines, CancellationToken cancellationToken)
@@ -225,6 +352,40 @@ public sealed class GoodsReceivedNoteService(
             throw new InvalidOperationException("Select a valid currency.");
 
         return normalized;
+    }
+
+    private async Task<string> NormalizeAndValidateCurrencyAsync(Guid companyId, string? requestedCurrency, string? supplierCurrency, CancellationToken cancellationToken)
+    {
+        var currency = string.IsNullOrWhiteSpace(requestedCurrency) ? supplierCurrency : requestedCurrency;
+        if (string.IsNullOrWhiteSpace(currency))
+        {
+            currency = await dbContext.Companies.Where(x => x.Id == companyId).Select(x => x.Currency).FirstOrDefaultAsync(cancellationToken);
+        }
+        return await ValidateCurrencyAsync(companyId, currency, cancellationToken);
+    }
+
+    private async Task<Customer> LoadSupplierAsync(Guid contactId, CancellationToken cancellationToken)
+    {
+        var companyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
+        var contact = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == contactId, cancellationToken)
+            ?? throw new InvalidOperationException("Supplier not found.");
+        if (!contact.ContactType.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(x => x.Equals("Supplier", StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Selected contact is not a supplier.");
+        return contact;
+    }
+
+    private async Task<TaxCode?> LoadTaxCodeAsync(Guid companyId, Guid? taxCodeId, CancellationToken cancellationToken)
+    {
+        if (!taxCodeId.HasValue || taxCodeId == Guid.Empty) return null;
+        return await dbContext.TaxCodes.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == taxCodeId.Value && x.IsActive && (x.Scope == TaxScope.Purchase || x.Scope == TaxScope.Both), cancellationToken)
+            ?? throw new InvalidOperationException("Select a valid tax code.");
+    }
+
+    private async Task<Product> LoadProductAsync(Guid companyId, Guid? productId, CancellationToken cancellationToken)
+    {
+        if (!productId.HasValue || productId == Guid.Empty) throw new InvalidOperationException("Select a valid product.");
+        return await dbContext.Products.FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == productId.Value && x.IsActive && x.IsBuying, cancellationToken)
+            ?? throw new InvalidOperationException("Selected product was not found.");
     }
 
     private static void EnsureQuantitiesCanBeReceived(GoodsReceivedNote entity, PurchaseOrder purchaseOrder)
@@ -306,8 +467,8 @@ public sealed class GoodsReceivedNoteService(
     private async Task<GoodsReceivedNote> LoadOrThrowAsync(Guid id, CancellationToken cancellationToken) =>
         await dbContext.GoodsReceivedNotes.Include(x => x.Company).Include(x => x.Lines).FirstAsync(x => x.Id == id, cancellationToken);
 
-    private static GoodsReceivedNoteListItemDto MapList(GoodsReceivedNote entity) =>
-        new(entity.Id, entity.CompanyId, entity.Company?.Name ?? string.Empty, entity.GoodsReceivedNoteNumber, entity.PurchaseOrderId, entity.PurchaseOrderNumber, entity.ContactId, entity.ContactName, entity.DocumentDateUtc, entity.Currency, entity.TotalAmount, entity.Status);
+    private static GoodsReceivedNoteListItemDto MapList(GoodsReceivedNote entity, bool hasPurchaseBills) =>
+        new(entity.Id, entity.CompanyId, entity.Company?.Name ?? string.Empty, entity.GoodsReceivedNoteNumber, entity.PurchaseOrderId, entity.PurchaseOrderNumber, entity.ContactId, entity.ContactName, entity.DocumentDateUtc, entity.Currency, entity.TotalAmount, entity.Status, hasPurchaseBills, entity.Status is GoodsReceivedNoteStatus.Received or GoodsReceivedNoteStatus.PartiallyBilled);
 
     private static GoodsReceivedNoteDetailsDto MapDetails(GoodsReceivedNote entity, GoodsReceivedNoteRelatedDocumentsDto? relatedDocuments = null) =>
         new(entity.Id, entity.CompanyId, entity.Company?.Name ?? string.Empty, entity.GoodsReceivedNoteNumber, entity.PurchaseOrderId, entity.PurchaseOrderNumber, entity.WarehouseId, entity.ContactId, entity.ContactName, entity.ContactEmail, entity.ContactPhoneNumber, entity.CreatedFromDocumentId, entity.CreatedFromDocumentNumber, entity.CreatedFromDocumentType, entity.DocumentDateUtc, entity.Currency, entity.ReferenceNo, entity.Notes, entity.Subtotal, entity.TaxAmount, entity.TotalAmount, entity.Status, entity.Lines.OrderBy(x => x.SortOrder).Select(MapLine).ToList(), relatedDocuments ?? new GoodsReceivedNoteRelatedDocumentsDto([]));
@@ -317,8 +478,21 @@ public sealed class GoodsReceivedNoteService(
 
     private async Task<GoodsReceivedNoteRelatedDocumentsDto> LoadRelatedDocumentsAsync(Guid goodsReceivedNoteId, Guid companyId, CancellationToken cancellationToken)
     {
+        var sourcePurchaseOrderId = await dbContext.GoodsReceivedNotes
+            .Where(x => x.Id == goodsReceivedNoteId && x.CompanyId == companyId)
+            .Select(x => x.PurchaseOrderId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var goodsReceivedNoteLineIds = await dbContext.GoodsReceivedNoteLines
+            .Where(x => x.GoodsReceivedNoteId == goodsReceivedNoteId)
+            .Select(x => x.Id)
+            .ToListAsync(cancellationToken);
         var bills = await dbContext.PurchaseBills
-            .Where(x => x.CompanyId == companyId && x.GoodsReceivedNoteId == goodsReceivedNoteId)
+            .Where(x => x.CompanyId == companyId && (
+                x.GoodsReceivedNoteId == goodsReceivedNoteId
+                || x.Lines.Any(line => line.GoodsReceivedNoteLineId.HasValue && goodsReceivedNoteLineIds.Contains(line.GoodsReceivedNoteLineId.Value))
+                // Older PO-created bills predate the GRN-line link. Their source PO is
+                // the only available relationship, so keep them visible to preserve history.
+                || (sourcePurchaseOrderId.HasValue && x.GoodsReceivedNoteId == null && x.PurchaseOrderId == sourcePurchaseOrderId)))
             .OrderByDescending(x => x.IssueDateUtc)
             .ThenByDescending(x => x.CreatedAtUtc)
             .Select(x => new PurchaseRelatedDocumentDto(x.Id, x.PurchaseBillNumber, "PurchaseBill", x.Status.ToString(), x.IssueDateUtc, x.TotalAmount))

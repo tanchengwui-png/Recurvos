@@ -107,7 +107,7 @@ export function PlatformDocumentPreviewPage() {
             <div>
               <p className="eyebrow">Invoice preview</p>
               <h3 className="section-title">Invoice PDF</h3>
-              <p className="muted form-intro">Review the invoice layout, totals, due date, and line items as a customer-facing PDF.</p>
+              <p className="muted form-intro">Review the invoice layout, totals, due date, and invoice items as a customer-facing PDF.</p>
             </div>
             <div className="platform-preview-card-meta">
               <span className="status-pill status-pill-active">No save</span>
@@ -192,7 +192,7 @@ export function PlatformDocumentPreviewPage() {
             <div className="platform-preview-line-items">
               <div className="platform-preview-line-items-header">
                 <div>
-                  <p className="eyebrow">Line items</p>
+                  <p className="eyebrow">Invoice Items</p>
                   <strong>{invoicePreviewForm.lineItems.length} item{invoicePreviewForm.lineItems.length === 1 ? "" : "s"}</strong>
                 </div>
               </div>
@@ -253,7 +253,7 @@ export function PlatformDocumentPreviewPage() {
                   lineItems: [...current.lineItems, { description: "", quantity: "1", unitAmount: "" }],
                 }))}
               >
-                Add line
+                Add item
               </button>
               {invoicePreviewForm.lineItems.length > 1 ? (
                 <button
@@ -264,7 +264,7 @@ export function PlatformDocumentPreviewPage() {
                     lineItems: current.lineItems.slice(0, -1),
                   }))}
                 >
-                  Remove line
+                  Remove item
                 </button>
               ) : null}
               <button

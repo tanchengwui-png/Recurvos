@@ -3,16 +3,9 @@ import { useNavigate, useParams } from "react-router-dom";
 import { PurchaseRelatedDocumentsSection } from "../components/PurchaseRelatedDocumentsSection";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { useBusinessDocumentPreview } from "../components/DocumentPreviewModal";
 import type { PurchaseOrder } from "../types";
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 export function PurchaseOrderDetailsPage() {
   const navigate = useNavigate();
@@ -24,28 +17,21 @@ export function PurchaseOrderDetailsPage() {
     void api.get<PurchaseOrder>(`/purchases/orders/${id}`).then(setDocument);
   }, [id]);
 
+  const { previewDocument, printDocument, preview } = useBusinessDocumentPreview();
+
+  function getDocumentPreviewData() {
+    if (!document) return null;
+    return { companyName: document.companyName, title: "Purchase Order", number: document.purchaseOrderNumber, partyLabel: "Supplier", partyName: document.contactName, currency: document.currency, metadata: [["Order date", new Date(document.documentDateUtc).toLocaleDateString()], ["Status", document.status], ["Reference", document.referenceNo]], headings: ["Item", "Description", "Qty", "Unit Cost", "Tax", "Amount"], rows: document.lines.map((line) => ({ cells: [line.productNameSnapshot || "-", line.description, line.quantity, formatCurrency(line.unitPrice, document.currency), `${line.taxRate}%`, formatCurrency(line.lineTotal, document.currency)], numeric: [2, 3, 4, 5] })), totals: [{ label: "Subtotal", value: document.subtotal }, { label: "Tax", value: document.taxAmount }, { label: "Total", value: document.totalAmount, emphasis: true }], notes: document.notes };
+  }
+
   function handlePrint() {
-    window.print();
+    const previewDocumentData = getDocumentPreviewData();
+    if (previewDocumentData) printDocument(previewDocumentData);
   }
 
   function handleExportPdf() {
-    if (!document) return;
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
-    if (!popup) return;
-    const rows = document.lines.map((line) => `
-      <tr>
-        <td>${escapeHtml(line.productNameSnapshot || "-")}</td>
-        <td>${escapeHtml(line.description)}</td>
-        <td style="text-align:right">${line.quantity}</td>
-        <td style="text-align:right">${escapeHtml(formatCurrency(line.unitPrice, document.currency))}</td>
-        <td style="text-align:right">${escapeHtml(formatCurrency(line.lineTotal, document.currency))}</td>
-      </tr>
-    `).join("");
-    popup.document.open();
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(document.purchaseOrderNumber)}</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#0f172a}table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:left}th{text-transform:uppercase;font-size:12px;color:#64748b} .meta{color:#475569;margin:6px 0}.totals{margin-top:24px;margin-left:auto;width:320px}.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0}</style></head><body><h1>${escapeHtml(document.purchaseOrderNumber)}</h1><p class="meta">Supplier: ${escapeHtml(document.contactName)}</p><p class="meta">Status: ${escapeHtml(document.status)}</p><p class="meta">Date: ${new Date(document.documentDateUtc).toLocaleDateString()}</p><table><thead><tr><th>Product</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div class="row"><span>Subtotal</span><strong>${escapeHtml(formatCurrency(document.subtotal, document.currency))}</strong></div><div class="row"><span>Tax</span><strong>${escapeHtml(formatCurrency(document.taxAmount, document.currency))}</strong></div><div class="row"><span>Total</span><strong>${escapeHtml(formatCurrency(document.totalAmount, document.currency))}</strong></div></div></body></html>`);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    const previewDocumentData = getDocumentPreviewData();
+    if (previewDocumentData) previewDocument(previewDocumentData);
   }
 
   if (!document) {
@@ -78,7 +64,7 @@ export function PurchaseOrderDetailsPage() {
         <div className="invoice-detail-layout">
           <div className="invoice-detail-main">
             <div className="invoice-detail-block">
-              <div className="invoice-detail-block-header"><h3>Lines</h3></div>
+              <div className="invoice-detail-block-header"><h3>Order Items</h3></div>
               <div className="table-scroll table-scroll-bounded">
                 <table className="catalog-table">
                   <thead><tr><th>Product</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Tax %</th><th>Total</th></tr></thead>
@@ -123,6 +109,7 @@ export function PurchaseOrderDetailsPage() {
           </aside>
         </div>
       </section>
+      {preview}
     </div>
   );
 }

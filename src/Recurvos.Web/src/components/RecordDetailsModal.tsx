@@ -9,6 +9,19 @@ type RecordDetailsModalProps = {
   children: ReactNode;
 };
 
+type RecordDetailFieldProps = {
+  label: string;
+  value?: ReactNode;
+};
+
+export function RecordDetailField({ label, value }: RecordDetailFieldProps) {
+  return <div className="product-preview-field"><span>{label}</span><strong>{value === "" || value == null ? "—" : value}</strong></div>;
+}
+
+export function RecordDetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="product-preview-section"><h4>{title}</h4><div className="product-preview-grid">{children}</div></section>;
+}
+
 /** Shared summary popup for every list-level "View details" action. */
 export function RecordDetailsModal({ eyebrow, title, subtitle, onClose, actions, children }: RecordDetailsModalProps) {
   useEffect(() => {
@@ -40,7 +53,7 @@ export function RecordDetailsModal({ eyebrow, title, subtitle, onClose, actions,
           </div>
           <div className="product-preview-modal-actions">
             {actions}
-            <button type="button" className="button button-secondary button-compact" onClick={onClose}>Close</button>
+            <button type="button" className="file-preview-close" aria-label="Close details" onClick={onClose}>×</button>
           </div>
         </div>
         <div className="product-preview-modal-body">{children}</div>

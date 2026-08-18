@@ -2,16 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { useBusinessDocumentPreview } from "../components/DocumentPreviewModal";
 import type { PurchaseRefund } from "../types";
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 export function PurchaseRefundDetailsPage() {
   const navigate = useNavigate();
@@ -23,25 +16,21 @@ export function PurchaseRefundDetailsPage() {
     void api.get<PurchaseRefund>(`/purchases/refunds/${id}`).then(setDocument);
   }, [id]);
 
+  const { previewDocument, printDocument, preview } = useBusinessDocumentPreview();
+
+  function getDocumentPreviewData() {
+    if (!document) return null;
+    return { companyName: document.companyName, title: "Purchase Refund", number: document.purchaseRefundNumber, partyLabel: "Supplier", partyName: document.contactName, currency: document.currency, metadata: [["Refund date", new Date(document.refundDateUtc).toLocaleDateString()], ["Purchase payment", document.purchasePaymentNumber], ["Refund Reference", document.referenceNo], ["Status", document.status]], headings: ["Purchase Bill", "Refund Amount"], rows: document.allocations.map((allocation) => ({ cells: [allocation.purchaseBillNumber, formatCurrency(allocation.amount, document.currency)], numeric: [1] })), totals: [{ label: "Refund Amount", value: document.totalAmount, emphasis: true }] };
+  }
+
   function handlePrint() {
-    window.print();
+    const previewDocumentData = getDocumentPreviewData();
+    if (previewDocumentData) printDocument(previewDocumentData);
   }
 
   function handleExportPdf() {
-    if (!document) return;
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
-    if (!popup) return;
-    const rows = document.allocations.map((allocation) => `
-      <tr>
-        <td>${escapeHtml(allocation.purchaseBillNumber)}</td>
-        <td style="text-align:right">${escapeHtml(formatCurrency(allocation.amount, document.currency))}</td>
-      </tr>
-    `).join("");
-    popup.document.open();
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(document.purchaseRefundNumber)}</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#0f172a}table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:left}th{text-transform:uppercase;font-size:12px;color:#64748b}.meta{color:#475569;margin:6px 0}.totals{margin-top:24px;margin-left:auto;width:320px}.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0}</style></head><body><h1>${escapeHtml(document.purchaseRefundNumber)}</h1><p class="meta">Supplier: ${escapeHtml(document.contactName)}</p><p class="meta">Status: ${escapeHtml(document.status)}</p><p class="meta">Purchase payment: ${escapeHtml(document.purchasePaymentNumber)}</p><table><thead><tr><th>Purchase Bill</th><th>Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div class="row"><span>Total</span><strong>${escapeHtml(formatCurrency(document.totalAmount, document.currency))}</strong></div></div></body></html>`);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    const previewDocumentData = getDocumentPreviewData();
+    if (previewDocumentData) previewDocument(previewDocumentData);
   }
 
   if (!document) {
@@ -111,6 +100,7 @@ export function PurchaseRefundDetailsPage() {
           </aside>
         </div>
       </section>
+      {preview}
     </div>
   );
 }

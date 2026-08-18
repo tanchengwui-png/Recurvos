@@ -7,10 +7,9 @@ import { ListToolbar } from "../components/ListToolbar";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
-import { ResponseToast } from "../components/ui/Toast";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { CompanyLookup, SalesOrder, SalesQuotationListItem } from "../types";
+import type { CompanyLookup, SalesQuotationListItem } from "../types";
 
 export function SalesQuotationsPage() {
   const navigate = useNavigate();
@@ -22,7 +21,6 @@ export function SalesQuotationsPage() {
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState<"date-desc" | "date-asc" | "number" | "amount-desc">("date-desc");
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
 
   async function load() {
@@ -44,17 +42,8 @@ export function SalesQuotationsPage() {
   function getActions(item: SalesQuotationListItem) {
     return [
       { label: "View details", onClick: () => navigate(`/sales/quotations/${item.id}`, { state: { backgroundLocation: location } }) },
-      ...(item.status !== "Converted" ? [{ label: "Edit", onClick: () => navigate(`/sales/quotations/${item.id}/edit`) }] : []),
-      ...((item.status === "Sent" || item.status === "Accepted") ? [{ label: "Convert to Sales Order", onClick: () => setConfirmState({
-        title: "Convert quotation",
-        description: `Convert ${item.quotationNumber} to a sales order?`,
-        action: async () => {
-          const result = await api.post<SalesOrder>(`/sales/quotations/${item.id}/convert-to-sales-order`, { documentDateUtc: new Date().toISOString(), referenceNo: "", notes: "" });
-          setConfirmState(null);
-          setMessage(`Sales order created: ${result.salesOrderNumber}.`);
-          await load();
-        },
-      }) }] : []),
+      ...(!item.isTransactionallyLocked && item.status !== "Converted" ? [{ label: "Edit", onClick: () => navigate(`/sales/quotations/${item.id}/edit`) }] : []),
+      ...(item.conversionStatus !== "FullyConverted" && item.status !== "Converted" ? [{ label: "Convert to Sales Order", disabled: item.status !== "Accepted", title: "Mark this quotation as accepted before converting it to a Sales Order.", onClick: () => navigate(`/sales/quotations/${item.id}`, { state: { backgroundLocation: location } }) }] : []),
       ...(item.status === "Draft" ? [{ label: "Mark as Sent", onClick: async () => { await api.patch(`/sales/quotations/${item.id}/status`, { status: "Sent" }); await load(); } }] : []),
       ...(item.status === "Sent" ? [{ label: "Mark as Accepted", onClick: async () => { await api.patch(`/sales/quotations/${item.id}/status`, { status: "Accepted" }); await load(); } }] : []),
       ...(item.status === "Sent" ? [{ label: "Mark as Rejected", onClick: async () => { await api.patch(`/sales/quotations/${item.id}/status`, { status: "Rejected" }); await load(); } }] : []),
@@ -77,7 +66,6 @@ export function SalesQuotationsPage() {
 
   return (
     <div className="page">
-      <ResponseToast message={message} tone="success" />
       <ListToolbar>
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search quotation number, contact, or reference" />
         <select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>

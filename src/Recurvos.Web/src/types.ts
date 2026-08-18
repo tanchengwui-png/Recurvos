@@ -141,7 +141,7 @@ export type ContactAddress = {
 
 export type Customer = {
   id: string;
-  companyIds: string[];
+  companyId: string;
   name: string;
   email: string;
   phoneNumber: string;
@@ -473,6 +473,17 @@ export type SalesDocumentLine = {
   salesOrderLineId?: string | null;
   deliveredQuantity: number;
   invoicedQuantity: number;
+  convertedQuantity?: number;
+  remainingQuantity?: number;
+};
+
+export type SalesOrderLink = {
+  id: string;
+  salesOrderNumber: string;
+  documentDateUtc: string;
+  status: string;
+  totalAmount: number;
+  currency: string;
 };
 
 export type SalesQuotation = {
@@ -493,8 +504,11 @@ export type SalesQuotation = {
   taxAmount: number;
   totalAmount: number;
   status: "Draft" | "Sent" | "Accepted" | "Rejected" | "Expired" | "Converted";
+  conversionStatus: "NotConverted" | "PartiallyConverted" | "FullyConverted";
+  isTransactionallyLocked: boolean;
   convertedSalesOrderId?: string | null;
   lines: SalesDocumentLine[];
+  salesOrders: SalesOrderLink[];
 };
 
 export type SalesQuotationListItem = {
@@ -509,6 +523,8 @@ export type SalesQuotationListItem = {
   currency: string;
   totalAmount: number;
   status: "Draft" | "Sent" | "Accepted" | "Rejected" | "Expired" | "Converted";
+  conversionStatus: "NotConverted" | "PartiallyConverted" | "FullyConverted";
+  isTransactionallyLocked: boolean;
   convertedSalesOrderId?: string | null;
 };
 
@@ -531,6 +547,17 @@ export type SalesOrder = {
   status: "Draft" | "Confirmed" | "PartiallyDelivered" | "FullyDelivered" | "Closed" | "Cancelled";
   salesQuotationId?: string | null;
   lines: SalesDocumentLine[];
+  invoices?: SalesInvoiceLink[];
+};
+
+export type SalesInvoiceLink = {
+  id: string;
+  invoiceNumber: string;
+  issueDateUtc: string;
+  status: string;
+  totalAmount: number;
+  currency: string;
+  deliveryOrderId?: string | null;
 };
 
 export type SalesOrderListItem = {
@@ -544,6 +571,8 @@ export type SalesOrderListItem = {
   currency: string;
   totalAmount: number;
   status: "Draft" | "Confirmed" | "PartiallyDelivered" | "FullyDelivered" | "Closed" | "Cancelled";
+  hasDirectInvoiceableQuantity: boolean;
+  hasOutstandingQuantity: boolean;
   salesQuotationId?: string | null;
 };
 
@@ -552,7 +581,8 @@ export type DeliveryOrder = {
   companyId: string;
   companyName: string;
   deliveryOrderNumber: string;
-  salesOrderId: string;
+  salesOrderId?: string | null;
+  salesQuotationId?: string | null;
   salesOrderNumber: string;
   warehouseId?: string | null;
   contactId: string;
@@ -568,6 +598,7 @@ export type DeliveryOrder = {
   totalAmount: number;
   status: "Draft" | "Delivered" | "PartiallyInvoiced" | "FullyInvoiced" | "Cancelled";
   lines: SalesDocumentLine[];
+  invoices?: SalesInvoiceLink[];
 };
 
 export type DeliveryOrderListItem = {
@@ -575,7 +606,8 @@ export type DeliveryOrderListItem = {
   companyId: string;
   companyName: string;
   deliveryOrderNumber: string;
-  salesOrderId: string;
+  salesOrderId?: string | null;
+  salesQuotationId?: string | null;
   salesOrderNumber: string;
   contactId: string;
   contactName: string;
@@ -583,6 +615,7 @@ export type DeliveryOrderListItem = {
   currency: string;
   totalAmount: number;
   status: "Draft" | "Delivered" | "PartiallyInvoiced" | "FullyInvoiced" | "Cancelled";
+  hasInvoiceableQuantity: boolean;
 };
 
 export type PurchaseDocumentLine = {
@@ -662,14 +695,14 @@ export type GoodsReceivedNote = {
   companyId: string;
   companyName: string;
   goodsReceivedNoteNumber: string;
-  purchaseOrderId: string;
+  purchaseOrderId?: string | null;
   purchaseOrderNumber: string;
   warehouseId?: string | null;
   contactId: string;
   contactName: string;
   contactEmail: string;
   contactPhoneNumber: string;
-  createdFromDocumentId: string;
+  createdFromDocumentId?: string | null;
   createdFromDocumentNumber: string;
   createdFromDocumentType: string;
   documentDateUtc: string;
@@ -689,7 +722,7 @@ export type GoodsReceivedNoteListItem = {
   companyId: string;
   companyName: string;
   goodsReceivedNoteNumber: string;
-  purchaseOrderId: string;
+  purchaseOrderId?: string | null;
   purchaseOrderNumber: string;
   contactId: string;
   contactName: string;
@@ -697,6 +730,8 @@ export type GoodsReceivedNoteListItem = {
   currency: string;
   totalAmount: number;
   status: "Draft" | "Received" | "PartiallyBilled" | "FullyBilled" | "Cancelled";
+  hasPurchaseBills: boolean;
+  canCreateBill: boolean;
 };
 
 export type PurchaseBillLine = {
@@ -741,6 +776,13 @@ export type PurchaseBill = {
   status: "Draft" | "Issued" | "PartiallyPaid" | "Paid" | "Overdue" | "Cancelled";
   lines: PurchaseBillLine[];
   relatedDocuments: PurchaseBillRelatedDocuments;
+  paymentSummary: {
+    paymentsMade: number;
+    refundsReceived: number;
+    purchaseCreditNotes: number;
+    netPaid: number;
+    outstanding: number;
+  };
 };
 
 export type PurchaseBillListItem = {
@@ -1105,6 +1147,7 @@ export type Invoice = {
   taxRegistrationNo?: string | null;
   total: number;
   paidAmount: number;
+  refundedAmount: number;
   balanceAmount: number;
   currency: string;
   companyAddressSnapshot?: string | null;
@@ -1115,6 +1158,8 @@ export type Invoice = {
   refunds: Refund[];
   creditedAmount: number;
   eligibleCreditAmount: number;
+  salesOrderId?: string | null;
+  deliveryOrderId?: string | null;
 };
 export type Payment = {
   id: string;
@@ -1187,6 +1232,8 @@ export type Refund = {
   id: string;
   paymentId: string;
   invoiceId?: string | null;
+  paymentReference?: string | null;
+  invoiceNumber?: string | null;
   amount: number;
   currency: string;
   reason: string;
@@ -1209,6 +1256,7 @@ export type CreditNoteLine = {
 export type CreditNote = {
   id: string;
   invoiceId: string;
+  invoiceNumber?: string | null;
   customerId: string;
   creditNoteNumber: string;
   currency: string;

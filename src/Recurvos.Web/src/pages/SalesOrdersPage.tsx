@@ -51,8 +51,8 @@ export function SalesOrdersPage() {
       ...((item.status === "Draft" || item.status === "Confirmed") ? [{ label: "Edit", onClick: () => navigate(`/sales/orders/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{ label: "Confirm", onClick: async () => { await api.patch(`/sales/orders/${item.id}/status`, { status: "Confirmed" }); await load(); } }] : []),
       ...((item.status === "Confirmed" || item.status === "PartiallyDelivered") ? [{ label: "Create Delivery Order", onClick: () => navigate(`/sales/delivery-orders/new?salesOrderId=${item.id}`) }] : []),
-      ...((item.status === "Confirmed" || item.status === "PartiallyDelivered" || item.status === "FullyDelivered") ? [{ label: "Create Invoice", onClick: () => navigate(`/sales/invoices/new?source=sales-order&sourceId=${item.id}`) }] : []),
-      ...((item.status === "Confirmed" || item.status === "PartiallyDelivered" || item.status === "FullyDelivered") ? [{ label: "Close", onClick: async () => { await api.patch(`/sales/orders/${item.id}/status`, { status: "Closed" }); await load(); } }] : []),
+      ...(item.hasDirectInvoiceableQuantity && (item.status === "Confirmed" || item.status === "PartiallyDelivered") ? [{ label: "Create Invoice", onClick: () => navigate(`/sales/invoices/new?source=sales-order&sourceId=${item.id}`) }] : []),
+      ...(item.hasOutstandingQuantity && (item.status === "Confirmed" || item.status === "PartiallyDelivered" || item.status === "FullyDelivered") ? [{ label: "Close", onClick: () => setConfirmState({ title: "Close sales order?", description: "This sales order still has outstanding quantities. Closing it will prevent any further deliveries or invoices from being created from the remaining balance.", action: async () => { await api.patch(`/sales/orders/${item.id}/status`, { status: "Closed" }); setConfirmState(null); await load(); } }) }] : []),
       ...(item.status === "Draft" ? [{
         label: "Cancel",
         onClick: async () => { await api.patch(`/sales/orders/${item.id}/status`, { status: "Cancelled" }); await load(); },

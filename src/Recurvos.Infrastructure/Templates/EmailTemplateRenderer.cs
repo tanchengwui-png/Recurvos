@@ -84,7 +84,8 @@ public static class EmailTemplateRenderer
         string amountDue,
         string dueDateLabel,
         string? paymentUrl,
-        bool isReminder)
+        bool isReminder,
+        string? message = null)
     {
         var title = isReminder ? $"Payment reminder for {invoiceNumber}" : $"Invoice {invoiceNumber}";
         var intro = isReminder
@@ -107,6 +108,14 @@ public static class EmailTemplateRenderer
         var encodedCustomerName = Encode(customerName);
         var encodedActionLabel = Encode(actionLabel);
         var encodedReminderLabel = Encode(isReminder ? "Payment reminder" : "Invoice delivery");
+        var personalMessageBlock = string.IsNullOrWhiteSpace(message)
+            ? string.Empty
+            : $$"""
+                      <div style="padding:16px 18px;border-radius:14px;background:#f8fafc;border:1px solid #e2e8f0;margin:0 0 20px;">
+                        <div style="font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;font-weight:700;margin-bottom:8px;">Message from {{encodedIssuerName}}</div>
+                        <p style="margin:0;font-size:14px;line-height:1.7;color:#334155;white-space:pre-line;">{{Encode(message.Trim())}}</p>
+                      </div>
+              """;
         var ctaBlock = safePaymentUrl is null
             ? """
                             <p style="margin:0;font-size:14px;line-height:1.7;color:#64748b;">No payment link is included yet. Please contact the issuer if you need an online payment option.</p>
@@ -166,6 +175,7 @@ public static class EmailTemplateRenderer
                         <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#c2410c;font-weight:700;margin-bottom:10px;">For {{encodedCustomerName}}</div>
                         <p style="margin:0;font-size:14px;line-height:1.7;color:#7c2d12;">{{Encode(isPaymentConfirmationLink ? "Please review the invoice details and submit your payment confirmation after you have paid by bank transfer or another manual method." : "Please review the invoice details and arrange payment by the due date shown above.")}}</p>
                       </div>
+                      {{personalMessageBlock}}
                       <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border:1px solid #e2e8f0;border-radius:18px;background:#ffffff;">
                         <tr>
                           <td style="padding:20px 22px;">

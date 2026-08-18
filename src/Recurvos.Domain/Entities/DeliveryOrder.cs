@@ -6,7 +6,8 @@ namespace Recurvos.Domain.Entities;
 public sealed class DeliveryOrder : CompanyOwnedEntity
 {
     public string DeliveryOrderNumber { get; set; } = string.Empty;
-    public Guid SalesOrderId { get; set; }
+    public Guid? SalesOrderId { get; set; }
+    public Guid? SalesQuotationId { get; set; }
     public Guid? WarehouseId { get; set; }
     public string SalesOrderNumber { get; set; } = string.Empty;
     public Guid ContactId { get; set; }

@@ -47,6 +47,7 @@ public sealed record CreditNoteLineDto(
 public sealed record CreditNoteDto(
     Guid Id,
     Guid InvoiceId,
+    string? InvoiceNumber,
     Guid CustomerId,
     string CreditNoteNumber,
     string Currency,

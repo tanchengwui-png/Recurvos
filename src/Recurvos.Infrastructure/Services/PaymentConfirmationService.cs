@@ -134,10 +134,6 @@ public sealed class PaymentConfirmationService(
         submission.ReviewedByUserId = currentUserService.UserId;
         submission.ReviewNote = string.IsNullOrWhiteSpace(request.ReviewNote) ? null : request.ReviewNote.Trim();
 
-        submission.Invoice.AmountPaid += submission.Amount;
-        submission.Invoice.AmountDue = Math.Max(0, submission.Invoice.Total - submission.Invoice.AmountPaid);
-        submission.Invoice.Status = submission.Invoice.AmountDue <= 0 ? InvoiceStatus.Paid : InvoiceStatus.Open;
-
         var payment = new Payment
         {
             CompanyId = submission.CompanyId,
@@ -153,6 +149,13 @@ public sealed class PaymentConfirmationService(
             PaidAtUtc = submission.PaidAtUtc
         };
         dbContext.Payments.Add(payment);
+        var invoicePayments = await dbContext.Payments
+            .Include(x => x.Refunds)
+            .Where(x => x.CompanyId == submission.CompanyId && x.InvoiceId == submission.InvoiceId)
+            .ToListAsync(cancellationToken);
+        invoicePayments.Add(payment);
+        await dbContext.Entry(submission.Invoice).Collection(x => x.CreditNotes).LoadAsync(cancellationToken);
+        InvoicePaymentStateCalculator.Recalculate(submission.Invoice, invoicePayments, submission.Invoice.CreditNotes);
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);

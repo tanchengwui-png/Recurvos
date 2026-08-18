@@ -798,7 +798,6 @@ export function CustomersPage() {
     return statusOptions.includes(value as Customer["status"]) ? value as Customer["status"] : "all";
   });
   const [tagFilter, setTagFilter] = useState("all");
-  const [companyFilter, setCompanyFilter] = useState("all");
 
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredItems = items.filter((item) => {
@@ -832,14 +831,10 @@ export function CustomersPage() {
       return false;
     }
 
-    if (companyFilter !== "all" && item.entityType !== companyFilter) {
-      return false;
-    }
-
     return true;
   });
 
-  const pagination = useClientPagination(filteredItems, [filteredItems.length, searchQuery, contactTypeFilter, contactGroupFilter, statusFilter, tagFilter, companyFilter]);
+  const pagination = useClientPagination(filteredItems, [filteredItems.length, searchQuery, contactTypeFilter, contactGroupFilter, statusFilter, tagFilter]);
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, pagination.currentPage, pagination.pageSize]);
   const selectedCustomer = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
   const selectedCustomerTypes = selectedCustomer ? parseContactTypes(selectedCustomer.contactType) : [];
@@ -873,7 +868,6 @@ export function CustomersPage() {
   const allPhoneNumberOptions = mergeLookupOptions(items.flatMap((item) => item.phoneNumbers ?? []), []);
   const allEmailAddressOptions = mergeLookupOptions(items.flatMap((item) => item.emailAddresses ?? []), []);
   const allContactGroupOptions = mergeLookupOptions(contactGroups.map((group) => group.name), []);
-  const companyFilterOptions = Array.from(new Set(items.map((item) => item.entityType).filter(Boolean))).sort();
   const selectedContactIdSet = new Set(selectedContactIds);
   const selectedBatchContacts = batchRows.filter((row) => selectedContactIdSet.has(row.id));
   const allFilteredSelected = filteredItems.length > 0 && filteredItems.every((item) => selectedContactIdSet.has(item.id));
@@ -962,6 +956,8 @@ export function CustomersPage() {
     } else {
       nextParams.delete("status");
     }
+
+    nextParams.delete("company");
 
     const nextQuery = nextParams.toString();
     const currentQuery = searchParams.toString();
@@ -1828,7 +1824,6 @@ export function CustomersPage() {
           <label className="contacts-filter-field"><span>Status</span><select aria-label="Filter contacts by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as Customer["status"] | "all")}><option value="all">All statuses</option>{statusOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           <div className="contacts-filter-secondary">
             <label className="contacts-filter-field"><span>Tags</span><select aria-label="Filter contacts by tags" value={tagFilter} onChange={(event) => setTagFilter(event.target.value)}><option value="all">All tags</option>{allTagOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
-            <label className="contacts-filter-field"><span>Company</span><select aria-label="Filter contacts by company" value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)}><option value="all">All companies</option>{companyFilterOptions.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
           </div>
         </div>
       <section className="contacts-list-card">
@@ -1850,7 +1845,7 @@ export function CustomersPage() {
             />
           </div>
         </div>
-        {searchQuery || contactTypeFilter !== "all" || contactGroupFilter !== "all" || statusFilter !== "all" ? (
+        {searchQuery || contactTypeFilter !== "all" || contactGroupFilter !== "all" || statusFilter !== "all" || tagFilter !== "all" ? (
           <HelperText>{`${filteredItems.length} matching contact${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
         ) : null}
         {selectedContactIds.length > 0 ? (

@@ -6,7 +6,7 @@ public sealed class GoodsReceivedNoteLine : BaseEntity
 {
     public Guid GoodsReceivedNoteId { get; set; }
     public int SortOrder { get; set; }
-    public Guid PurchaseOrderLineId { get; set; }
+    public Guid? PurchaseOrderLineId { get; set; }
     public Guid? ProductId { get; set; }
     public Guid? TaxCodeId { get; set; }
     public string ProductNameSnapshot { get; set; } = string.Empty;

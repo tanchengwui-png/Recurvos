@@ -3,12 +3,13 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import type { Account, CompanyLookup, GeneralLedgerReport, MasterDataSnapshot } from "../types";
 
 export function GeneralLedgerPage() {
   const navigate = useNavigate(); const [searchParams] = useSearchParams(); const [companies, setCompanies] = useState<CompanyLookup[]>([]); const [accounts, setAccounts] = useState<Account[]>([]); const [companyId, setCompanyId] = useState(searchParams.get("companyId") ?? ""); const [accountId, setAccountId] = useState(searchParams.get("accountId") ?? ""); const [from, setFrom] = useState(searchParams.get("from") ?? new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)); const [to, setTo] = useState(searchParams.get("to") ?? new Date().toISOString().slice(0, 10)); const [search, setSearch] = useState(""); const [report, setReport] = useState<GeneralLedgerReport | null>(null); const [error, setError] = useState("");
-  useEffect(() => { void Promise.all([api.get<CompanyLookup[]>("/companies"), api.get<MasterDataSnapshot>("/master-data")]).then(([companyList, master]) => { setCompanies(companyList); setAccounts(master.accounts); setCompanyId(current => current || companyList[0]?.id || ""); }).catch(e => setError(e instanceof Error ? e.message : "Unable to load filters.")); }, []);
+  useEffect(() => { void Promise.all([api.get<CompanyLookup[]>("/companies"), api.get<MasterDataSnapshot>("/master-data")]).then(([companyList, master]) => { setCompanies(companyList); setAccounts(master.accounts); setCompanyId(current => current || resolveActiveCompanyId(companyList)); }).catch(e => setError(e instanceof Error ? e.message : "Unable to load filters.")); }, []);
   const query = useMemo(() => { const p = new URLSearchParams({ companyId, fromDateUtc: new Date(`${from}T00:00:00Z`).toISOString(), toDateUtc: new Date(`${to}T00:00:00Z`).toISOString() }); if (accountId) p.set("accountId", accountId); if (search.trim()) p.set("search", search.trim()); return p; }, [companyId, from, to, accountId, search]);
   async function load() { if (!companyId) return; try { setError(""); setReport(await api.get<GeneralLedgerReport>(`/accounting/reports/general-ledger?${query}`)); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load general ledger."); } }
   useEffect(() => { void load(); }, [query]);

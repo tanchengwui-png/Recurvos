@@ -54,7 +54,7 @@ export function PurchaseOrdersPage() {
       ...((item.status === "Approved" || item.status === "PartiallyReceived") ? [{ label: "Create GRN", onClick: () => navigate(`/purchases/grns/new?purchaseOrderId=${item.id}`) }] : []),
       ...((item.status === "Approved" || item.status === "PartiallyReceived" || item.status === "FullyReceived") ? [{ label: "Create Bill", onClick: () => navigate(`/purchases/bills/new?source=purchase-order&sourceId=${item.id}`) }] : []),
       ...(item.status !== "Closed" && item.status !== "Cancelled" ? [{ label: "Close", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Closed" }); await load(); } }] : []),
-      {
+      ...(item.status === "Draft" ? [{
         label: "Delete",
         tone: "danger" as const,
         onClick: () => setConfirmState({
@@ -66,7 +66,7 @@ export function PurchaseOrdersPage() {
             await load();
           },
         }),
-      },
+      }] : []),
     ];
   }
 

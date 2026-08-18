@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { AccountSelect } from "../components/ui/AccountSelect";
@@ -13,7 +14,7 @@ import { api } from "../lib/api";
 import { countryOptions, currencyOptions, malaysiaStateOptions } from "../lib/localeOptions";
 import { combinePhoneNumber, splitStoredPhoneNumber } from "../lib/phoneNumbers";
 import type { SearchableSelectOption } from "../lib/localeOptions";
-import type { CompanyLookup, ContactAddress, ContactGroup, ContactPerson, Customer, MasterDataSnapshot } from "../types";
+import type { ContactAddress, ContactGroup, ContactPerson, Customer, MasterDataSnapshot } from "../types";
 
 const contactTypeOptions = ["Customer", "Supplier", "Employee"] as const;
 const entityTypeOptions = ["Company", "Individual", "General Public", "Foreign Company", "Foreign Individual", "Exempted Person"] as const;
@@ -29,7 +30,6 @@ const contactRegistrationNumberTypeOptions: SearchableSelectOption[] = [
 ];
 
 type ContactFormState = {
-  companyIds: string[];
   legalName: string;
   otherName: string;
   entityType: Customer["entityType"];
@@ -80,7 +80,6 @@ const emptyAddress = (): ContactAddress => ({
 });
 
 const emptyForm = (): ContactFormState => ({
-  companyIds: [],
   legalName: "",
   otherName: "",
   entityType: "Company",
@@ -384,26 +383,22 @@ export function CustomerFormPage() {
   const [contactGroups, setContactGroups] = useState<ContactGroup[]>([]);
   const [contactTagOptions, setContactTagOptions] = useState<string[]>([]);
   const [masterData, setMasterData] = useState<MasterDataSnapshot | null>(null);
-  const [companies, setCompanies] = useState<CompanyLookup[]>([]);
 
   useEffect(() => {
     async function loadReferenceData() {
       try {
-        const [groups, snapshot, contacts, companyList] = await Promise.all([
+        const [groups, snapshot, contacts] = await Promise.all([
           api.get<ContactGroup[]>("/contact-groups"),
           api.get<MasterDataSnapshot>("/master-data"),
           api.get<Customer[]>("/customers").catch(() => []),
-          api.get<CompanyLookup[]>("/companies").catch(() => []),
         ]);
         setContactGroups(groups);
         setMasterData(snapshot);
         setContactTagOptions(normalizeUniqueStrings(contacts.flatMap((contact) => contact.tags ?? [])));
-        setCompanies(companyList);
       } catch {
         setContactGroups([]);
         setContactTagOptions([]);
         setMasterData(null);
-        setCompanies([]);
       }
     }
 
@@ -430,7 +425,6 @@ export function CustomerFormPage() {
           : [{ ...emptyAddress(), isDefaultBilling: true, isDefaultShipping: true }]);
 
       setForm({
-        companyIds: customer.companyIds ?? [],
         legalName: customer.legalName || customer.name,
         otherName: customer.otherName || "",
         entityType: customer.entityType || "Company",
@@ -688,7 +682,6 @@ export function CustomerFormPage() {
     const expenseAccountId = resolveAccountIdByCode(masterData?.accounts, form.expenseAccount);
 
     const payload = {
-      companyIds: form.companyIds,
       name: form.legalName.trim(),
       legalName: form.legalName.trim(),
       otherName: form.otherName.trim(),
@@ -767,17 +760,12 @@ export function CustomerFormPage() {
       <StandardFormLayout className="contact-create-content standard-form-page">
       <FormPageHeader backLabel="Back to Contacts" backHref="/customers" breadcrumbs={<><span>Contacts</span><span>/</span><span>{editingCustomerId ? "Edit Contact" : "New Contact"}</span></>} />
         <form id="customer-create-form" className="form-stack contact-create-form" onSubmit={submit}>
+          <FormPageBody>
+          <div className="form-page-content">
           <section className="contact-form-section" aria-labelledby="contact-basic-information-title">
             <div className="contact-form-section-header"><div className="contact-form-section-number" aria-hidden="true">01</div><div><h3 id="contact-basic-information-title">Basic information</h3><p>Identity, registration and tax details.</p></div>
             </div>
             <div className="company-profile-fields-grid">
-              <div className="form-label company-profile-field company-profile-field-wide">
-                Companies
-                <div className="contact-checkbox-group" aria-label="Companies assigned to this contact">
-                  {companies.map((company) => <label key={company.id} className="contact-checkbox-card"><input type="checkbox" checked={form.companyIds.includes(company.id)} onChange={(event) => setForm((current) => ({ ...current, companyIds: event.target.checked ? [...current.companyIds, company.id] : current.companyIds.filter((id) => id !== company.id) }))} />{company.name}</label>)}
-                  {companies.length === 0 ? <span className="muted">No companies available.</span> : null}
-                </div>
-              </div>
               <label className="form-label company-profile-field company-profile-field-wide">
                 Entity Type
                 <select value={form.entityType} onChange={(event) => setForm((current) => ({ ...current, entityType: event.target.value as Customer["entityType"] }))}>
@@ -1176,8 +1164,10 @@ export function CustomerFormPage() {
           </details>
 
           {error ? <HelperText tone="error">{error}</HelperText> : null}
-          <FormActionSection className="contact-create-actions"><p>Complete all required fields before saving the contact.</p><div><button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Cancel</button><button type="submit" className="button button-primary">{editingCustomerId ? "Update contact" : "Save contact"}</button></div>
+          </div>
+          <FormActionSection className="contact-create-actions"><p>{editingCustomerId ? "Review your changes before updating." : "Complete the required fields before creating this record."}</p><div><button type="button" className="button button-secondary" onClick={() => navigate("/customers")}>Cancel</button><button type="submit" className="button button-primary">{editingCustomerId ? "Update contact" : "Create contact"}</button></div>
           </FormActionSection>
+          </FormPageBody>
         </form>
       </StandardFormLayout>
       <ConfirmModal

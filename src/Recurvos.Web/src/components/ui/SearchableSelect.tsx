@@ -1,5 +1,6 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import type { SearchableSelectOption } from "../../lib/localeOptions";
 
 type SearchableSelectProps = {
@@ -16,6 +17,9 @@ type SearchableSelectProps = {
   className?: string;
   loading?: boolean;
   error?: string;
+  portalPopover?: boolean;
+  onCreate?: (name: string) => void;
+  createLabel?: string;
 };
 
 export function SearchableSelect({
@@ -32,13 +36,18 @@ export function SearchableSelect({
   className = "",
   loading = false,
   error = "",
+  portalPopover = false,
+  onCreate,
+  createLabel = "Add",
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const listboxId = useId();
+  const [portalPopoverStyle, setPortalPopoverStyle] = useState<{ top: number; left: number; width: number } | null>(null);
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value) ?? null,
     [options, value],
@@ -62,6 +71,8 @@ export function SearchableSelect({
       return searchSpace.includes(normalizedQuery);
     });
   }, [options, query]);
+  const creatableName = query.trim();
+  const canCreate = Boolean(onCreate && creatableName && !options.some((option) => option.label.trim().toLowerCase() === creatableName.toLowerCase()));
 
   useEffect(() => {
     if (!isOpen) {
@@ -78,7 +89,7 @@ export function SearchableSelect({
     }
 
     function handlePointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) {
+      if (!containerRef.current?.contains(event.target as Node) && !popoverRef.current?.contains(event.target as Node)) {
         setIsOpen(false);
         setQuery("");
       }
@@ -87,6 +98,26 @@ export function SearchableSelect({
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [isOpen]);
+
+  useLayoutEffect(() => {
+    if (!isOpen || !portalPopover || !containerRef.current) {
+      return;
+    }
+
+    function updatePosition() {
+      const bounds = containerRef.current?.getBoundingClientRect();
+      if (!bounds) return;
+      setPortalPopoverStyle({ top: bounds.bottom + 6, left: bounds.left, width: bounds.width });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [isOpen, portalPopover]);
 
   function open() {
     if (!disabled) {
@@ -140,6 +171,53 @@ export function SearchableSelect({
     }
   }
 
+  const popover = isOpen ? (
+    <div
+      ref={popoverRef}
+      className="searchable-select-popover"
+      style={portalPopover && portalPopoverStyle ? { position: "fixed", top: portalPopoverStyle.top, left: portalPopoverStyle.left, right: "auto", width: portalPopoverStyle.width, zIndex: 1000 } : undefined}
+    >
+      <input
+        ref={searchInputRef}
+        className="text-input searchable-select-search"
+        value={query}
+        placeholder={searchPlaceholder}
+        onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={handleSearchKeyDown}
+      />
+      <ul id={listboxId} className="searchable-select-list" role="listbox" aria-label={ariaLabel}>
+        {error ? (
+          <li className="searchable-select-empty" role="alert">{error}</li>
+        ) : loading ? (
+          <li className="searchable-select-empty">Loading accounts...</li>
+        ) : filteredOptions.length > 0 ? filteredOptions.map((option, index) => (
+          <li key={`${option.value}-${option.label}`} role="option" aria-selected={option.value === value}>
+            <button
+              type="button"
+              className={`searchable-select-option ${index === highlightedIndex ? "searchable-select-option-active" : ""}`.trim()}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectOption(option.value)}
+              onMouseEnter={() => setHighlightedIndex(index)}
+            >
+              {option.label}
+            </button>
+          </li>
+        )) : (
+          <li className="searchable-select-empty">{emptyText}</li>
+        )}
+      </ul>
+      {canCreate ? (
+        <button type="button" className="lookup-add-option" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+          onCreate?.(creatableName);
+          setIsOpen(false);
+          setQuery("");
+        }}>
+          {`+ ${createLabel} "${creatableName}"`}
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <div ref={containerRef} className={`searchable-select ${className}`.trim()}>
       <button
@@ -182,39 +260,7 @@ export function SearchableSelect({
           <span className="searchable-select-chevron" aria-hidden="true">v</span>
         </span>
       </button>
-      {isOpen ? (
-        <div className="searchable-select-popover">
-          <input
-            ref={searchInputRef}
-            className="text-input searchable-select-search"
-            value={query}
-            placeholder={searchPlaceholder}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={handleSearchKeyDown}
-          />
-          <ul id={listboxId} className="searchable-select-list" role="listbox" aria-label={ariaLabel}>
-            {error ? (
-              <li className="searchable-select-empty" role="alert">{error}</li>
-            ) : loading ? (
-              <li className="searchable-select-empty">Loading accounts...</li>
-            ) : filteredOptions.length > 0 ? filteredOptions.map((option, index) => (
-              <li key={`${option.value}-${option.label}`} role="option" aria-selected={option.value === value}>
-                <button
-                  type="button"
-                  className={`searchable-select-option ${index === highlightedIndex ? "searchable-select-option-active" : ""}`.trim()}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectOption(option.value)}
-                  onMouseEnter={() => setHighlightedIndex(index)}
-                >
-                  {option.label}
-                </button>
-              </li>
-            )) : (
-              <li className="searchable-select-empty">{emptyText}</li>
-            )}
-          </ul>
-        </div>
-      ) : null}
+      {portalPopover && popover ? createPortal(popover, document.body) : popover}
     </div>
   );
 }

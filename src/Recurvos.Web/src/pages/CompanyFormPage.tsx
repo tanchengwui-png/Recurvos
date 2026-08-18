@@ -5,20 +5,19 @@ import { MsicCodeModal } from "../components/MsicCodeModal";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { PhoneNumberField } from "../components/ui/PhoneNumberField";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api, buildApiUrl } from "../lib/api";
-import { getAuth, setAuth } from "../lib/auth";
+import { getAuth, setActiveCompanyId } from "../lib/auth";
 import { formatCompanyAddress, getCompanyAddressTitle, parseLegacyCompanyAddress, type CompanyAddress } from "../lib/companyAddresses";
 import { countryOptions, currencyOptions, malaysiaStateOptions, registrationNumberTypeOptions } from "../lib/localeOptions";
 import { msicEntryByCode } from "../lib/msicOfficial";
 import { combinePhoneNumber, DEFAULT_PHONE_COUNTRY_CODE, splitStoredPhoneNumber } from "../lib/phoneNumbers";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { CompanyLookup, PlatformUploadPolicy } from "../types";
-
-const FACTORY_RESET_CONFIRMATION = "RESET COMPANY DATA";
 
 type EditableCompanyAddress = {
   clientId: string;
@@ -200,6 +199,7 @@ export function CompanyFormPage() {
   const [expandedAddressIds, setExpandedAddressIds] = useState<string[]>(() => editingCompanyId ? [] : addresses.map((address) => address.clientId));
 
   const activeCompany = items.find((item) => item.id === editingCompanyId);
+  const factoryResetConfirmationName = form.name.trim() || form.legalName.trim() || activeCompany?.name?.trim() || activeCompany?.legalName?.trim() || "";
   const selectedMsicEntry = form.msicCode ? msicEntryByCode.get(form.msicCode) ?? null : null;
 
   useEffect(() => {
@@ -492,54 +492,8 @@ export function CompanyFormPage() {
     });
   }
 
-  async function clearCompanyClientState() {
-    const auth = getAuth();
-    if (auth) {
-      setAuth({ ...auth, companyName: "Account" });
-    }
-
-    const localKeysToRemove = Object.keys(localStorage).filter((key) => key.startsWith("recurvos.") && key !== "recurvos.auth");
-    for (const key of localKeysToRemove) {
-      localStorage.removeItem(key);
-    }
-
-    try {
-      sessionStorage.clear();
-    } catch {
-      // Best-effort cleanup only.
-    }
-
-    try {
-      if (typeof caches !== "undefined") {
-        const cacheKeys = await caches.keys();
-        await Promise.all(cacheKeys.map((key) => caches.delete(key)));
-      }
-    } catch {
-      // Best-effort cleanup only.
-    }
-
-    try {
-      if (typeof indexedDB !== "undefined" && typeof indexedDB.databases === "function") {
-        const databases = await indexedDB.databases();
-        await Promise.all(
-          databases
-            .map((database) => database.name)
-            .filter((name): name is string => Boolean(name))
-            .map((name) => new Promise<void>((resolve) => {
-              const request = indexedDB.deleteDatabase(name);
-              request.onsuccess = () => resolve();
-              request.onerror = () => resolve();
-              request.onblocked = () => resolve();
-            })),
-        );
-      }
-    } catch {
-      // Best-effort cleanup only.
-    }
-  }
-
   const auth = getAuth();
-  const canFactoryReset = Boolean(editingCompanyId && auth && !auth.isPlatformOwner && ["Owner", "Admin"].includes(auth.role));
+  const canFactoryReset = Boolean(editingCompanyId && auth && !auth.isPlatformOwner && auth.role === "Owner");
 
   const availableRegistrationNumberTypeOptions = form.registrationNumberType && !registrationNumberTypeOptions.some((option) => option.value === form.registrationNumberType)
     ? [{ value: form.registrationNumberType, label: form.registrationNumberType }, ...registrationNumberTypeOptions]
@@ -556,6 +510,8 @@ export function CompanyFormPage() {
       <StandardFormLayout className="company-create-content standard-form-page">
       <FormPageHeader backLabel="Back to Companies" backHref="/companies" breadcrumbs={<><span>Companies</span><span>/</span><span>{editingCompanyId ? "Edit Company" : "New Company"}</span></>} />
         <form id="company-form" className="company-create-form" onSubmit={submit}>
+          <FormPageBody>
+          <div className="form-page-content">
           <section className="company-form-section" aria-labelledby="company-information-title">
             <div className="company-form-section-header">
               <div className="company-form-section-icon" aria-hidden="true">01</div><div><h3 id="company-information-title">Company Information</h3><p>Legal identity, registration and home settings.</p></div>
@@ -849,28 +805,34 @@ export function CompanyFormPage() {
             </label>
           </section>
           {canFactoryReset ? (
-            <section className="company-profile-danger-zone" aria-labelledby="company-factory-reset-title">
-              <div className="company-profile-address-header">
-                <h3 id="company-factory-reset-title" className="section-title">Factory Reset</h3>
-                <p className="muted">Permanently clears this company's logo, contact data, addresses, settings, products, subscriptions, invoices, payments, and related cached company data. This action cannot be undone.</p>
+            <section className="company-profile-danger-zone company-factory-reset-section" aria-labelledby="company-factory-reset-title">
+              <div className="company-factory-reset-copy">
+                <span className="company-factory-reset-icon" aria-hidden="true">⚠</span>
+                <div>
+                  <h3 id="company-factory-reset-title" className="section-title">Factory Reset</h3>
+                  <p>Clears this workspace’s operational records, logo, resettable settings, and foundation data, then restores its standard defaults. The company, its members, and its subscription remain.</p>
+                  <p className="company-factory-reset-warning"><span aria-hidden="true">⚠</span> This action cannot be undone.</p>
+                </div>
+              </div>
+              <div className="company-factory-reset-action">
+                <button type="button" className="button button-danger" onClick={() => setFactoryResetState({ step: "warning", confirmationText: "", error: "", isSubmitting: false })}>
+                  Factory Reset
+                </button>
               </div>
             </section>
           ) : null}
           {error ? <HelperText tone="error">{error}</HelperText> : null}
+          </div>
           <FormActionSection className="company-create-actions">
             <div className="company-form-actions-left">
-              <p className="company-create-required-note">Complete all required fields before creating the company.</p>
-              {canFactoryReset ? (
-                <button type="button" className="button button-danger" onClick={() => setFactoryResetState({ step: "warning", confirmationText: "", error: "", isSubmitting: false })}>
-                  Factory Reset
-                </button>
-              ) : null}
+              <p className="company-create-required-note">{editingCompanyId ? "Review your changes before updating the company." : "Complete the required fields before creating this record."}</p>
             </div>
             <div className="company-form-actions-right">
               <button type="button" className="button button-secondary" onClick={() => navigate("/companies")}>Cancel</button>
               <button type="submit" className="button button-primary">{editingCompanyId ? "Update company" : "Create company"}</button>
             </div>
           </FormActionSection>
+          </FormPageBody>
         </form>
       </StandardFormLayout>
       {isMsicModalOpen ? (
@@ -900,13 +862,13 @@ export function CompanyFormPage() {
         <div className="modal-backdrop" role="presentation" onClick={() => !factoryResetState.isSubmitting && setFactoryResetState(null)}>
           <div className="modal-card card factory-reset-modal" role="dialog" aria-modal="true" aria-labelledby="factory-reset-modal-title" onClick={(event) => event.stopPropagation()}>
             <p className="eyebrow">Danger zone</p>
-            <h3 id="factory-reset-modal-title">Remove company and its data</h3>
+            <h3 id="factory-reset-modal-title">Factory reset {factoryResetConfirmationName || "this company"}?</h3>
             {factoryResetState.step === "warning" ? (
               <>
-                <p className="muted">This will permanently remove the company, its records, files, settings, products, subscriptions, invoices, payments, cached data, and related metadata.</p>
+                <p className="muted">This permanently clears this workspace’s operational records and resettable configuration. The company, its members, users, and subscription stay in place.</p>
                 <HelperText tone="error">This action cannot be undone.</HelperText>
                 <label className="form-label factory-reset-modal-field">
-                  Type <strong>{FACTORY_RESET_CONFIRMATION}</strong> to continue
+                  Type <strong>{factoryResetConfirmationName}</strong> to continue
                   <input
                     className="text-input"
                     value={factoryResetState.confirmationText}
@@ -918,7 +880,7 @@ export function CompanyFormPage() {
               </>
             ) : (
               <>
-                <p className="muted">Final confirmation: the company and all of its related data will be removed immediately.</p>
+                <p className="muted">Final confirmation: this workspace’s operational data and resettable setup will be cleared immediately, then its standard defaults will be restored.</p>
                 <HelperText tone="error">This action cannot be undone.</HelperText>
               </>
             )}
@@ -942,7 +904,7 @@ export function CompanyFormPage() {
               <button
                 type="button"
                 className="button button-danger"
-                disabled={factoryResetState.isSubmitting || (factoryResetState.step === "warning" && factoryResetState.confirmationText !== FACTORY_RESET_CONFIRMATION)}
+                disabled={factoryResetState.isSubmitting || !factoryResetConfirmationName || (factoryResetState.step === "warning" && factoryResetState.confirmationText !== factoryResetConfirmationName)}
                 onClick={async () => {
                   if (factoryResetState.isSubmitting) {
                     return;
@@ -955,13 +917,12 @@ export function CompanyFormPage() {
 
                   try {
                     setFactoryResetState((current) => current ? { ...current, isSubmitting: true, error: "" } : current);
-                    await api.post(`/companies/${editingCompanyId}/factory-reset`, { confirmationText: FACTORY_RESET_CONFIRMATION });
-                    await clearCompanyClientState();
-                    navigate("/companies", {
+                    await api.post(`/companies/${editingCompanyId}/factory-reset`, { confirmationText: factoryResetState.confirmationText });
+                    setActiveCompanyId(editingCompanyId);
+                    navigate("/app", {
                       replace: true,
                       state: {
-                        flashMessage: "Factory reset complete. The selected company and its data have been removed.",
-                        removedCompanyId: editingCompanyId,
+                        flashMessage: "Factory reset complete. This workspace is ready with its standard defaults.",
                       },
                     });
                   } catch (resetError) {

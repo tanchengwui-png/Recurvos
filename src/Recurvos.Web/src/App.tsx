@@ -29,6 +29,8 @@ const FeedbackPage = lazy(() => import("./pages/FeedbackPage").then((module) => 
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage").then((module) => ({ default: module.ForgotPasswordPage })));
 const InfoPage = lazy(() => import("./pages/InfoPage").then((module) => ({ default: module.InfoPage })));
 const InvoicesPage = lazy(() => import("./pages/InvoicesPage").then((module) => ({ default: module.InvoicesPage })));
+const CreditNotesPage = lazy(() => import("./pages/CreditNotesPage").then((module) => ({ default: module.CreditNotesPage })));
+const RefundsPage = lazy(() => import("./pages/RefundsPage").then((module) => ({ default: module.RefundsPage })));
 const LandingPage = lazy(() => import("./pages/LandingPage").then((module) => ({ default: module.LandingPage })));
 const LoginPage = lazy(() => import("./pages/LoginPage").then((module) => ({ default: module.LoginPage })));
 const FoundationOverviewPage = lazy(() => import("./pages/FoundationOverviewPage").then((module) => ({ default: module.FoundationOverviewPage })));
@@ -94,6 +96,7 @@ const DeliveryOrdersPage = lazy(() => import("./pages/DeliveryOrdersPage").then(
 const DeliveryOrderFormPage = lazy(() => import("./pages/DeliveryOrderFormPage").then((module) => ({ default: module.DeliveryOrderFormPage })));
 const DeliveryOrderDetailsPage = lazy(() => import("./pages/DeliveryOrderDetailsPage").then((module) => ({ default: module.DeliveryOrderDetailsPage })));
 const SalesInvoiceFormPage = lazy(() => import("./pages/SalesInvoiceFormPage").then((module) => ({ default: module.SalesInvoiceFormPage })));
+const ManualInvoiceFormPage = lazy(() => import("./pages/ManualInvoiceFormPage").then((module) => ({ default: module.ManualInvoiceFormPage })));
 const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage").then((module) => ({ default: module.VerifyEmailPage })));
 const WhatsAppMessagesPage = lazy(() => import("./pages/WhatsAppMessagesPage").then((module) => ({ default: module.WhatsAppMessagesPage })));
 
@@ -136,7 +139,10 @@ function PlatformRoute({ children }: { children: ReactElement }) {
 
 function RecordDetailRouteModal({ children, fallbackPath }: { children: ReactElement; fallbackPath: string }) {
   const navigate = useNavigate();
-  return <RecordDetailsModal eyebrow="Record summary" title="Details" onClose={() => navigate(fallbackPath)}>{children}</RecordDetailsModal>;
+  const location = useLocation();
+  const closePath = typeof location.state?.closePath === "string" ? location.state.closePath : null;
+  const returnToParent = Boolean(location.state?.backgroundLocation);
+  return <RecordDetailsModal eyebrow="Record summary" title="Details" onClose={() => closePath ? navigate(closePath, { replace: true }) : returnToParent ? navigate(-1) : navigate(fallbackPath)}>{children}</RecordDetailsModal>;
 }
 
 function infoPageConfig(path: "/privacy" | "/terms" | "/support") {
@@ -264,6 +270,7 @@ function AppRoutes() {
             <Route path="/sales/delivery-orders/:id/edit" element={<TenantRoute><DeliveryOrderFormPage /></TenantRoute>} />
             <Route path="/sales/delivery-orders/:id" element={<TenantRoute><DeliveryOrderDetailsPage /></TenantRoute>} />
             <Route path="/sales/invoices/new" element={<TenantRoute><SalesInvoiceFormPage /></TenantRoute>} />
+            <Route path="/invoices/create" element={<TenantRoute><ManualInvoiceFormPage /></TenantRoute>} />
             <Route path="/purchases/orders" element={<TenantRoute><PurchaseOrdersPage /></TenantRoute>} />
             <Route path="/purchases/orders/new" element={<TenantRoute><PurchaseOrderFormPage /></TenantRoute>} />
             <Route path="/purchases/orders/:id/edit" element={<TenantRoute><PurchaseOrderFormPage /></TenantRoute>} />
@@ -285,6 +292,8 @@ function AppRoutes() {
             <Route path="/purchases/refunds/new" element={<TenantRoute><PurchaseRefundFormPage /></TenantRoute>} />
             <Route path="/purchases/refunds/:id" element={<TenantRoute><PurchaseRefundDetailsPage /></TenantRoute>} />
             <Route path="/invoices" element={<TenantRoute><InvoicesPage /></TenantRoute>} />
+            <Route path="/credit-notes" element={<TenantRoute><CreditNotesPage /></TenantRoute>} />
+            <Route path="/refunds" element={<TenantRoute><RefundsPage /></TenantRoute>} />
             <Route path="/finance/journal-entries" element={<TenantRoute><JournalEntriesPage /></TenantRoute>} />
             <Route path="/finance/journal-entries/new" element={<TenantRoute><JournalEntryFormPage /></TenantRoute>} />
             <Route path="/finance/journal-entries/:id/edit" element={<TenantRoute><JournalEntryFormPage /></TenantRoute>} />

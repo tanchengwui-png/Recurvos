@@ -21,6 +21,8 @@ public sealed record RefundDto(
     Guid Id,
     Guid PaymentId,
     Guid? InvoiceId,
+    string? PaymentReference,
+    string? InvoiceNumber,
     decimal Amount,
     string Currency,
     string Reason,

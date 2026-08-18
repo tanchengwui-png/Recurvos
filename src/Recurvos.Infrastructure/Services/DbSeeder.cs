@@ -147,6 +147,7 @@ public sealed class DbSeeder(AppDbContext dbContext)
                 customer = new Customer
                 {
                     SubscriberId = subscriberOwner.Id,
+                    CompanyId = subscriberCompany.Id,
                     Name = demoSubscriber.CustomerName,
                     Email = demoSubscriber.CustomerEmail,
                     PhoneNumber = demoSubscriber.CustomerPhone,

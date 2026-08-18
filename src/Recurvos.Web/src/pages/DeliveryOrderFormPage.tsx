@@ -5,6 +5,7 @@ import { HelperText } from "../components/ui/HelperText";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
+import { openCreatedRecord } from "../lib/postCreateNavigation";
 import { formatCurrency } from "../lib/format";
 import type { DeliveryOrder, SalesOrder, SalesOrderListItem, Warehouse } from "../types";
 
@@ -179,7 +180,7 @@ export function DeliveryOrderFormPage() {
 
     const activeLines = lines.filter((line) => line.quantity > 0);
     if (activeLines.length === 0) {
-      setError("At least one delivery line with quantity is required.");
+      setError("At least one delivery item with quantity is required.");
       return;
     }
 
@@ -199,12 +200,8 @@ export function DeliveryOrderFormPage() {
             quantity: Number(line.quantity),
           })),
         };
-        if (id) {
-          await api.put(`/sales/delivery-orders/${id}`, payload);
-        } else {
-          await api.post(`/sales/delivery-orders`, payload);
-        }
-        navigate("/sales/delivery-orders");
+        if (id) { await api.put(`/sales/delivery-orders/${id}`, payload); navigate("/sales/delivery-orders"); }
+        else { const created = await api.post<{ id: string }>(`/sales/delivery-orders`, payload); openCreatedRecord(navigate, "/sales/delivery-orders", "/sales/delivery-orders", created.id); }
       },
     });
   }
@@ -219,7 +216,7 @@ export function DeliveryOrderFormPage() {
     <div className="page">
       <FormPageHeader backLabel="Back to Delivery Orders" backHref="/sales/delivery-orders" breadcrumbs={<><span>Delivery Orders</span><span>/</span><span>{id ? "Edit Delivery Order" : "New Delivery Order"}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-      <TransactionFormCard title="Delivery order details" description="Customer, dates, source order and delivery lines.">
+      <TransactionFormCard title="Delivery order details" description="Customer, dates, source order and delivery items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           {id ? (
@@ -249,7 +246,7 @@ export function DeliveryOrderFormPage() {
         {!id ? <HelperText>Select a confirmed sales order with remaining quantity to prepare the delivery order.</HelperText> : null}
       </section>
       <section className="card">
-        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Lines</h3></div></div>
+        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Delivery Items</h3></div></div>
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Product</th><th>Description</th><th>Ordered</th><th>Delivered</th><th>Current Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
@@ -278,12 +275,12 @@ export function DeliveryOrderFormPage() {
             <span className="page-meta-chip"><span className="page-meta-chip-label">Total</span><strong className="page-meta-chip-value">{formatCurrency(total, currency)}</strong></span>
           </div>
         </div>
-        <div className="contact-page-actions">
+      </section>
+        <div className={`contact-page-actions ${id ? "form-footer-update" : "form-footer-create"}`}>
           <button type="button" className="button button-secondary" onClick={() => navigate("/sales/delivery-orders")}>Cancel</button>
           {id && deliveryOrder?.status === "Draft" ? <button type="button" className="button button-secondary" onClick={() => void markDelivered()}>Mark as delivered</button> : null}
           {editable ? <button type="button" className="button button-primary" onClick={() => void submit()}>{id ? "Update delivery order" : "Create delivery order"}</button> : null}
         </div>
-      </section>
       </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

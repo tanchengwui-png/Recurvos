@@ -15,7 +15,7 @@ public sealed class StatementService(
     {
         var contact = await dbContext.Customers
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && x.Id == query.ContactId, cancellationToken)
+            .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == query.ContactId, cancellationToken)
             ?? throw new InvalidOperationException("The selected contact could not be found.");
 
         ValidateStatementType(contact, query.StatementType);

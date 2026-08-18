@@ -59,8 +59,12 @@ public sealed class PurchaseOrderStatusRequest
 
 public sealed class GoodsReceivedNoteLineRequest
 {
-    [Required]
-    public Guid PurchaseOrderLineId { get; set; }
+    public Guid? PurchaseOrderLineId { get; set; }
+    public Guid? ProductId { get; set; }
+    public Guid? TaxCodeId { get; set; }
+    [MaxLength(1000)] public string Description { get; set; } = string.Empty;
+    [Range(typeof(decimal), "0.00", "9999999999999999")] public decimal UnitPrice { get; set; }
+    [Range(typeof(decimal), "0.00", "100.00")] public decimal TaxRate { get; set; }
 
     [Range(typeof(decimal), "0.01", "9999999999999999")]
     public decimal Quantity { get; set; }
@@ -78,8 +82,13 @@ public sealed class GoodsReceivedNoteUpsertRequest
     [Required]
     public Guid? CompanyId { get; set; }
 
+    public Guid? PurchaseOrderId { get; set; }
+
     [Required]
-    public Guid PurchaseOrderId { get; set; }
+    public Guid ContactId { get; set; }
+
+    [MaxLength(20)]
+    public string Currency { get; set; } = "MYR";
 
     [Required]
     public Guid? WarehouseId { get; set; }
@@ -130,11 +139,25 @@ public sealed class CreatePurchaseBillRequest
     public List<PurchaseBillSourceLineRequest> Lines { get; set; } = new();
 }
 
+public sealed class CreateDirectPurchaseBillRequest
+{
+    [Required] public Guid? CompanyId { get; set; }
+    [Required] public Guid ContactId { get; set; }
+    [MaxLength(20)] public string Currency { get; set; } = "MYR";
+    [Required] public DateTime DueDateUtc { get; set; }
+    public Guid? PaymentTermId { get; set; }
+    public bool UsePaymentTermDueDate { get; set; } = true;
+    [MaxLength(100)] public string ReferenceNo { get; set; } = string.Empty;
+    [MaxLength(4000)] public string Notes { get; set; } = string.Empty;
+    [Required, MinLength(1)] public List<PurchaseDocumentLineRequest> DirectLines { get; set; } = new();
+}
+
 public sealed record PurchaseSourceDocumentDto(Guid Id, string DocumentNumber, string DocumentType);
 public sealed record PurchaseRelatedDocumentDto(Guid Id, string DocumentNumber, string DocumentType, string Status, DateTime DocumentDateUtc, decimal Amount);
 public sealed record PurchaseOrderRelatedDocumentsDto(IReadOnlyCollection<PurchaseRelatedDocumentDto> GoodsReceivedNotes, IReadOnlyCollection<PurchaseRelatedDocumentDto> Bills);
 public sealed record GoodsReceivedNoteRelatedDocumentsDto(IReadOnlyCollection<PurchaseRelatedDocumentDto> Bills);
 public sealed record PurchaseBillRelatedDocumentsDto(IReadOnlyCollection<PurchaseRelatedDocumentDto> Payments);
+public sealed record PurchaseBillPaymentSummaryDto(decimal PaymentsMade, decimal RefundsReceived, decimal PurchaseCreditNotes, decimal NetPaid, decimal Outstanding);
 
 public sealed record PurchaseDocumentLineDto(Guid Id, Guid? ProductId, Guid? TaxCodeId, string ProductNameSnapshot, string Description, decimal Quantity, decimal UnitPrice, decimal TaxRate, decimal TaxAmount, decimal LineTotal, Guid? PurchaseOrderLineId, decimal ReceivedQuantity, decimal BilledQuantity);
 
@@ -142,15 +165,15 @@ public sealed record PurchaseOrderListItemDto(Guid Id, Guid CompanyId, string Co
 
 public sealed record PurchaseOrderDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string PurchaseOrderNumber, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, DateTime DocumentDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, PurchaseOrderStatus Status, IReadOnlyCollection<PurchaseDocumentLineDto> Lines, PurchaseOrderRelatedDocumentsDto RelatedDocuments);
 
-public sealed record GoodsReceivedNoteListItemDto(Guid Id, Guid CompanyId, string CompanyName, string GoodsReceivedNoteNumber, Guid PurchaseOrderId, string PurchaseOrderNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, string Currency, decimal TotalAmount, GoodsReceivedNoteStatus Status);
+public sealed record GoodsReceivedNoteListItemDto(Guid Id, Guid CompanyId, string CompanyName, string GoodsReceivedNoteNumber, Guid? PurchaseOrderId, string PurchaseOrderNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, string Currency, decimal TotalAmount, GoodsReceivedNoteStatus Status, bool HasPurchaseBills, bool CanCreateBill);
 
-public sealed record GoodsReceivedNoteDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string GoodsReceivedNoteNumber, Guid PurchaseOrderId, string PurchaseOrderNumber, Guid? WarehouseId, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, Guid CreatedFromDocumentId, string CreatedFromDocumentNumber, string CreatedFromDocumentType, DateTime DocumentDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, GoodsReceivedNoteStatus Status, IReadOnlyCollection<PurchaseDocumentLineDto> Lines, GoodsReceivedNoteRelatedDocumentsDto RelatedDocuments);
+public sealed record GoodsReceivedNoteDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string GoodsReceivedNoteNumber, Guid? PurchaseOrderId, string PurchaseOrderNumber, Guid? WarehouseId, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, Guid? CreatedFromDocumentId, string CreatedFromDocumentNumber, string CreatedFromDocumentType, DateTime DocumentDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, GoodsReceivedNoteStatus Status, IReadOnlyCollection<PurchaseDocumentLineDto> Lines, GoodsReceivedNoteRelatedDocumentsDto RelatedDocuments);
 
 public sealed record PurchaseBillLineDto(Guid Id, Guid? PurchaseOrderLineId, Guid? GoodsReceivedNoteLineId, Guid? ProductId, Guid? TaxCodeId, string ProductNameSnapshot, string Description, decimal Quantity, decimal UnitPrice, decimal TaxRate, decimal TaxAmount, decimal LineTotal);
 
 public sealed record PurchaseBillListItemDto(Guid Id, Guid CompanyId, string CompanyName, string PurchaseBillNumber, Guid ContactId, string ContactName, DateTime IssueDateUtc, DateTime DueDateUtc, string Currency, decimal TotalAmount, decimal AmountDue, PurchaseBillStatus Status);
 
-public sealed record PurchaseBillDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string PurchaseBillNumber, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, Guid? PurchaseOrderId, Guid? GoodsReceivedNoteId, Guid CreatedFromDocumentId, string CreatedFromDocumentNumber, string CreatedFromDocumentType, DateTime IssueDateUtc, DateTime DueDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, decimal AmountDue, decimal AmountPaid, PurchaseBillStatus Status, IReadOnlyCollection<PurchaseBillLineDto> Lines, PurchaseBillRelatedDocumentsDto RelatedDocuments);
+public sealed record PurchaseBillDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string PurchaseBillNumber, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, Guid? PurchaseOrderId, Guid? GoodsReceivedNoteId, Guid? CreatedFromDocumentId, string CreatedFromDocumentNumber, string CreatedFromDocumentType, DateTime IssueDateUtc, DateTime DueDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, decimal AmountDue, decimal AmountPaid, PurchaseBillStatus Status, IReadOnlyCollection<PurchaseBillLineDto> Lines, PurchaseBillRelatedDocumentsDto RelatedDocuments, PurchaseBillPaymentSummaryDto PaymentSummary);
 
 public sealed class PurchasePaymentAllocationRequest
 {
@@ -277,6 +300,7 @@ public interface IPurchaseBillService
 {
     Task<IReadOnlyCollection<PurchaseBillListItemDto>> GetAsync(CancellationToken cancellationToken = default);
     Task<PurchaseBillDetailsDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<PurchaseBillDetailsDto> CreateDirectAsync(CreateDirectPurchaseBillRequest request, CancellationToken cancellationToken = default);
     Task<PurchaseBillDetailsDto?> CreateFromPurchaseOrderAsync(Guid purchaseOrderId, CreatePurchaseBillRequest request, CancellationToken cancellationToken = default);
     Task<PurchaseBillDetailsDto?> CreateFromGoodsReceivedNoteAsync(Guid goodsReceivedNoteId, CreatePurchaseBillRequest request, CancellationToken cancellationToken = default);
     Task<PurchaseBillDetailsDto?> CancelAsync(Guid id, CancellationToken cancellationToken = default);

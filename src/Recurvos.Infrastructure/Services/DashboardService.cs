@@ -42,7 +42,7 @@ public sealed class DashboardService(
             .Where(x => x.PaidAtUtc >= paymentRange.StartUtc && x.PaidAtUtc < paymentRange.EndUtc)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
         var overdueAmount = await Invoices(companyIds)
-            .Where(x => x.Status == InvoiceStatus.Open && x.AmountDue > 0 && x.DueDateUtc < todayUtc)
+            .Where(x => x.Status != InvoiceStatus.Paid && x.Status != InvoiceStatus.Voided && x.AmountDue > 0 && x.DueDateUtc < todayUtc)
             .SumAsync(x => (decimal?)x.AmountDue, cancellationToken) ?? 0m;
         var activeSubscriptions = await Subscriptions(companyIds)
             .CountAsync(x => x.Status == SubscriptionStatus.Active, cancellationToken);
@@ -108,7 +108,7 @@ public sealed class DashboardService(
         var todayUtc = DateTime.UtcNow.Date;
 
         var rawQuery = Invoices(companyIds)
-            .Where(x => x.Status == InvoiceStatus.Open && x.AmountDue > 0 && x.DueDateUtc < todayUtc)
+            .Where(x => x.Status != InvoiceStatus.Paid && x.Status != InvoiceStatus.Voided && x.AmountDue > 0 && x.DueDateUtc < todayUtc)
             .OrderBy(x => x.DueDateUtc)
             .Select(x => new
             {

@@ -6,5 +6,6 @@ public enum InvoiceStatus
     Open = 2,
     Paid = 3,
     Uncollectible = 4,
-    Voided = 5
+    Voided = 5,
+    Refunded = 6
 }

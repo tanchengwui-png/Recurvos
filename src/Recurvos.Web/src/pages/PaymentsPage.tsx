@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
-import { RecordDetailsModal } from "../components/RecordDetailsModal";
+import { FilePreviewModal } from "../components/FilePreviewModal";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { RecordDetailField, RecordDetailSection, RecordDetailsModal } from "../components/RecordDetailsModal";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { HelperText } from "../components/ui/HelperText";
@@ -10,6 +12,7 @@ import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { openCreatedEmbeddedRecord } from "../lib/postCreateNavigation";
 import { hasFeature } from "../lib/features";
 import type { FeatureAccess, Payment, PaymentConfirmation } from "../types";
 
@@ -24,39 +27,49 @@ function getPaymentStatusClassName(status: string) {
     return "subscription-mobile-status-warning";
   }
 
-  if (normalized.includes("reject") || normalized.includes("fail") || normalized.includes("refund") || normalized.includes("cancel")) {
+  if (normalized.includes("refund")) {
+    return "subscription-mobile-status-refunded";
+  }
+
+  if (normalized.includes("reject") || normalized.includes("fail") || normalized.includes("cancel")) {
     return "subscription-mobile-status-cancelled";
   }
 
   return "subscription-mobile-status-inactive";
 }
 
+type UnifiedPaymentRecord = {
+  id: string;
+  kind: "payment" | "confirmation";
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  method: string;
+  status: string;
+  amount: number;
+  currency: string;
+  refundedAmount: number;
+  netAmount: number;
+  paidAtUtc?: string | null;
+  reference?: string | null;
+  hasProof: boolean;
+  reviewNote?: string | null;
+};
+
 export function PaymentsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const resolveTab = (value: string | null): "pending" | "history" | "records" => {
-    if (value === "history") {
-      return "history";
-    }
-
-    if (value === "records" || value === "payments") {
-      return "records";
-    }
-
-    return "pending";
-  };
-  const resolvedInitialTab = (() => {
-    const tab = searchParams.get("tab");
-    return resolveTab(tab);
-  })();
-  const [activeTab, setActiveTab] = useState<"pending" | "history" | "records">(resolvedInitialTab);
+  const navigate = useNavigate();
+  const location = useLocation();
   const pendingTableScrollRef = useDragToScroll<HTMLDivElement>();
   const historyTableScrollRef = useDragToScroll<HTMLDivElement>();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
   const [items, setItems] = useState<Payment[]>([]);
   const [confirmations, setConfirmations] = useState<PaymentConfirmation[]>([]);
   const [expandedPaymentId, setExpandedPaymentId] = useState<string | null>(null);
+  const [previewedProof, setPreviewedProof] = useState<UnifiedPaymentRecord | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [methodFilter, setMethodFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
   const [sortBy, setSortBy] = useState("invoice-desc");
   const [refundForm, setRefundForm] = useState<{ paymentId: string; invoiceId: string; amount: string; reason: string; externalRefundId: string } | null>(null);
   const [reviewForm, setReviewForm] = useState<{ id: string; invoiceNumber: string; action: "approve" | "reject"; reviewNote: string } | null>(null);
@@ -64,22 +77,26 @@ export function PaymentsPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [refundError, setRefundError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesConfirmationSearch = (item: PaymentConfirmation) => !normalizedSearch || [item.invoiceNumber, item.customerName, item.payerName, item.transactionReference, item.notes, item.reviewNote].some((value) => value?.toLowerCase().includes(normalizedSearch));
   const pendingConfirmations = confirmations.filter((item) => item.status === "Pending");
   const selectedPayment = expandedPaymentId ? items.find((item) => item.id === expandedPaymentId) ?? null : null;
   const processedConfirmations = confirmations
     .filter((item) => item.status !== "Pending")
     .sort((left, right) => new Date(right.paidAtUtc).getTime() - new Date(left.paidAtUtc).getTime());
-  const confirmationPagination = useClientPagination(pendingConfirmations, [pendingConfirmations.length], 10);
-  const historyPagination = useClientPagination(processedConfirmations, [processedConfirmations.length], 10);
+  const filteredPendingConfirmations = pendingConfirmations.filter(matchesConfirmationSearch);
+  const filteredProcessedConfirmations = processedConfirmations.filter((item) => matchesConfirmationSearch(item) && (statusFilter === "all" || item.status === statusFilter));
+  const confirmationPagination = useClientPagination(filteredPendingConfirmations, [filteredPendingConfirmations.length, search], 10);
+  const historyPagination = useClientPagination(filteredProcessedConfirmations, [filteredProcessedConfirmations.length, search, statusFilter], 10);
   const filteredItems = items
     .filter((item) => {
-      const query = search.trim().toLowerCase();
-      const matchesSearch = !query
-        || item.invoiceNumber.toLowerCase().includes(query)
-        || item.gatewayName.toLowerCase().includes(query)
-        || item.status.toLowerCase().includes(query);
+      const matchesSearch = !normalizedSearch
+        || item.invoiceNumber.toLowerCase().includes(normalizedSearch)
+        || item.gatewayName.toLowerCase().includes(normalizedSearch)
+        || item.status.toLowerCase().includes(normalizedSearch);
       const matchesStatus = statusFilter === "all" || item.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesMethod = methodFilter === "all" || item.gatewayName === methodFilter;
+      return matchesSearch && matchesStatus && matchesMethod;
     })
     .sort((left, right) => {
       switch (sortBy) {
@@ -96,7 +113,23 @@ export function PaymentsPage() {
           return right.invoiceNumber.localeCompare(left.invoiceNumber);
       }
     });
-  const pagination = useClientPagination(filteredItems, [filteredItems.length, search, statusFilter, sortBy]);
+  const pagination = useClientPagination(filteredItems, [filteredItems.length, search, statusFilter, methodFilter, sortBy]);
+  const unifiedRecords: UnifiedPaymentRecord[] = [
+    ...items.map((item) => ({ id: item.id, kind: "payment" as const, invoiceId: item.invoiceId, invoiceNumber: item.invoiceNumber, customerName: "—", method: item.gatewayName, status: item.status, amount: item.amount, currency: item.currency, refundedAmount: item.refundedAmount, netAmount: item.netCollectedAmount, paidAtUtc: item.paidAtUtc, reference: item.externalPaymentId, hasProof: item.hasProof })),
+    ...confirmations.map((item) => ({ id: item.id, kind: "confirmation" as const, invoiceId: item.invoiceId, invoiceNumber: item.invoiceNumber, customerName: item.customerName, method: "Customer confirmation", status: item.status, amount: item.amount, currency: item.currency, refundedAmount: 0, netAmount: item.amount, paidAtUtc: item.paidAtUtc, reference: item.transactionReference, hasProof: item.hasProof, reviewNote: item.reviewNote })),
+  ];
+  const filteredUnifiedRecords = unifiedRecords
+    .filter((item) => {
+      const matchesSearch = !normalizedSearch || [item.invoiceNumber, item.customerName, item.method, item.status, item.reference, item.reviewNote].some((value) => value?.toLowerCase().includes(normalizedSearch));
+      const matchesStatus = statusFilter === "all" || item.status === statusFilter;
+      const matchesMethod = methodFilter === "all" || item.method === methodFilter;
+      const paidAt = item.paidAtUtc ? new Date(item.paidAtUtc) : null;
+      const now = new Date();
+      const matchesDate = dateFilter === "all" || (paidAt && (dateFilter === "last-30" ? now.getTime() - paidAt.getTime() <= 30 * 24 * 60 * 60 * 1000 : dateFilter === "this-year" ? paidAt.getFullYear() === now.getFullYear() : true));
+      return matchesSearch && matchesStatus && matchesMethod && matchesDate;
+    })
+    .sort((left, right) => sortBy === "amount-desc" ? right.amount - left.amount : sortBy === "amount-asc" ? left.amount - right.amount : sortBy === "status" ? left.status.localeCompare(right.status) : new Date(right.paidAtUtc ?? 0).getTime() - new Date(left.paidAtUtc ?? 0).getTime());
+  const unifiedPagination = useClientPagination(filteredUnifiedRecords, [filteredUnifiedRecords.length, search, statusFilter, methodFilter, dateFilter, sortBy]);
   const {
     topScrollRef: pendingTopScrollRef,
     topInnerRef: pendingTopInnerRef,
@@ -132,11 +165,12 @@ export function PaymentsPage() {
   useEffect(() => {
     load();
   }, []);
-
   useEffect(() => {
-    const nextTab = resolveTab(searchParams.get("tab"));
-    setActiveTab(nextTab);
-  }, [searchParams]);
+    const openRecordId = (location.state as { openRecordId?: string } | null)?.openRecordId;
+    if (!openRecordId || !items.some((item) => item.id === openRecordId)) return;
+    setExpandedPaymentId(openRecordId);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [items, location.pathname, location.state, navigate]);
 
   function getReceiptSendSummary(item: Payment) {
     const sendCount = item.history.filter((entry) =>
@@ -149,20 +183,6 @@ export function PaymentsPage() {
     return sendCount === 1 ? "Receipt sent" : `Receipt sent x${sendCount}`;
   }
 
-  function selectTab(tab: "pending" | "history" | "records") {
-    setActiveTab(tab);
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      if (tab === "pending") {
-        next.delete("tab");
-      } else {
-        next.set("tab", tab);
-      }
-
-      return next;
-    }, { replace: true });
-  }
-
   return (
     <div className="page">
       <header className="page-header">
@@ -172,30 +192,44 @@ export function PaymentsPage() {
       </header>
       {successMessage ? <HelperText>{successMessage}</HelperText> : null}
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-      <section className="card settings-tab-card">
-        <div className="settings-tab-strip" role="tablist" aria-label="Payments sections">
-          <button type="button" className={`settings-tab-button ${activeTab === "pending" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("pending")}>
-            <span>Pending</span>
-            <strong>{pendingConfirmations.length}</strong>
-          </button>
-          <button type="button" className={`settings-tab-button ${activeTab === "history" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("history")}>
-            <span>History</span>
-            <strong>{processedConfirmations.length}</strong>
-          </button>
-          <button type="button" className={`settings-tab-button ${activeTab === "records" ? "settings-tab-button-active" : ""}`} onClick={() => selectTab("records")}>
-            <span>Payments</span>
-            <strong>{filteredItems.length}</strong>
-          </button>
-        </div>
+      <section className="catalog-toolbar card subtle-card invoice-filter-bar payments-filter-bar">
+        <input
+          className="text-input"
+          aria-label="Search payments"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search payment, customer, invoice, or reference"
+        />
+        <select aria-label="Filter by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+          <option value="all">All statuses</option>
+          {Array.from(new Set(unifiedRecords.map((item) => item.status))).sort().map((status) => <option key={status} value={status}>{status}</option>)}
+        </select>
+        <select aria-label="Filter by method" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
+          <option value="all">All methods</option>
+          {Array.from(new Set(unifiedRecords.map((item) => item.method))).sort().map((method) => <option key={method} value={method}>{method}</option>)}
+        </select>
+        <select aria-label="Filter by date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)}><option value="all">All dates</option><option value="last-30">Last 30 days</option><option value="this-year">This year</option></select>
       </section>
-      {activeTab === "pending" ? (
-      <div className="payments-grid">
-        <section className="card payments-card finance-card">
+      <section className="card payments-records-card">
+        <ListCardHeader title="Sales payments" count={unifiedPagination.totalItems} countLabel={unifiedPagination.totalItems === 1 ? "payment" : "payments"} actions={<div className="invoice-detail-inline-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/refunds")}>View refunds</button><button type="button" className="button button-primary" onClick={() => navigate("/invoices")}>Create from invoices</button><select className="payments-sort-select" aria-label="Sort payments" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="invoice-desc">Newest paid date</option><option value="amount-desc">Amount high-low</option><option value="amount-asc">Amount low-high</option><option value="status">Status</option></select></div>} />
+        <div className="table-scroll table-scroll-bounded">
+          <table className="catalog-table payments-table">
+            <thead><tr><th>Invoice</th><th>Customer</th><th>Method</th><th>Status</th><th>Amount</th><th>Refunded</th><th>Net</th><th>Date</th><th>Reference</th><th>Proof</th><th>Action</th></tr></thead>
+            <tbody>{unifiedPagination.pagedItems.map((item) => <tr key={`${item.kind}-${item.id}`}>
+              <td>{item.invoiceNumber}</td><td>{item.customerName}</td><td>{item.method}</td><td><span className={`subscription-mobile-status ${getPaymentStatusClassName(item.status)}`}>{item.status}</span></td><td>{formatCurrency(item.amount, item.currency)}</td><td>{item.kind === "payment" ? formatCurrency(item.refundedAmount, item.currency) : "—"}</td><td>{formatCurrency(item.netAmount, item.currency)}</td><td>{item.paidAtUtc ? new Date(item.paidAtUtc).toLocaleDateString() : "—"}</td><td>{item.reference || "—"}</td>
+              <td>{item.hasProof ? <button type="button" className="inline-link button-link" onClick={() => setPreviewedProof(item)}>View proof</button> : "—"}</td>
+              <td className="actions-cell">{item.kind === "confirmation" && item.status === "Pending" ? <button type="button" className="button button-secondary button-compact" onClick={() => setReviewForm({ id: item.id, invoiceNumber: item.invoiceNumber, action: "approve", reviewNote: "" })}>Review</button> : item.kind === "payment" ? <RowActionMenu items={[{ label: "View details", onClick: () => setExpandedPaymentId(item.id) }, { label: "Record refund", onClick: () => { setRefundError(""); setRefundForm({ paymentId: item.id, invoiceId: item.invoiceId, amount: String(item.netAmount), reason: "", externalRefundId: "" }); }}]} /> : <span className="muted">{item.reviewNote || "Reviewed"}</span>}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        {unifiedPagination.pagedItems.length === 0 ? <div className="payments-empty-state"><strong>No payment records found.</strong><span>Try changing the search or filters.</span></div> : null}
+        <TablePagination {...unifiedPagination} onPageChange={unifiedPagination.setCurrentPage} onPageSizeChange={unifiedPagination.setPageSize} />
+      </section>
+      {false ? (
+        <section className="card payments-card finance-card payments-records-card">
           <div className="card-section-header">
             <div>
-              <p className="eyebrow">Customer confirmations</p>
-              <h3 className="section-title">Pending payment review</h3>
-              <p className="muted form-intro">This queue only shows submissions that still need action.</p>
+              <h3 className="section-title">Pending payment reviews</h3>
             </div>
         </div>
         {pendingConfirmations.length > 0 ? (
@@ -352,18 +386,15 @@ export function PaymentsPage() {
             <TablePagination {...confirmationPagination} onPageChange={confirmationPagination.setCurrentPage} onPageSizeChange={confirmationPagination.setPageSize} />
           </>
         ) : (
-          <p className="muted">No pending customer payment confirmations.</p>
+          <div className="payments-empty-state"><strong>No pending customer payment confirmations.</strong><span>New submitted payment confirmations will appear here for review.</span></div>
         )}
         </section>
-      </div>
       ) : null}
-      {activeTab === "history" ? (
-      <section className="card payments-card finance-card">
+      {false ? (
+      <section className="card payments-card finance-card payments-records-card">
         <div className="card-section-header">
           <div>
-            <p className="eyebrow">Review archive</p>
-            <h3 className="section-title">Processed confirmation history</h3>
-            <p className="muted form-intro">Approved and rejected submissions move here so the main review queue stays clean.</p>
+            <h3 className="section-title">Payment review history</h3>
           </div>
         </div>
         {processedConfirmations.length > 0 ? (
@@ -449,28 +480,13 @@ export function PaymentsPage() {
             <TablePagination {...historyPagination} onPageChange={historyPagination.setCurrentPage} onPageSizeChange={historyPagination.setPageSize} />
           </>
         ) : (
-          <p className="muted">No processed confirmation history yet.</p>
+          <div className="payments-empty-state"><strong>No payment review history yet.</strong><span>Reviewed confirmations will appear here.</span></div>
         )}
       </section>
       ) : null}
-      {activeTab === "records" ? (
-      <section className="card payments-card payments-table-card">
-        <div className="catalog-toolbar card subtle-card" style={{ marginBottom: "1rem" }}>
-          <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice, payment method, or status" />
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="all">All statuses</option>
-            {Array.from(new Set(items.map((item) => item.status))).sort().map((status) => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </select>
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-            <option value="invoice-desc">Invoice newest</option>
-            <option value="invoice-asc">Invoice oldest</option>
-            <option value="amount-desc">Amount high-low</option>
-            <option value="amount-asc">Amount low-high</option>
-            <option value="status">Status</option>
-          </select>
-        </div>
+      {false ? (
+      <section className="card payments-card payments-table-card payments-records-card">
+        <div className="card-section-header"><h3 className="section-title">Payment records</h3><select className="payments-sort-select" aria-label="Sort payments" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="invoice-desc">Invoice newest</option><option value="invoice-asc">Invoice oldest</option><option value="amount-desc">Amount high-low</option><option value="amount-asc">Amount low-high</option><option value="status">Status</option></select></div>
         {pagination.pagedItems.length > 0 ? (
           <div className="payments-mobile-list">
             {pagination.pagedItems.map((item) => (
@@ -766,6 +782,24 @@ export function PaymentsPage() {
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       ) : null}
+      {previewedProof ? (
+        <FilePreviewModal
+          title="Payment proof"
+          subtitle={`Invoice ${previewedProof.invoiceNumber}${previewedProof.reference ? ` · ${previewedProof.reference}` : ""}`}
+          filePath={previewedProof.kind === "payment" ? `/payments/${previewedProof.id}/proof` : `/payment-confirmations/${previewedProof.id}/proof`}
+          onClose={() => setPreviewedProof(null)}
+          context={
+            <RecordDetailSection title="Payment details">
+              <RecordDetailField label="Invoice" value={previewedProof.invoiceNumber} />
+              <RecordDetailField label="Customer" value={previewedProof.customerName} />
+              <RecordDetailField label="Amount" value={formatCurrency(previewedProof.amount, previewedProof.currency)} />
+              <RecordDetailField label="Method" value={previewedProof.method} />
+              <RecordDetailField label="Payment date" value={previewedProof.paidAtUtc ? new Date(previewedProof.paidAtUtc).toLocaleDateString() : "—"} />
+              <RecordDetailField label="Reference" value={previewedProof.reference} />
+            </RecordDetailSection>
+          }
+        />
+      ) : null}
       {selectedPayment ? (
         <RecordDetailsModal
           eyebrow="Payment summary"
@@ -784,12 +818,11 @@ export function PaymentsPage() {
               <div className="invoice-detail-block"><div className="invoice-detail-block-header"><p className="eyebrow">Refund history</p></div><div className="invoice-detail-list">
                 {selectedPayment.refunds.length > 0 ? selectedPayment.refunds.map((refund) => <div key={refund.id} className="invoice-detail-list-row"><span>{`${formatCurrency(refund.amount, refund.currency)} | ${refund.reason}`}</span><span className="muted">{new Date(refund.createdAtUtc).toLocaleString()}</span></div>) : <p className="muted">No refunds recorded.</p>}
               </div></div>
-              <div className="invoice-detail-block"><div className="invoice-detail-block-header"><p className="eyebrow">Disputes</p></div><div className="invoice-detail-list">
-                {selectedPayment.disputes.length > 0 ? selectedPayment.disputes.map((dispute) => <div key={dispute.id} className="invoice-detail-list-row"><span>{`${formatCurrency(dispute.amount, "MYR")} | ${dispute.reason} | ${dispute.status}`}</span><span className="muted">{new Date(dispute.openedAtUtc).toLocaleDateString()}</span></div>) : <p className="muted">No disputes. Future capability remains read-only.</p>}
-              </div></div>
-              <div className="invoice-detail-block"><div className="invoice-detail-block-header"><p className="eyebrow">Attempts</p></div><div className="invoice-detail-list">
-                {selectedPayment.attempts.length > 0 ? selectedPayment.attempts.map((attempt) => <div key={`${selectedPayment.id}-${attempt.attemptNumber}`} className="invoice-detail-list-row"><span>{`Attempt ${attempt.attemptNumber} | ${attempt.status}`}</span><span className="muted">{attempt.failureMessage || attempt.failureCode || "-"}</span></div>) : <p className="muted">No attempt history.</p>}
-              </div></div>
+              {selectedPayment.attempts.length > 0 ? (
+                <div className="invoice-detail-block"><div className="invoice-detail-block-header"><p className="eyebrow">Attempts</p></div><div className="invoice-detail-list">
+                  {selectedPayment.attempts.map((attempt) => <div key={`${selectedPayment.id}-${attempt.attemptNumber}`} className="invoice-detail-list-row"><span>{`Attempt ${attempt.attemptNumber} | ${attempt.status}`}</span><span className="muted">{attempt.failureMessage || attempt.failureCode || "-"}</span></div>)}
+                </div></div>
+              ) : null}
             </div>
           </div>
         </RecordDetailsModal>
@@ -808,8 +841,8 @@ export function PaymentsPage() {
               <input className="text-input" value={refundForm.reason} onChange={(event) => setRefundForm((current) => current ? { ...current, reason: event.target.value } : current)} />
             </label>
             <label className="form-label">
-              External refund id
-              <input className="text-input" value={refundForm.externalRefundId} onChange={(event) => setRefundForm((current) => current ? { ...current, externalRefundId: event.target.value } : current)} />
+              Refund reference
+              <input className="text-input" placeholder="Enter bank or payment provider reference (optional)" value={refundForm.externalRefundId} onChange={(event) => setRefundForm((current) => current ? { ...current, externalRefundId: event.target.value } : current)} />
             </label>
             <div className="button-stack">
               <button type="button" className="button button-primary" onClick={() => setConfirmState({
@@ -821,16 +854,18 @@ export function PaymentsPage() {
                   }
 
                   try {
-                    await api.post(`/refunds/payments/${refundForm.paymentId}`, {
+                    const created = await api.post<{ id: string }>(`/refunds/payments/${refundForm.paymentId}`, {
                       invoiceId: refundForm.invoiceId,
                       amount: Number(refundForm.amount),
                       reason: refundForm.reason,
                       externalRefundId: refundForm.externalRefundId || null,
                     });
+                    window.dispatchEvent(new Event("recurvos:payment-state-changed"));
                     setConfirmState(null);
                     setRefundError("");
                     setRefundForm(null);
                     await load();
+                    openCreatedEmbeddedRecord(navigate, "/refunds", created.id);
                   } catch (submitError) {
                     const nextError = submitError instanceof Error ? submitError.message : "Unable to record refund.";
                     setRefundError(nextError);

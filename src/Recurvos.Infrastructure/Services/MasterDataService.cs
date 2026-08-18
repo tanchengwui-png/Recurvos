@@ -12,6 +12,9 @@ public sealed class MasterDataService(
     ICurrentUserService currentUserService,
     IAuditService auditService) : IMasterDataService
 {
+    public Task InitializeDefaultsAsync(Guid companyId, CancellationToken cancellationToken = default) =>
+        EnsureDefaultsAsync(companyId, cancellationToken);
+
     public async Task<MasterDataSnapshotDto> GetSnapshotAsync(CancellationToken cancellationToken = default)
     {
         await EnsureDefaultsAsync(cancellationToken);

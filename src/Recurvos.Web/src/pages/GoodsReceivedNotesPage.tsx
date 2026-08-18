@@ -58,7 +58,7 @@ export function GoodsReceivedNotesPage() {
           },
         }),
       }] : []),
-      ...(item.status === "Received" ? [{
+      ...(item.status === "Received" && !item.hasPurchaseBills ? [{
         label: "Cancel GRN",
         onClick: () => setConfirmState({
           title: "Cancel GRN",
@@ -71,11 +71,11 @@ export function GoodsReceivedNotesPage() {
           },
         }),
       }] : []),
-      ...((item.status === "Received" || item.status === "PartiallyBilled") ? [{
+      ...(item.canCreateBill ? [{
         label: "Create Bill",
         onClick: () => navigate(`/purchases/bills/new?source=grn&sourceId=${item.id}`),
       }] : []),
-      ...(item.status === "Draft" ? [{
+      ...(item.status === "Draft" && !item.hasPurchaseBills ? [{
         label: "Delete",
         tone: "danger" as const,
         onClick: () => setConfirmState({

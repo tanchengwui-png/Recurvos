@@ -457,9 +457,12 @@ public sealed class PaymentService(
 
         if (payment.Invoice is not null)
         {
-            payment.Invoice.AmountPaid = succeeded ? payment.Amount : 0;
-            payment.Invoice.AmountDue = succeeded ? 0 : payment.Amount;
-            payment.Invoice.Status = succeeded ? InvoiceStatus.Paid : InvoiceStatus.Open;
+            var invoicePayments = await dbContext.Payments
+                .Include(x => x.Refunds)
+                .Where(x => x.CompanyId == payment.CompanyId && x.InvoiceId == payment.InvoiceId)
+                .ToListAsync(cancellationToken);
+            await dbContext.Entry(payment.Invoice).Collection(x => x.CreditNotes).LoadAsync(cancellationToken);
+            InvoicePaymentStateCalculator.Recalculate(payment.Invoice, invoicePayments, payment.Invoice.CreditNotes);
 
             if (succeeded)
             {
@@ -564,7 +567,7 @@ public sealed class PaymentService(
             payment.PaidAtUtc,
             history,
             payment.Attempts.OrderBy(x => x.AttemptNumber).Select(x => new PaymentAttemptDto(x.AttemptNumber, x.Status, x.FailureCode, x.FailureMessage)).ToList(),
-            payment.Refunds.OrderByDescending(x => x.CreatedAtUtc).Select(RefundService.Map).ToList(),
+            payment.Refunds.OrderByDescending(x => x.CreatedAtUtc).Select(refund => RefundService.Map(refund, payment)).ToList(),
             payment.Disputes.OrderByDescending(x => x.OpenedAtUtc).Select(x => new PaymentDisputeDto(x.Id, x.ExternalDisputeId, x.Amount, x.Reason, x.Status.ToString(), x.OpenedAtUtc, x.ResolvedAtUtc)).ToList());
 
     private async Task<Dictionary<Guid, IReadOnlyCollection<PaymentHistoryDto>>> GetHistoryMapAsync(IEnumerable<Guid> paymentIds, CancellationToken cancellationToken)

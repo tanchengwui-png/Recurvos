@@ -4,6 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormSection } from "../components/ui/FormSection";
 import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { api } from "../lib/api";
@@ -184,6 +185,8 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
       {loading ? (
         <section className="card"><p className="muted">Loading {moduleConfig.singularLabel}...</p></section>
       ) : (
+        <FormPageBody>
+        <div className="form-page-content">
         <FormSection
           title={`${id ? "Edit" : "New"} ${moduleConfig.singularLabel}`}
           description={`Enter the details for this ${moduleConfig.singularLabel}.`}
@@ -255,16 +258,18 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
               );
             })}
           </div>
-          <FormActionSection>
-            <div />
-            <div>
-              <button type="button" className="button button-secondary" onClick={() => navigate(moduleConfig.path)}>Cancel</button>
-              <button type="button" className="button button-primary" onClick={() => setConfirmOpen(true)}>
-                {id ? `Update ${moduleConfig.singularLabel}` : `Create ${moduleConfig.singularLabel}`}
-              </button>
-            </div>
-          </FormActionSection>
         </FormSection>
+        </div>
+        <FormActionSection>
+          <p>{id ? "Review your changes before updating." : "Complete the required fields before creating this record."}</p>
+          <div>
+            <button type="button" className="button button-secondary" onClick={() => navigate(moduleConfig.path)}>Cancel</button>
+            <button type="button" className="button button-primary" onClick={() => setConfirmOpen(true)}>
+              {id ? `Update ${moduleConfig.singularLabel}` : `Create ${moduleConfig.singularLabel}`}
+            </button>
+          </div>
+        </FormActionSection>
+        </FormPageBody>
       )}
       <ConfirmModal
         open={confirmOpen}

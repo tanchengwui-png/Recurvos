@@ -10,8 +10,8 @@ import { HelperText } from "../components/ui/HelperText";
 import { useDashboard } from "../hooks/useDashboard";
 import { fetchProductPlans } from "../hooks/useProductPlans";
 import { fetchProducts } from "../hooks/useProducts";
-import { getAuth } from "../lib/auth";
 import { api } from "../lib/api";
+import { getActiveCompanyId } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import { hasAnyFeature, hasFeature } from "../lib/features";
 import type { BillingReadiness, CompanyLookup, FeatureAccess } from "../types";
@@ -109,6 +109,7 @@ async function loadOptional<T>(request: Promise<T>, fallback: T): Promise<T> {
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const [activeCompanyId, setActiveCompanyId] = useState(() => getActiveCompanyId() ?? "");
   const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [setupStats, setSetupStats] = useState({
     products: 0,
@@ -119,33 +120,32 @@ export function DashboardPage() {
     payments: 0,
   });
   const [setupDismissed, setSetupDismissed] = useState(() => localStorage.getItem("recurvos.setup.dismissed") === "true");
-  const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [billingReadiness, setBillingReadiness] = useState<BillingReadiness | null>(null);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
   const [quickRange, setQuickRange] = useState<QuickRange>("thisMonth");
   const [startDateUtc, setStartDateUtc] = useState(resolveQuickRange("thisMonth").startDateUtc);
   const [endDateUtc, setEndDateUtc] = useState(resolveQuickRange("thisMonth").endDateUtc);
+
+  useEffect(() => {
+    const syncActiveCompany = () => setActiveCompanyId(getActiveCompanyId() ?? "");
+    window.addEventListener("recurvos:company-changed", syncActiveCompany);
+    return () => window.removeEventListener("recurvos:company-changed", syncActiveCompany);
+  }, []);
+
   const filters = useMemo(() => ({
-    companyId: selectedCompanyId || undefined,
+    companyId: activeCompanyId || undefined,
     startDateUtc: startDateUtc ? new Date(startDateUtc).toISOString() : undefined,
     endDateUtc: endDateUtc ? new Date(endDateUtc).toISOString() : undefined,
-  }), [selectedCompanyId, startDateUtc, endDateUtc]);
+  }), [activeCompanyId, startDateUtc, endDateUtc]);
   const { loading, error, summary, upcomingRenewals, overdueInvoices, recentPayments, scheduledCancellations, trialEnding, revenueTrend, subscriptionGrowth, revenueByCompany, statusSummary } = useDashboard(filters);
 
   useEffect(() => {
     void (async () => {
-      const auth = getAuth();
       const companyList = await loadOptional(api.get<CompanyLookup[]>("/companies"), []);
       const access = await loadOptional(api.get<FeatureAccess>("/settings/feature-access"), EMPTY_FEATURE_ACCESS);
-      const initialCompanyId = companyList.some((company) => company.id === auth?.companyId)
-        ? auth?.companyId ?? ""
-        : companyList[0]?.id ?? "";
 
       setCompanies(companyList);
       setFeatureAccess(access);
-      if (initialCompanyId) {
-        setSelectedCompanyId(initialCompanyId);
-      }
 
       const [products, plans, customers, subscriptions, invoices, payments, readiness] = await Promise.all([
         fetchProducts({ search: "", isActive: "all", page: 1, pageSize: 1 }),
@@ -156,9 +156,7 @@ export function DashboardPage() {
           ? loadOptional(api.get<unknown[]>("/invoices"), [])
           : Promise.resolve([]),
         hasFeature(access, "payment_tracking") ? loadOptional(api.get<unknown[]>("/payments"), []) : Promise.resolve([]),
-        initialCompanyId
-          ? loadOptional(api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${initialCompanyId}`), null)
-          : Promise.resolve(null),
+        loadOptional(api.get<BillingReadiness>("/settings/billing-readiness"), null),
       ]);
 
       setSetupStats({
@@ -171,17 +169,7 @@ export function DashboardPage() {
       });
       setBillingReadiness(readiness);
     })();
-  }, []);
-
-  useEffect(() => {
-    if (!selectedCompanyId) {
-      return;
-    }
-
-    void api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${selectedCompanyId}`)
-      .then(setBillingReadiness)
-      .catch(() => setBillingReadiness(null));
-  }, [selectedCompanyId]);
+  }, [activeCompanyId]);
 
   const setupSteps = [
     { key: "companies", title: "Create company", description: "Add your billing entity and contact details.", done: companies.length > 0, href: "/companies", action: "Open Companies" },
@@ -317,15 +305,6 @@ export function DashboardPage() {
 
       <section className="card subtle-card dashboard-filters dashboard-controls-card">
         <div className="dashboard-filter-grid dashboard-filter-grid-mobile">
-          <label className="form-label dashboard-filter-company">
-            Company
-            <select value={selectedCompanyId} onChange={(event) => setSelectedCompanyId(event.target.value)}>
-              <option value="">All companies</option>
-              {companies.map((company) => (
-                <option key={company.id} value={company.id}>{company.name}</option>
-              ))}
-            </select>
-          </label>
           {quickRange === "custom" ? (
             <>
               <label className="form-label dashboard-filter-date">
@@ -671,7 +650,7 @@ export function DashboardPage() {
             </DashboardTableCard>
 
             <DashboardChartCard title="Revenue by company">
-              {revenueByCompany.length > 1 || !selectedCompanyId ? (
+              {revenueByCompany.length > 1 ? (
                 <SafeResponsiveChart className="dashboard-chart-shell">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={revenueByCompany} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>

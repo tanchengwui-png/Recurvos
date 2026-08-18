@@ -5,13 +5,17 @@ import { HelperText } from "../components/ui/HelperText";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { CurrencySelect } from "../components/ui/CurrencySelect";
 import { TransactionFormCard } from "../components/ui/TransactionFormCard";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { QuickCreateProductModal } from "../components/QuickCreateProductModal";
 import { api } from "../lib/api";
+import { openCreatedRecord } from "../lib/postCreateNavigation";
+import { getAuth, resolveActiveCompanyId } from "../lib/auth";
 import { normaliseCurrencyCode, validateCurrency } from "../lib/currency";
 import { formatCurrency } from "../lib/format";
 import { resolveProductUnitPrice } from "../lib/productPricing";
 import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, PriceLevel, Product, SalesOrder, SalesQuotation, SalesQuotationListItem, TaxCode } from "../types";
 
-type LineForm = { productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
+type LineForm = { sourceQuotationLineId?: string | null; productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
 const emptyLine: LineForm = { productId: "", taxCodeId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 0 };
 
 export function SalesOrderFormPage() {
@@ -25,6 +29,7 @@ export function SalesOrderFormPage() {
   const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [snapshot, setSnapshot] = useState<MasterDataSnapshot | null>(null);
   const [quotations, setQuotations] = useState<SalesQuotationListItem[]>([]);
   const [selectedQuotation, setSelectedQuotation] = useState<SalesQuotation | null>(null);
   const [companyId, setCompanyId] = useState("");
@@ -38,6 +43,7 @@ export function SalesOrderFormPage() {
   const [lines, setLines] = useState<LineForm[]>([{ ...emptyLine }]);
   const [error, setError] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
+  const [quickCreate, setQuickCreate] = useState<{ index: number; name: string } | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -58,6 +64,7 @@ export function SalesOrderFormPage() {
       setCurrencies(activeCurrencies);
       setPriceLevels(activePriceLevels);
       setTaxCodes(activeTaxCodes);
+      setSnapshot(snapshot);
       setProducts(productResult.items);
       setQuotations(quotationList);
       if (order) {
@@ -68,15 +75,22 @@ export function SalesOrderFormPage() {
         setReferenceNo(order.referenceNo);
         setNotes(order.notes);
         setSalesQuotationId(order.salesQuotationId ?? "");
-        setLines(order.lines.map((line) => ({ productId: line.productId ?? "", taxCodeId: line.taxCodeId ?? "", description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })));
+        setLines(order.lines.map((line) => ({ sourceQuotationLineId: line.sourceQuotationLineId, productId: line.productId ?? "", taxCodeId: line.taxCodeId ?? "", description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })));
         if (order.salesQuotationId) {
           const linkedQuotation = await api.get<SalesQuotation>(`/sales/quotations/${order.salesQuotationId}`);
           setSelectedQuotation(linkedQuotation);
         }
       } else if (quotation) {
-        applyQuotationToForm(quotation);
+        if (quotation.status === "Accepted" && !quotation.convertedSalesOrderId) {
+          applyQuotationToForm(quotation);
+        } else {
+          setError("Mark this quotation as accepted before converting it to a sales order.");
+          setCompanyId(resolveActiveCompanyId(companyList));
+          setContactId(contactList[0]?.id ?? "");
+          setCurrency(activeCurrencies[0]?.code ?? "");
+        }
       } else {
-        setCompanyId(companyList[0]?.id ?? "");
+        setCompanyId(resolveActiveCompanyId(companyList));
         setContactId(contactList[0]?.id ?? "");
         setCurrency(activeCurrencies[0]?.code ?? "");
       }
@@ -107,13 +121,13 @@ export function SalesOrderFormPage() {
   }
 
   const filteredProducts = products.filter((item) => item.companyId === companyId && item.isSelling);
-  const companyContacts = contacts.filter((item) => item.companyIds.length === 0 || item.companyIds.includes(companyId));
+  const companyContacts = contacts.filter((item) => item.companyId === companyId);
   const selectedContact = contacts.find((item) => item.id === contactId);
   const selectedPriceLevel = priceLevels.find((item) =>
     selectedContact?.priceLevel
       && item.code.toUpperCase() === selectedContact.priceLevel.trim().toUpperCase());
   const quotationOptions = quotations.filter((item) =>
-    (item.status === "Sent" || item.status === "Accepted" || item.id === salesQuotationId)
+    (item.status === "Accepted" || item.id === salesQuotationId)
     && !item.convertedSalesOrderId
     && (!companyId || item.companyId === companyId || item.id === salesQuotationId));
   const subtotal = lines.reduce((sum, line) => sum + (line.quantity * line.unitPrice), 0);
@@ -155,7 +169,7 @@ export function SalesOrderFormPage() {
     const nextCurrencyError = validateCurrency(currency, currencies);
     if (nextCurrencyError) { setCurrencyError(nextCurrencyError); document.getElementById("sales-order-currency")?.focus(); return; }
     if (lines.some((line) => !line.taxCodeId)) {
-      setError("Select a tax code for each line.");
+      setError("Select a tax code for each item.");
       return;
     }
 
@@ -173,11 +187,10 @@ export function SalesOrderFormPage() {
             referenceNo,
             notes,
             salesQuotationId: salesQuotationId || null,
-            lines: lines.map((line) => ({ productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
+            lines: lines.map((line) => ({ sourceQuotationLineId: line.sourceQuotationLineId || null, productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
           };
-          if (id) await api.put(`/sales/orders/${id}`, payload);
-          else await api.post(`/sales/orders`, payload);
-          navigate("/sales/orders");
+          if (id) { await api.put(`/sales/orders/${id}`, payload); navigate("/sales/orders"); }
+          else { const created = await api.post<{ id: string }>(`/sales/orders`, payload); openCreatedRecord(navigate, "/sales/orders", "/sales/orders", created.id); }
         } catch (submitError) {
           throw new Error(submitError instanceof Error ? submitError.message : "Unable to save sales order.");
         }
@@ -189,10 +202,10 @@ export function SalesOrderFormPage() {
     <div className="page">
       <FormPageHeader backLabel="Back to Sales Orders" backHref="/sales/orders" breadcrumbs={<><span>Sales Orders</span><span>/</span><span>{id ? "Edit Sales Order" : "New Sales Order"}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-      <TransactionFormCard title="Sales order details" description="Customer, dates, currency, reference and line items.">
+      <TransactionFormCard title="Sales order details" description="Customer, dates, currency, reference and order items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
-          <label className="form-label">Company<select value={companyId} onChange={(event) => { const nextCompanyId = event.target.value; setCompanyId(nextCompanyId); setContactId(contacts.find((contact) => contact.companyIds.length === 0 || contact.companyIds.includes(nextCompanyId))?.id ?? ""); }} disabled={!id && Boolean(salesQuotationId)}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="form-label">Company<select value={companyId} onChange={(event) => { const nextCompanyId = event.target.value; setCompanyId(nextCompanyId); setContactId(contacts.find((contact) => contact.companyId === nextCompanyId)?.id ?? ""); }} disabled={!id && Boolean(salesQuotationId)}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="form-label">Contact<select value={contactId} onChange={(event) => setContactId(event.target.value)} disabled={!id && Boolean(salesQuotationId)}>{companyContacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
           <label className="form-label">Document Date<input type="date" className="text-input" value={documentDateUtc} onChange={(event) => setDocumentDateUtc(event.target.value)} /></label>
           <label className="form-label">
@@ -213,7 +226,7 @@ export function SalesOrderFormPage() {
           <label className="form-label">Reference<input className="text-input" value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} /></label>
           <label className="form-label master-data-form-wide">Notes<input className="text-input" value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         </div>
-        {!id ? <HelperText>Choose a source quotation to preload the customer, currency, notes, and lines. Draft manual sales orders can still be created without one.</HelperText> : null}
+        {!id ? <HelperText>Choose a source quotation to preload the customer, currency, notes, and items. You can also create a sales order without one.</HelperText> : null}
         <HelperText>
           {selectedPriceLevel
             ? `Price level default: ${selectedPriceLevel.code} (${selectedPriceLevel.adjustmentPercent}%). Product selection will suggest adjusted unit prices.`
@@ -221,22 +234,22 @@ export function SalesOrderFormPage() {
         </HelperText>
       </section>
       <section className="card">
-        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Lines</h3></div><button type="button" className="button button-secondary" onClick={() => setLines((current) => [...current, { ...emptyLine }])}>Add line</button></div>
+        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Order Items</h3></div><button type="button" className="button button-secondary" onClick={() => setLines((current) => [...current, { ...emptyLine }])}>Add item</button></div>
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Product</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Tax Code</th><th>Total</th><th /></tr></thead>
             <tbody>
               {lines.map((line, index) => (
                 <tr key={index}>
-                  <td><select value={line.productId} onChange={(event) => {
-                    const product = filteredProducts.find((item) => item.id === event.target.value);
-                    const suggestedUnitPrice = getSuggestedUnitPrice(event.target.value);
+                  <td><SearchableSelect value={line.productId} onChange={(productId) => {
+                    const product = filteredProducts.find((item) => item.id === productId);
+                    const suggestedUnitPrice = getSuggestedUnitPrice(productId);
                     updateLine(index, {
-                      productId: event.target.value,
+                      productId,
                       description: line.description || product?.name || "",
                       unitPrice: suggestedUnitPrice ?? line.unitPrice,
                     });
-                  }}><option value="">Manual</option>{filteredProducts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td>
+                  }} options={filteredProducts.map((product) => ({ value: product.id, label: product.name, keywords: [product.code] }))} placeholder="Search products..." searchPlaceholder="Search products..." emptyText="No products found." ariaLabel="Product" portalPopover onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => setQuickCreate({ index, name }) : undefined} createLabel="Add" /></td>
                   <td><input className="text-input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} /></td>
                   <td><input type="number" min="0.01" step="0.01" className="text-input" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} /></td>
                   <td><input type="number" min="0" step="0.01" className="text-input" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: Number(event.target.value) })} /></td>
@@ -263,13 +276,19 @@ export function SalesOrderFormPage() {
             <span className="page-meta-chip"><span className="page-meta-chip-label">Total</span><strong className="page-meta-chip-value">{formatCurrency(total, currency)}</strong></span>
           </div>
         </div>
-        <div className="contact-page-actions">
+      </section>
+        <div className={`contact-page-actions ${id ? "form-footer-update" : "form-footer-create"}`}>
           <button type="button" className="button button-secondary" onClick={() => navigate("/sales/orders")}>Cancel</button>
           <button type="button" className="button button-primary" onClick={() => void submit()}>{id ? "Update sales order" : "Create sales order"}</button>
         </div>
-      </section>
       </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
+      {quickCreate ? <QuickCreateProductModal companyId={companyId} mode="sales" name={quickCreate.name} snapshot={snapshot} onClose={() => setQuickCreate(null)} onCreated={(created) => {
+        const product = created as unknown as Product;
+        setProducts((current) => [...current, product].sort((left, right) => left.name.localeCompare(right.name)));
+        updateLine(quickCreate.index, { productId: created.id, description: created.salesDescription || created.description || created.name, unitPrice: created.salesPrice ?? 0, taxCodeId: created.salesTaxCodeId ?? "", taxRate: taxCodes.find((item) => item.id === created.salesTaxCodeId)?.rate ?? 0 });
+        setQuickCreate(null);
+      }} /> : null}
     </div>
   );
 }

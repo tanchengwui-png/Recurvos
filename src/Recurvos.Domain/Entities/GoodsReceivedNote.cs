@@ -6,10 +6,10 @@ namespace Recurvos.Domain.Entities;
 public sealed class GoodsReceivedNote : CompanyOwnedEntity
 {
     public string GoodsReceivedNoteNumber { get; set; } = string.Empty;
-    public Guid PurchaseOrderId { get; set; }
+    public Guid? PurchaseOrderId { get; set; }
     public Guid? WarehouseId { get; set; }
     public string PurchaseOrderNumber { get; set; } = string.Empty;
-    public Guid CreatedFromDocumentId { get; set; }
+    public Guid? CreatedFromDocumentId { get; set; }
     public string CreatedFromDocumentNumber { get; set; } = string.Empty;
     public string CreatedFromDocumentType { get; set; } = "PurchaseOrder";
     public Guid ContactId { get; set; }

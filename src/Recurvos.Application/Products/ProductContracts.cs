@@ -10,7 +10,9 @@ public sealed class ProductListQuery
     public bool? IsActive { get; set; }
     [Range(1, 10_000)]
     public int Page { get; set; } = 1;
-    [Range(1, 100)]
+    // Transaction product selectors load a complete active-company catalogue so
+    // search operates locally without hiding products beyond the first page.
+    [Range(1, 1000)]
     public int PageSize { get; set; } = 20;
 }
 

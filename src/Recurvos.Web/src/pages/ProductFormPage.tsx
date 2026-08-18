@@ -4,11 +4,13 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { AccountSelect } from "../components/ui/AccountSelect";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import { standardUomOptions, type SearchableSelectOption } from "../lib/localeOptions";
 import { downloadPricingTemplate, readPricingWorkbook } from "../lib/productCustomPriceWorkbook";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
@@ -573,7 +575,7 @@ export function ProductFormPage() {
       setUploadPolicy(policy);
 
       if (!editingProductId) {
-        setForm((current) => ({ ...current, companyId: current.companyId || companyList[0]?.id || "" }));
+        setForm((current) => ({ ...current, companyId: current.companyId || resolveActiveCompanyId(companyList) }));
         return;
       }
 
@@ -683,7 +685,7 @@ export function ProductFormPage() {
     .filter((category) => category.isActive)
     .map((category) => ({ value: category.code, label: `${category.code} - ${category.name}`, keywords: [category.name, category.description || ""] })), form.category);
   const contactOptions = contacts
-    .filter((contact) => contact.companyIds.length === 0 || contact.companyIds.includes(form.companyId))
+    .filter((contact) => contact.companyId === form.companyId)
     .map((contact) => ({
       value: contact.id,
       label: getContactDisplayName(contact),
@@ -691,7 +693,7 @@ export function ProductFormPage() {
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
   const supplierOptions = suppliers
-    .filter((supplier) => supplier.companyIds.length === 0 || supplier.companyIds.includes(form.companyId))
+    .filter((supplier) => supplier.companyId === form.companyId)
     .map((supplier) => ({
       value: supplier.id,
       label: supplier.legalName || supplier.name,
@@ -1046,9 +1048,8 @@ export function ProductFormPage() {
       baseUnitLabel: form.baseUnitLabel.trim(),
       hasMultipleUoms: form.hasMultipleUoms,
       uomConversions: form.hasMultipleUoms ? normalizedUoms : [],
-      hasCustomSalesPrices: form.hasCustomSalesPrices,
-      customSalesPrices: form.hasCustomSalesPrices
-        ? form.customSalesPrices
+      hasCustomSalesPrices: form.customSalesPrices.length > 0,
+      customSalesPrices: form.customSalesPrices
           .filter((row) => row.contactName.trim() || row.contactGroup.trim() || row.priceLevel.trim() || row.uom.trim() || row.unitPrice.trim())
           .map((row) => ({
             targetType: row.targetType,
@@ -1062,11 +1063,9 @@ export function ProductFormPage() {
             minQuantity: row.minQuantity.trim() ? Number(row.minQuantity) : 1,
             uom: row.uom.trim(),
             unitPrice: Number(row.unitPrice),
-          }))
-        : [],
-      hasCustomPurchasePrices: form.hasCustomPurchasePrices,
-      customPurchasePrices: form.hasCustomPurchasePrices
-        ? form.customPurchasePrices
+          })),
+      hasCustomPurchasePrices: form.customPurchasePrices.length > 0,
+      customPurchasePrices: form.customPurchasePrices
           .filter((row) => row.contactName.trim() || row.contactGroup.trim() || row.priceLevel.trim() || row.uom.trim() || row.unitPrice.trim())
           .map((row) => ({
             targetType: row.targetType,
@@ -1080,9 +1079,7 @@ export function ProductFormPage() {
             minQuantity: row.minQuantity.trim() ? Number(row.minQuantity) : 1,
             uom: row.uom.trim(),
             unitPrice: Number(row.unitPrice),
-          }))
-        : [],
-      isSubscriptionProduct: form.isSubscriptionProduct,
+          })),
       isActive: form.isActive,
     };
 
@@ -1126,6 +1123,8 @@ export function ProductFormPage() {
       <StandardFormLayout className="product-create-content standard-form-page">
       <FormPageHeader backLabel="Back to Products" backHref="/products" breadcrumbs={<><span>Products</span><span>/</span><span>{editingProductId ? "Edit Product" : "New Product"}</span></>} />
         <form id="product-form" className="form-stack product-create-form" onSubmit={submit}>
+          <FormPageBody>
+          <div className="form-page-content">
           <section className="product-form-section" aria-labelledby="product-information-title">
             <div className="product-form-section-header">
               <span className="product-form-section-number">01</span><div><h3 id="product-information-title">Product information</h3><p>Core identity, grouping and classification.</p></div>
@@ -1464,6 +1463,7 @@ export function ProductFormPage() {
                                 emptyText="No units found."
                                 ariaLabel="Base unit (required)"
                                 className="uom-label-select"
+                                portalPopover
                               />
                               <span className="uom-base-badge">Required base</span>
                             </div>
@@ -1480,7 +1480,7 @@ export function ProductFormPage() {
                               value={form.salesPrice}
                               onChange={(event) => setForm((current) => ({ ...current, salesPrice: event.target.value }))}
                               aria-label="Base unit sale price"
-                              disabled={!form.isSelling}
+                              disabled={!form.isSelling || !form.baseSalesUomDefault}
                               placeholder="0.00"
                             />
                           </td>
@@ -1493,7 +1493,7 @@ export function ProductFormPage() {
                               value={form.purchasePrice}
                               onChange={(event) => setForm((current) => ({ ...current, purchasePrice: event.target.value }))}
                               aria-label="Base unit purchase price"
-                              disabled={!form.isBuying}
+                              disabled={!form.isBuying || !form.basePurchaseUomDefault}
                               placeholder="0.00"
                             />
                           </td>
@@ -1535,6 +1535,7 @@ export function ProductFormPage() {
                                 emptyText="No units found."
                                 ariaLabel={`UOM label ${index + 1}`}
                                 className="uom-label-select"
+                                portalPopover
                               />
                             </td>
                             <td>
@@ -1550,7 +1551,7 @@ export function ProductFormPage() {
                                 onChange={(event) => updateConversion(index, { salePrice: event.target.value })}
                                 placeholder="0.00"
                                 aria-label={`UOM sale price ${index + 1}`}
-                                disabled={!form.isSelling}
+                                disabled={!form.isSelling || !conversion.isDefaultSalesUom}
                               />
                             </td>
                             <td>
@@ -1563,7 +1564,7 @@ export function ProductFormPage() {
                                 onChange={(event) => updateConversion(index, { purchasePrice: event.target.value })}
                                 placeholder="0.00"
                                 aria-label={`UOM purchase price ${index + 1}`}
-                                disabled={!form.isBuying}
+                                disabled={!form.isBuying || !conversion.isDefaultPurchaseUom}
                               />
                             </td>
                             <td>
@@ -1604,7 +1605,7 @@ export function ProductFormPage() {
             </div>
           </section>
 
-          <section className="product-form-section product-custom-pricing-section" aria-labelledby="product-custom-sales-prices-title">
+          {false ? <section className="product-form-section product-custom-pricing-section" aria-labelledby="product-custom-sales-prices-title">
             <div className="product-form-section-header">
               <span className="product-form-section-number">07</span><div><h3 id="product-custom-sales-prices-title">Custom pricing</h3><p>Customer-specific sales and purchase prices.</p></div>
             </div>
@@ -1640,10 +1641,10 @@ export function ProductFormPage() {
                   </div>
                   {salesImportSummary ? (
                     <div className="pricing-import-summary">
-                      <span className="page-meta-chip"><span className="page-meta-chip-label">Total Rows</span><strong className="page-meta-chip-value">{salesImportSummary.totalRows}</strong></span>
-                      <span className="page-meta-chip"><span className="page-meta-chip-label">Imported</span><strong className="page-meta-chip-value">{salesImportSummary.imported}</strong></span>
-                      <span className="page-meta-chip"><span className="page-meta-chip-label">Failed</span><strong className="page-meta-chip-value">{salesImportSummary.failed}</strong></span>
-                      {salesImportSummary.failed > 0 ? <button type="button" className="button button-secondary button-small" onClick={() => downloadImportErrors("sales")}>Download Error Report</button> : null}
+                      <span className="page-meta-chip"><span className="page-meta-chip-label">Total Rows</span><strong className="page-meta-chip-value">{salesImportSummary?.totalRows ?? 0}</strong></span>
+                      <span className="page-meta-chip"><span className="page-meta-chip-label">Imported</span><strong className="page-meta-chip-value">{salesImportSummary?.imported ?? 0}</strong></span>
+                      <span className="page-meta-chip"><span className="page-meta-chip-label">Failed</span><strong className="page-meta-chip-value">{salesImportSummary?.failed ?? 0}</strong></span>
+                      {(salesImportSummary?.failed ?? 0) > 0 ? <button type="button" className="button button-secondary button-small" onClick={() => downloadImportErrors("sales")}>Download Error Report</button> : null}
                     </div>
                   ) : null}
                   <div className="table-scroll table-scroll-bounded">
@@ -1788,10 +1789,10 @@ export function ProductFormPage() {
                   </div>
                   {purchaseImportSummary ? (
                     <div className="pricing-import-summary">
-                      <span className="page-meta-chip"><span className="page-meta-chip-label">Total Rows</span><strong className="page-meta-chip-value">{purchaseImportSummary.totalRows}</strong></span>
-                      <span className="page-meta-chip"><span className="page-meta-chip-label">Imported</span><strong className="page-meta-chip-value">{purchaseImportSummary.imported}</strong></span>
-                      <span className="page-meta-chip"><span className="page-meta-chip-label">Failed</span><strong className="page-meta-chip-value">{purchaseImportSummary.failed}</strong></span>
-                      {purchaseImportSummary.failed > 0 ? <button type="button" className="button button-secondary button-small" onClick={() => downloadImportErrors("purchase")}>Download Error Report</button> : null}
+                      <span className="page-meta-chip"><span className="page-meta-chip-label">Total Rows</span><strong className="page-meta-chip-value">{purchaseImportSummary?.totalRows ?? 0}</strong></span>
+                      <span className="page-meta-chip"><span className="page-meta-chip-label">Imported</span><strong className="page-meta-chip-value">{purchaseImportSummary?.imported ?? 0}</strong></span>
+                      <span className="page-meta-chip"><span className="page-meta-chip-label">Failed</span><strong className="page-meta-chip-value">{purchaseImportSummary?.failed ?? 0}</strong></span>
+                      {(purchaseImportSummary?.failed ?? 0) > 0 ? <button type="button" className="button button-secondary button-small" onClick={() => downloadImportErrors("purchase")}>Download Error Report</button> : null}
                     </div>
                   ) : null}
                   <div className="table-scroll table-scroll-bounded">
@@ -1905,32 +1906,30 @@ export function ProductFormPage() {
               )}
               </div>
             </div>
-          </section>
+          </section> : null}
 
           <section className="product-form-section" aria-labelledby="product-status-title">
             <div className="product-form-section-header">
-              <span className="product-form-section-number">08</span><div><h3 id="product-status-title">Status</h3><p>Subscription and active-product settings.</p></div>
+              <span className="product-form-section-number">07</span><div><h3 id="product-status-title">Status</h3></div>
             </div>
             <div className="product-form-section-body product-form-grid">
               <label className="product-setting-row product-form-field-wide">
-                <span><strong>Subscription product</strong><small>Allows recurring plans and subscription billing.</small></span>
-                <input type="checkbox" checked={form.isSubscriptionProduct} onChange={(event) => setForm((current) => ({ ...current, isSubscriptionProduct: event.target.checked }))} />
-              </label>
-              <label className="product-setting-row product-form-field-wide">
-                <span><strong>Active</strong><small>Product can be selected in sales and billing workflows.</small></span>
+                <span><strong>Active</strong><small>Product can be selected in sales and purchase workflows.</small></span>
                 <input type="checkbox" checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />
               </label>
             </div>
           </section>
 
           {formError ? <HelperText tone="error">{formError}</HelperText> : null}
+          </div>
           <FormActionSection className="product-create-actions">
-            <div className="product-create-actions-note">Complete all required fields before creating the product.</div>
+            <div className="product-create-actions-note">{editingProductId ? "Review your changes before updating." : "Complete the required fields before creating this record."}</div>
             <div className="product-create-actions-buttons">
               <button type="button" className="button button-secondary" onClick={() => navigate("/products")}>Cancel</button>
               <button type="submit" className="button button-primary" disabled={isSubmitting}>{isSubmitting ? "Creating product…" : editingProductId ? "Update product" : "Create product"}</button>
             </div>
           </FormActionSection>
+          </FormPageBody>
         </form>
       </StandardFormLayout>
       <ConfirmModal

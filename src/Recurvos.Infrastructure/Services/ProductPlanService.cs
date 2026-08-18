@@ -207,11 +207,6 @@ public sealed class ProductPlanService(
         var product = await dbContext.Products.FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == request.ProductId, cancellationToken)
             ?? throw new InvalidOperationException("Product not found.");
 
-        if (!product.IsSubscriptionProduct && request.BillingType == BillingType.Recurring)
-        {
-            errors.Add("Recurring plans are only allowed for subscription products.");
-        }
-
         if (!product.IsActive && request.IsActive)
         {
             errors.Add("Active plans cannot be created under an inactive product.");

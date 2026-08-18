@@ -16,11 +16,12 @@ public sealed class PurchaseBillService(
     {
         var companyIds = OwnedCompanyIdsQuery();
         await SyncBillStatusesAsync(companyIds, cancellationToken);
-        var items = await dbContext.PurchaseBills.Include(x => x.Company)
+        var items = await dbContext.PurchaseBills.Include(x => x.Company).Include(x => x.Lines)
             .Where(x => companyIds.Contains(x.CompanyId))
             .OrderByDescending(x => x.IssueDateUtc)
             .ThenByDescending(x => x.CreatedAtUtc)
             .ToListAsync(cancellationToken);
+        if (ReconcileStoredTotals(items)) await dbContext.SaveChangesAsync(cancellationToken);
         return items.Select(MapList).ToList();
     }
 
@@ -34,8 +35,43 @@ public sealed class PurchaseBillService(
             return null;
         }
 
+        if (ReconcileStoredTotals(new[] { entity })) await dbContext.SaveChangesAsync(cancellationToken);
+
         var relatedDocuments = await LoadRelatedDocumentsAsync(entity.Id, entity.CompanyId, cancellationToken);
-        return MapDetails(entity, relatedDocuments);
+        var paymentSummary = await LoadPaymentSummaryAsync(entity, cancellationToken);
+        return MapDetails(entity, relatedDocuments, paymentSummary);
+    }
+
+    public async Task<PurchaseBillDetailsDto> CreateDirectAsync(CreateDirectPurchaseBillRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!request.CompanyId.HasValue || request.CompanyId.Value != (currentUserService.CompanyId ?? throw new UnauthorizedAccessException()))
+            throw new UnauthorizedAccessException();
+        var contact = await dbContext.Customers.FirstOrDefaultAsync(x => x.Id == request.ContactId && x.CompanyId == request.CompanyId.Value && x.Status == "Active" && x.ContactType.Contains("Supplier"), cancellationToken)
+            ?? throw new InvalidOperationException("Select a valid supplier.");
+        if (request.DirectLines.Count == 0) throw new InvalidOperationException("At least one bill line item is required.");
+        var currency = await ValidateCurrencyAsync(request.CompanyId.Value, request.Currency, cancellationToken);
+        var productIds = request.DirectLines.Where(x => x.ProductId.HasValue).Select(x => x.ProductId!.Value).Distinct().ToList();
+        var products = await dbContext.Products.Where(x => x.CompanyId == request.CompanyId.Value && x.IsActive && x.IsBuying && productIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, cancellationToken);
+        if (products.Count != productIds.Count) throw new InvalidOperationException("Select valid active purchase products.");
+        var taxCodeIds = request.DirectLines.Where(x => x.TaxCodeId.HasValue).Select(x => x.TaxCodeId!.Value).Distinct().ToList();
+        var taxCodes = await dbContext.TaxCodes.Where(x => x.CompanyId == request.CompanyId.Value && x.IsActive && taxCodeIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, cancellationToken);
+        if (taxCodes.Values.Any(x => x.Scope is not TaxScope.Purchase and not TaxScope.Both) || taxCodes.Count != taxCodeIds.Count)
+            throw new InvalidOperationException("Select valid purchase tax codes.");
+        var lines = request.DirectLines.Select(line =>
+        {
+            if (string.IsNullOrWhiteSpace(line.Description)) throw new InvalidOperationException("Bill line description is required.");
+            if (!line.ProductId.HasValue) throw new InvalidOperationException("Select a product for every bill line.");
+            if (line.TaxCodeId.HasValue && taxCodes[line.TaxCodeId.Value].Rate != line.TaxRate) throw new InvalidOperationException("Bill line tax rate must match the selected tax code.");
+            var subtotal = Math.Round(line.Quantity * line.UnitPrice, 2, MidpointRounding.AwayFromZero);
+            var tax = Math.Round(subtotal * (line.TaxRate / 100m), 2, MidpointRounding.AwayFromZero);
+            var product = products[line.ProductId.Value];
+            return new PurchaseBillLine { ProductId = product.Id, TaxCodeId = line.TaxCodeId, ProductNameSnapshot = product.Name, Description = line.Description.Trim(), Quantity = line.Quantity, UnitPrice = line.UnitPrice, TaxRate = line.TaxRate, TaxAmount = tax, LineTotal = subtotal + tax };
+        }).ToList();
+        var billRequest = new CreatePurchaseBillRequest { DueDateUtc = request.DueDateUtc, PaymentTermId = request.PaymentTermId, UsePaymentTermDueDate = request.UsePaymentTermDueDate, ReferenceNo = request.ReferenceNo, Notes = request.Notes };
+        var bill = await CreateBillAsync(request.CompanyId.Value, contact.Id, contact.LegalName ?? contact.Name, contact.Email, contact.PhoneNumber, currency, null, null, null, string.Empty, string.Empty, billRequest, lines, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await auditService.WriteAsync("purchase-bill.created", nameof(PurchaseBill), bill.Id.ToString(), bill.PurchaseBillNumber, cancellationToken);
+        return MapDetails(await LoadOrThrowAsync(bill.Id, cancellationToken));
     }
 
     public async Task<PurchaseBillDetailsDto?> CreateFromPurchaseOrderAsync(Guid purchaseOrderId, CreatePurchaseBillRequest request, CancellationToken cancellationToken = default)
@@ -46,6 +82,11 @@ public sealed class PurchaseBillService(
         if (request.Lines.Count == 0) throw new InvalidOperationException("At least one bill line item is required.");
         PurchaseWorkflowRules.EnsurePurchaseOrderAllowsBilling(purchaseOrder);
 
+        var goodsReceivedNotes = await dbContext.GoodsReceivedNotes.Include(x => x.Lines)
+            .Where(x => x.PurchaseOrderId == purchaseOrder.Id && x.Status != GoodsReceivedNoteStatus.Cancelled)
+            .OrderBy(x => x.DocumentDateUtc)
+            .ThenBy(x => x.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
         var lines = BuildFromPurchaseOrder(purchaseOrder, request.Lines);
         var oldPurchaseOrderStatus = purchaseOrder.Status.ToString();
         var currency = await ValidateCurrencyAsync(purchaseOrder.CompanyId, purchaseOrder.Currency, cancellationToken);
@@ -136,7 +177,17 @@ public sealed class PurchaseBillService(
             if (po is not null)
             {
                 var oldPurchaseOrderStatus = po.Status.ToString();
+                var goodsReceivedNoteLineIds = bill.Lines
+                    .Where(x => x.GoodsReceivedNoteLineId.HasValue)
+                    .Select(x => x.GoodsReceivedNoteLineId!.Value)
+                    .ToList();
+                IReadOnlyCollection<GoodsReceivedNote> goodsReceivedNotes = goodsReceivedNoteLineIds.Count == 0
+                    ? []
+                    : await dbContext.GoodsReceivedNotes.Include(x => x.Lines)
+                        .Where(x => x.PurchaseOrderId == po.Id && x.Lines.Any(line => goodsReceivedNoteLineIds.Contains(line.Id)))
+                        .ToListAsync(cancellationToken);
                 ApplyPurchaseOrderBilledQuantities(po, bill.Lines, -1m);
+                ApplyGoodsReceivedNoteBilledQuantities(goodsReceivedNotes, bill.Lines, -1m);
                 po.Status = PurchaseWorkflowRules.ResolvePurchaseOrderStatus(po, PurchaseOrderStatus.Approved);
                 relatedPurchaseOrderStatusChange = oldPurchaseOrderStatus != po.Status.ToString()
                     ? new StatusChangeRecord(nameof(PurchaseOrder), po.Id, po.PurchaseOrderNumber, oldPurchaseOrderStatus, po.Status.ToString())
@@ -161,7 +212,7 @@ public sealed class PurchaseBillService(
         return MapDetails(bill, relatedDocuments);
     }
 
-    private async Task<PurchaseBill> CreateBillAsync(Guid companyId, Guid contactId, string contactName, string contactEmail, string contactPhone, string currency, Guid? purchaseOrderId, Guid? goodsReceivedNoteId, Guid createdFromDocumentId, string createdFromDocumentNumber, string createdFromDocumentType, CreatePurchaseBillRequest request, List<PurchaseBillLine> lines, CancellationToken cancellationToken)
+    private async Task<PurchaseBill> CreateBillAsync(Guid companyId, Guid contactId, string contactName, string contactEmail, string contactPhone, string currency, Guid? purchaseOrderId, Guid? goodsReceivedNoteId, Guid? createdFromDocumentId, string createdFromDocumentNumber, string createdFromDocumentType, CreatePurchaseBillRequest request, List<PurchaseBillLine> lines, CancellationToken cancellationToken)
     {
         var subtotal = lines.Sum(x => x.Quantity * x.UnitPrice);
         var tax = lines.Sum(x => x.TaxAmount);
@@ -224,23 +275,12 @@ public sealed class PurchaseBillService(
             if (!request.PurchaseOrderLineId.HasValue) throw new InvalidOperationException("Purchase order line is required.");
             var sourceLine = purchaseOrder.Lines.FirstOrDefault(x => x.Id == request.PurchaseOrderLineId.Value)
                 ?? throw new InvalidOperationException("Selected purchase order line was not found.");
-            var remainingReceived = Math.Max(0m, sourceLine.ReceivedQuantity - sourceLine.BilledQuantity);
-            if (request.Quantity > remainingReceived) throw new InvalidOperationException($"Bill quantity for '{sourceLine.Description}' exceeds the received quantity available to bill.");
+            var remainingQuantity = Math.Max(0m, sourceLine.Quantity - sourceLine.BilledQuantity);
+            if (request.Quantity > remainingQuantity)
+                throw new InvalidOperationException($"Bill quantity for '{sourceLine.Description}' exceeds the remaining purchase order quantity available to bill.");
             var lineSubtotal = Math.Round(request.Quantity * sourceLine.UnitPrice, 2, MidpointRounding.AwayFromZero);
             var lineTax = Math.Round(lineSubtotal * (sourceLine.TaxRate / 100m), 2, MidpointRounding.AwayFromZero);
-            lines.Add(new PurchaseBillLine
-            {
-                PurchaseOrderLineId = sourceLine.Id,
-                ProductId = sourceLine.ProductId,
-                TaxCodeId = sourceLine.TaxCodeId,
-                ProductNameSnapshot = sourceLine.ProductNameSnapshot,
-                Description = sourceLine.Description,
-                Quantity = request.Quantity,
-                UnitPrice = sourceLine.UnitPrice,
-                TaxRate = sourceLine.TaxRate,
-                TaxAmount = lineTax,
-                LineTotal = lineSubtotal + lineTax,
-            });
+            lines.Add(new PurchaseBillLine { PurchaseOrderLineId = sourceLine.Id, ProductId = sourceLine.ProductId, TaxCodeId = sourceLine.TaxCodeId, ProductNameSnapshot = sourceLine.ProductNameSnapshot, Description = sourceLine.Description, Quantity = request.Quantity, UnitPrice = sourceLine.UnitPrice, TaxRate = sourceLine.TaxRate, TaxAmount = lineTax, LineTotal = lineSubtotal + lineTax });
         }
         return lines;
     }
@@ -257,7 +297,11 @@ public sealed class PurchaseBillService(
             var grnLine = grn.Lines.FirstOrDefault(x => x.Id == request.GoodsReceivedNoteLineId.Value)
                 ?? throw new InvalidOperationException("Selected GRN line was not found.");
             var remaining = Math.Max(0m, grnLine.Quantity - grnLine.BilledQuantity);
-            if (request.Quantity > remaining) throw new InvalidOperationException($"Bill quantity for '{grnLine.Description}' exceeds the remaining quantity.");
+            if (request.Quantity > remaining) throw new InvalidOperationException($"Bill quantity for '{grnLine.Description}' exceeds the remaining received quantity available to bill.");
+            var purchaseOrderLine = purchaseOrder.Lines.FirstOrDefault(x => x.Id == grnLine.PurchaseOrderLineId)
+                ?? throw new InvalidOperationException("The GRN purchase order line was not found.");
+            if (request.Quantity > Math.Max(0m, purchaseOrderLine.Quantity - purchaseOrderLine.BilledQuantity))
+                throw new InvalidOperationException($"Bill quantity for '{grnLine.Description}' exceeds the remaining purchase order quantity available to bill.");
             var lineSubtotal = Math.Round(request.Quantity * grnLine.UnitPrice, 2, MidpointRounding.AwayFromZero);
             var lineTax = Math.Round(lineSubtotal * (grnLine.TaxRate / 100m), 2, MidpointRounding.AwayFromZero);
             lines.Add(new PurchaseBillLine
@@ -306,6 +350,24 @@ public sealed class PurchaseBillService(
         }
     }
 
+    private static void ApplyGoodsReceivedNoteBilledQuantities(IEnumerable<GoodsReceivedNote> goodsReceivedNotes, IEnumerable<PurchaseBillLine> lines, decimal direction)
+    {
+        var goodsReceivedNoteLines = goodsReceivedNotes
+            .SelectMany(x => x.Lines)
+            .ToDictionary(x => x.Id);
+
+        foreach (var line in lines)
+        {
+            if (!line.GoodsReceivedNoteLineId.HasValue || !goodsReceivedNoteLines.TryGetValue(line.GoodsReceivedNoteLineId.Value, out var goodsReceivedNoteLine)) continue;
+            goodsReceivedNoteLine.BilledQuantity = Math.Max(0m, goodsReceivedNoteLine.BilledQuantity + (line.Quantity * direction));
+        }
+
+        foreach (var goodsReceivedNote in goodsReceivedNotes)
+        {
+            goodsReceivedNote.Status = PurchaseWorkflowRules.ResolveGoodsReceivedNoteBillingStatus(goodsReceivedNote);
+        }
+    }
+
     private Guid GetSubscriberId() => currentUserService.UserId ?? throw new UnauthorizedAccessException();
     private IQueryable<Guid> OwnedCompanyIdsQuery()
     {
@@ -337,8 +399,29 @@ public sealed class PurchaseBillService(
     private static PurchaseBillListItemDto MapList(PurchaseBill entity) =>
         new(entity.Id, entity.CompanyId, entity.Company?.Name ?? string.Empty, entity.PurchaseBillNumber, entity.ContactId, entity.ContactName, entity.IssueDateUtc, entity.DueDateUtc, entity.Currency, entity.TotalAmount, entity.AmountDue, entity.Status);
 
-    private static PurchaseBillDetailsDto MapDetails(PurchaseBill entity, PurchaseBillRelatedDocumentsDto? relatedDocuments = null) =>
-        new(entity.Id, entity.CompanyId, entity.Company?.Name ?? string.Empty, entity.PurchaseBillNumber, entity.ContactId, entity.ContactName, entity.ContactEmail, entity.ContactPhoneNumber, entity.PurchaseOrderId, entity.GoodsReceivedNoteId, entity.CreatedFromDocumentId, entity.CreatedFromDocumentNumber, entity.CreatedFromDocumentType, entity.IssueDateUtc, entity.DueDateUtc, entity.Currency, entity.ReferenceNo, entity.Notes, entity.Subtotal, entity.TaxAmount, entity.TotalAmount, entity.AmountDue, entity.AmountPaid, entity.Status, entity.Lines.Select(MapLine).ToList(), relatedDocuments ?? new PurchaseBillRelatedDocumentsDto([]));
+    // Older records may have been saved with a pre-tax TotalAmount even though
+    // their line tax and line totals were correct. Lines are the authoritative
+    // document detail, so repair only the stored header amounts when they drift.
+    private static bool ReconcileStoredTotals(IEnumerable<PurchaseBill> bills)
+    {
+        var changed = false;
+        foreach (var bill in bills)
+        {
+            var subtotal = bill.Lines.Sum(line => Math.Round(line.Quantity * line.UnitPrice, 2, MidpointRounding.AwayFromZero));
+            var tax = bill.Lines.Sum(line => line.TaxAmount);
+            var total = subtotal + tax;
+            if (bill.Subtotal == subtotal && bill.TaxAmount == tax && bill.TotalAmount == total) continue;
+            bill.Subtotal = subtotal;
+            bill.TaxAmount = tax;
+            bill.TotalAmount = total;
+            bill.UpdatedAtUtc = DateTime.UtcNow;
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static PurchaseBillDetailsDto MapDetails(PurchaseBill entity, PurchaseBillRelatedDocumentsDto? relatedDocuments = null, PurchaseBillPaymentSummaryDto? paymentSummary = null) =>
+        new(entity.Id, entity.CompanyId, entity.Company?.Name ?? string.Empty, entity.PurchaseBillNumber, entity.ContactId, entity.ContactName, entity.ContactEmail, entity.ContactPhoneNumber, entity.PurchaseOrderId, entity.GoodsReceivedNoteId, entity.CreatedFromDocumentId, entity.CreatedFromDocumentNumber, entity.CreatedFromDocumentType, entity.IssueDateUtc, entity.DueDateUtc, entity.Currency, entity.ReferenceNo, entity.Notes, entity.Subtotal, entity.TaxAmount, entity.TotalAmount, entity.AmountDue, entity.AmountPaid, entity.Status, entity.Lines.Select(MapLine).ToList(), relatedDocuments ?? new PurchaseBillRelatedDocumentsDto([]), paymentSummary ?? new PurchaseBillPaymentSummaryDto(0m, 0m, 0m, entity.AmountPaid, entity.AmountDue));
 
     private static PurchaseBillLineDto MapLine(PurchaseBillLine line) =>
         new(line.Id, line.PurchaseOrderLineId, line.GoodsReceivedNoteLineId, line.ProductId, line.TaxCodeId, line.ProductNameSnapshot, line.Description, line.Quantity, line.UnitPrice, line.TaxRate, line.TaxAmount, line.LineTotal);
@@ -390,6 +473,21 @@ public sealed class PurchaseBillService(
             .ToListAsync(cancellationToken);
 
         return new PurchaseBillRelatedDocumentsDto(payments);
+    }
+
+    private async Task<PurchaseBillPaymentSummaryDto> LoadPaymentSummaryAsync(PurchaseBill bill, CancellationToken cancellationToken)
+    {
+        var paymentsMade = await dbContext.PurchasePaymentAllocations
+            .Where(x => x.PurchaseBillId == bill.Id && x.PurchasePayment != null && x.PurchasePayment.Status == PurchasePaymentStatus.Posted)
+            .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
+        var refundsReceived = await dbContext.PurchaseRefundAllocations
+            .Where(x => x.PurchaseBillId == bill.Id && x.PurchaseRefund != null && x.PurchaseRefund.Status != PurchaseRefundStatus.Cancelled)
+            .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
+        var purchaseCreditNotes = await dbContext.PurchaseCreditNotes
+            .Where(x => x.PurchaseBillId == bill.Id && x.Status != PurchaseCreditNoteStatus.Cancelled)
+            .SumAsync(x => (decimal?)x.TotalReduction, cancellationToken) ?? 0m;
+
+        return new PurchaseBillPaymentSummaryDto(paymentsMade, refundsReceived, purchaseCreditNotes, bill.AmountPaid, bill.AmountDue);
     }
 
     private sealed record StatusChangeRecord(string EntityName, Guid EntityId, string Metadata, string OldValue, string NewValue);

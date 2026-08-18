@@ -59,6 +59,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Refund> Refunds => Set<Refund>();
     public DbSet<CreditNote> CreditNotes => Set<CreditNote>();
     public DbSet<CreditNoteLine> CreditNoteLines => Set<CreditNoteLine>();
+    public DbSet<PublicDocumentShare> PublicDocumentShares => Set<PublicDocumentShare>();
     public DbSet<CustomerBalanceTransaction> CustomerBalanceTransactions => Set<CustomerBalanceTransaction>();
     public DbSet<Dispute> Disputes => Set<Dispute>();
     public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
@@ -305,9 +306,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasIndex(x => x.SubscriberId);
 
         modelBuilder.Entity<Customer>()
-            .Property(x => x.CompanyIdsJson)
-            .HasDefaultValue("[]")
-            .IsRequired();
+            .HasIndex(x => x.CompanyId);
 
         modelBuilder.Entity<Customer>()
             .Property(x => x.ContactType)
@@ -734,6 +733,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasIndex(x => new { x.CompanyId, x.ContactId, x.Status, x.DocumentDateUtc });
 
         modelBuilder.Entity<SalesOrder>()
+            .HasIndex(x => x.SalesQuotationId);
+
+        modelBuilder.Entity<SalesOrder>()
             .Property(x => x.SalesOrderNumber)
             .HasMaxLength(50)
             .IsRequired();
@@ -831,6 +833,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<DeliveryOrder>()
             .HasIndex(x => new { x.CompanyId, x.SalesOrderId, x.Status, x.DocumentDateUtc });
+
+        modelBuilder.Entity<DeliveryOrder>()
+            .HasIndex(x => x.SalesQuotationId);
 
         modelBuilder.Entity<DeliveryOrder>()
             .HasIndex(x => x.WarehouseId);
@@ -1050,18 +1055,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<GoodsReceivedNote>()
             .Property(x => x.PurchaseOrderNumber)
-            .HasMaxLength(50)
-            .IsRequired();
+            .HasMaxLength(50);
 
         modelBuilder.Entity<GoodsReceivedNote>()
             .Property(x => x.CreatedFromDocumentNumber)
-            .HasMaxLength(50)
-            .IsRequired();
+            .HasMaxLength(50);
 
         modelBuilder.Entity<GoodsReceivedNote>()
             .Property(x => x.CreatedFromDocumentType)
-            .HasMaxLength(50)
-            .IsRequired();
+            .HasMaxLength(50);
 
         modelBuilder.Entity<GoodsReceivedNote>()
             .Property(x => x.ContactName)
@@ -1179,13 +1181,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
         modelBuilder.Entity<PurchaseBill>()
             .Property(x => x.CreatedFromDocumentNumber)
-            .HasMaxLength(50)
-            .IsRequired();
+            .HasMaxLength(50);
 
         modelBuilder.Entity<PurchaseBill>()
             .Property(x => x.CreatedFromDocumentType)
-            .HasMaxLength(50)
-            .IsRequired();
+            .HasMaxLength(50);
 
         modelBuilder.Entity<PurchaseBill>()
             .Property(x => x.Currency)
@@ -1271,7 +1271,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<PurchaseBillLine>()
-            .ToTable(x => x.HasCheckConstraint("CK_PurchaseBillLine_SourceReference", "(CASE WHEN \"PurchaseOrderLineId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"GoodsReceivedNoteLineId\" IS NULL THEN 0 ELSE 1 END) >= 1"));
+            .ToTable(x => x.HasCheckConstraint("CK_PurchaseBillLine_SourceReference", "(CASE WHEN \"PurchaseOrderLineId\" IS NULL THEN 0 ELSE 1 END + CASE WHEN \"GoodsReceivedNoteLineId\" IS NULL THEN 0 ELSE 1 END) <= 1"));
 
         modelBuilder.Entity<PurchasePayment>()
             .HasIndex(x => new { x.CompanyId, x.PurchasePaymentNumber })
@@ -2179,6 +2179,15 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Payment>().Property(x => x.ProofFileName).HasMaxLength(255);
         modelBuilder.Entity<Payment>().Property(x => x.ProofContentType).HasMaxLength(100);
         modelBuilder.Entity<Invoice>().Property(x => x.PaymentConfirmationTokenHash).HasMaxLength(128);
+
+        modelBuilder.Entity<PublicDocumentShare>(entity =>
+        {
+            entity.Property(x => x.DocumentType).HasMaxLength(60).IsRequired();
+            entity.Property(x => x.TokenHash).HasMaxLength(128).IsRequired();
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.CompanyId, x.DocumentType, x.DocumentId });
+            entity.HasIndex(x => new { x.ExpiresAtUtc, x.RevokedAtUtc });
+        });
         modelBuilder.Entity<PaymentConfirmationSubmission>().Property(x => x.Amount).HasPrecision(18, 2);
         modelBuilder.Entity<PaymentConfirmationSubmission>().Property(x => x.PayerName).HasMaxLength(150).IsRequired();
         modelBuilder.Entity<PaymentConfirmationSubmission>().Property(x => x.TransactionReference).HasMaxLength(100);
@@ -2445,10 +2454,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         foreach (var entry in ChangeTracker.Entries<PurchaseBillLine>().Where(x => x.State is EntityState.Added or EntityState.Modified))
         {
             var line = entry.Entity;
-            if (!line.PurchaseOrderLineId.HasValue && !line.GoodsReceivedNoteLineId.HasValue)
-            {
-                throw new InvalidOperationException("Purchase bill lines must reference a purchase order line or GRN line.");
-            }
+            if (line.PurchaseOrderLineId.HasValue && line.GoodsReceivedNoteLineId.HasValue)
+                throw new InvalidOperationException("Purchase bill lines can reference only one source line.");
         }
 
         foreach (var entry in ChangeTracker.Entries<PurchaseBill>().Where(x => x.State is EntityState.Added or EntityState.Modified))

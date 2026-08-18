@@ -2,16 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
+import { useBusinessDocumentPreview } from "../components/DocumentPreviewModal";
 import type { PurchaseCreditNote } from "../types";
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
 
 export function PurchaseCreditNoteDetailsPage() {
   const navigate = useNavigate();
@@ -23,27 +16,21 @@ export function PurchaseCreditNoteDetailsPage() {
     void api.get<PurchaseCreditNote>(`/purchases/credit-notes/${id}`).then(setDocument);
   }, [id]);
 
+  const { previewDocument, printDocument, preview } = useBusinessDocumentPreview();
+
+  function getDocumentPreviewData() {
+    if (!document) return null;
+    return { companyName: document.companyName, title: "Purchase Credit Note", number: document.purchaseCreditNoteNumber, partyLabel: "Supplier", partyName: document.contactName, currency: document.currency, metadata: [["Credit note date", new Date(document.issuedAtUtc).toLocaleDateString()], ["Applied to bill", document.purchaseBillNumber], ["Reason", document.reason], ["Status", document.status]], headings: ["Description", "Qty", "Unit Amount", "Tax", "Credit Amount"], rows: document.lines.map((line) => ({ cells: [line.description, line.quantity, formatCurrency(line.unitAmount, document.currency), formatCurrency(line.taxAmount, document.currency), formatCurrency(line.lineTotal, document.currency)], numeric: [1, 2, 3, 4] })), totals: [{ label: "Total Credit", value: document.totalReduction, emphasis: true }] };
+  }
+
   function handlePrint() {
-    window.print();
+    const previewDocumentData = getDocumentPreviewData();
+    if (previewDocumentData) printDocument(previewDocumentData);
   }
 
   function handleExportPdf() {
-    if (!document) return;
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
-    if (!popup) return;
-    const rows = document.lines.map((line) => `
-      <tr>
-        <td>${escapeHtml(line.description)}</td>
-        <td style="text-align:right">${line.quantity}</td>
-        <td style="text-align:right">${escapeHtml(formatCurrency(line.unitAmount, document.currency))}</td>
-        <td style="text-align:right">${escapeHtml(formatCurrency(line.lineTotal, document.currency))}</td>
-      </tr>
-    `).join("");
-    popup.document.open();
-    popup.document.write(`<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(document.purchaseCreditNoteNumber)}</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#0f172a}table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #e2e8f0;text-align:left}th{text-transform:uppercase;font-size:12px;color:#64748b}.meta{color:#475569;margin:6px 0}.totals{margin-top:24px;margin-left:auto;width:320px}.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0}</style></head><body><h1>${escapeHtml(document.purchaseCreditNoteNumber)}</h1><p class="meta">Supplier: ${escapeHtml(document.contactName)}</p><p class="meta">Status: ${escapeHtml(document.status)}</p><p class="meta">Purchase bill: ${escapeHtml(document.purchaseBillNumber)}</p><table><thead><tr><th>Description</th><th>Qty</th><th>Unit Amount</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div class="row"><span>Total</span><strong>${escapeHtml(formatCurrency(document.totalReduction, document.currency))}</strong></div></div></body></html>`);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    const previewDocumentData = getDocumentPreviewData();
+    if (previewDocumentData) previewDocument(previewDocumentData);
   }
 
   if (!document) {
@@ -76,7 +63,7 @@ export function PurchaseCreditNoteDetailsPage() {
         <div className="invoice-detail-layout">
           <div className="invoice-detail-main">
             <div className="invoice-detail-block">
-              <div className="invoice-detail-block-header"><h3>Lines</h3></div>
+              <div className="invoice-detail-block-header"><h3>Credit Note Items</h3></div>
               <div className="table-scroll table-scroll-bounded">
                 <table className="catalog-table">
                   <thead><tr><th>Description</th><th>Qty</th><th>Unit Amount</th><th>Tax Amount</th><th>Total</th></tr></thead>
@@ -110,6 +97,7 @@ export function PurchaseCreditNoteDetailsPage() {
           </aside>
         </div>
       </section>
+      {preview}
     </div>
   );
 }

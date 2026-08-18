@@ -122,6 +122,10 @@ public sealed class PurchaseOrderService(
         if (entity is null) return false;
         if (entity.Status != PurchaseOrderStatus.Draft)
             throw new InvalidOperationException("Only draft purchase orders can be deleted.");
+        var hasDownstreamDocuments = await dbContext.GoodsReceivedNotes.AnyAsync(x => x.PurchaseOrderId == entity.Id, cancellationToken)
+            || await dbContext.PurchaseBills.AnyAsync(x => x.PurchaseOrderId == entity.Id, cancellationToken);
+        if (hasDownstreamDocuments)
+            throw new InvalidOperationException("Purchase orders with GRNs or purchase bills cannot be deleted.");
         dbContext.PurchaseOrders.Remove(entity);
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("purchase-order.deleted", nameof(PurchaseOrder), entity.Id.ToString(), entity.PurchaseOrderNumber, cancellationToken);
@@ -185,7 +189,7 @@ public sealed class PurchaseOrderService(
     private async Task<Customer> LoadSupplierAsync(Guid contactId, CancellationToken cancellationToken)
     {
         var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
-        var contact = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && x.Id == contactId, cancellationToken)
+        var contact = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyId == activeCompanyId && x.Id == contactId, cancellationToken)
             ?? throw new InvalidOperationException("Supplier not found.");
         if (!contact.ContactType.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Any(x => x.Equals("Supplier", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException("Selected contact is not a supplier.");

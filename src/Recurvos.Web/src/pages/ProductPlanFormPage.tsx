@@ -4,6 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { Button } from "../components/ui/Button";
 import { FormLabel } from "../components/ui/FormLabel";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { HelperText } from "../components/ui/HelperText";
 import { TextInput } from "../components/ui/TextInput";
@@ -189,7 +190,9 @@ export function ProductPlanFormPage() {
   return (
     <div className="page form-page">
       <FormPageHeader backLabel="Back to Plans" backHref="/plans" breadcrumbs={<><span>Plans</span><span>/</span><span>{form.id ? "Edit Plan" : "New Plan"}</span></>} />
-        <form className="form-stack form-page-content" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <form className="form-stack" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+          <FormPageBody>
+          <div className="form-page-content">
           <section className="form-section-card">
             <div className="form-section-card-header"><span className="form-section-card-number">01</span><div><h3>Plan details</h3><p>Product, billing cycle and pricing settings.</p></div></div>
             <div className="form-section-card-body form-page-field-grid">
@@ -218,13 +221,15 @@ export function ProductPlanFormPage() {
             </div>
           </section>
           {formError ? <HelperText tone="error">{formError}</HelperText> : <HelperText>{billingTermsLocked ? "Safe edits only: name, code, default flag, and active status. Duplicate the plan to change price or billing cycle." : "Use an uppercase code like STARTER-MONTHLY."}</HelperText>}
+          </div>
           <FormActionSection>
-            <p>{billingTermsLocked ? "Only safe plan details can be changed while subscriptions exist." : "Review the billing cycle and price before saving."}</p>
+            <p>{billingTermsLocked ? "Only safe plan details can be changed while subscriptions exist." : form.id ? "Review your changes before updating." : "Complete the required fields before creating this record."}</p>
             <div>
             <Button type="button" variant="secondary" onClick={() => navigate("/plans")}>Cancel</Button>
             <Button type="submit" disabled={isSubmitting || !form.productId}>{isSubmitting ? "Saving..." : form.id ? "Update plan" : "Create plan"}</Button>
             </div>
           </FormActionSection>
+          </FormPageBody>
         </form>
       <ConfirmModal
         open={confirmState !== null}

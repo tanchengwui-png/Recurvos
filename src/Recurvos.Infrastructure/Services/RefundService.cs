@@ -41,18 +41,20 @@ public sealed class RefundService(
     {
         var companyId = GetCompanyId();
         var refunds = await dbContext.Refunds
+            .Include(x => x.Payment)
+            .Include(x => x.Invoice)
             .Where(x => x.CompanyId == companyId)
             .OrderByDescending(x => x.CreatedAtUtc)
             .ToListAsync(cancellationToken);
 
-        return refunds.Select(Map).ToList();
+        return refunds.Select(refund => Map(refund)).ToList();
     }
 
     public async Task<RefundDto?> RecordAsync(Guid paymentId, RecordRefundRequest request, CancellationToken cancellationToken = default)
     {
         var companyId = GetCompanyId();
         var payment = await dbContext.Payments
-            .Include(x => x.Invoice)
+            .Include(x => x.Invoice).ThenInclude(x => x!.CreditNotes)
             .Include(x => x.Refunds)
             .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == paymentId, cancellationToken);
 
@@ -92,13 +94,33 @@ public sealed class RefundService(
         };
 
         dbContext.Refunds.Add(refund);
+        if (payment.Invoice is not null)
+        {
+            var invoicePayments = await dbContext.Payments
+                .Include(x => x.Refunds)
+                .Where(x => x.CompanyId == companyId && x.InvoiceId == payment.InvoiceId)
+                .ToListAsync(cancellationToken);
+            InvoicePaymentStateCalculator.Recalculate(payment.Invoice, invoicePayments);
+        }
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("refund.recorded", nameof(Refund), refund.Id.ToString(), $"payment={payment.Id}", cancellationToken);
-        return Map(refund);
+        return Map(refund, payment);
     }
 
-    internal static RefundDto Map(Refund refund) =>
-        new(refund.Id, refund.PaymentId, refund.InvoiceId, refund.Amount, refund.Currency, refund.Reason, refund.ExternalRefundId, refund.Status, refund.CreatedAtUtc, refund.CreatedByUserId);
+    internal static RefundDto Map(Refund refund, Payment? payment = null) =>
+        new(
+            refund.Id,
+            refund.PaymentId,
+            refund.InvoiceId,
+            payment?.ExternalPaymentId ?? refund.Payment?.ExternalPaymentId ?? payment?.GatewayTransactionId ?? refund.Payment?.GatewayTransactionId ?? "Payment",
+            payment?.Invoice?.InvoiceNumber ?? refund.Invoice?.InvoiceNumber ?? refund.Payment?.Invoice?.InvoiceNumber,
+            refund.Amount,
+            refund.Currency,
+            refund.Reason,
+            refund.ExternalRefundId,
+            refund.Status,
+            refund.CreatedAtUtc,
+            refund.CreatedByUserId);
 
     private Guid GetCompanyId() => currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
 }

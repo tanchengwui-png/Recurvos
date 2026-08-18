@@ -5,8 +5,10 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import type { BillingReadiness, CompanyLookup, Customer, ProductPlan, Subscription } from "../types";
 
@@ -90,7 +92,7 @@ export function NewSubscriptionPage() {
     setCustomers(customerList);
     setCompanies(companyList);
 
-    const activeCompanyId = form.companyId || companyList[0]?.id || "";
+    const activeCompanyId = form.companyId || resolveActiveCompanyId(companyList);
     if (!activeCompanyId) {
       setPlans([]);
       return;
@@ -133,7 +135,7 @@ export function NewSubscriptionPage() {
       setBillingReadiness(readiness);
       setForm((current) => ({
         ...current,
-        customerId: customers.some((customer) => customer.id === current.customerId && (customer.companyIds.length === 0 || customer.companyIds.includes(current.companyId))) ? current.customerId : customers.find((customer) => customer.companyIds.length === 0 || customer.companyIds.includes(current.companyId))?.id ?? "",
+        customerId: customers.some((customer) => customer.id === current.customerId && customer.companyId === current.companyId) ? current.customerId : customers.find((customer) => customer.companyId === current.companyId)?.id ?? "",
         productPlanId: companyPlans.some((plan) => plan.id === current.productPlanId) ? current.productPlanId : companyPlans[0]?.id ?? "",
       }));
     }
@@ -166,7 +168,7 @@ export function NewSubscriptionPage() {
     });
   }
 
-  const companyCustomers = customers.filter((customer) => customer.companyIds.length === 0 || customer.companyIds.includes(form.companyId));
+  const companyCustomers = customers.filter((customer) => customer.companyId === form.companyId);
 
   function removeDraftItem(productPlanId: string) {
     setForm((current) => ({
@@ -235,6 +237,8 @@ export function NewSubscriptionPage() {
       <TransactionFormCard title="Subscription details" description="Customer, plans, billing schedule and subscription items.">
       <section className="card subscription-create-page-card">
         <form id="subscription-create-form" className="form-stack" onSubmit={createSubscription}>
+          <FormPageBody>
+          <div className="form-page-content">
           <label className="form-label">
             Company
             <select value={form.companyId} onChange={(event) => setForm((current) => ({ ...current, companyId: event.target.value }))}>
@@ -310,10 +314,12 @@ export function NewSubscriptionPage() {
               {`Before creating a subscription, complete: ${missingBillingItems.map((item) => item.title).join(", ")}.`}
             </HelperText>
           ) : null}
+          </div>
           <FormActionSection className="subscription-create-actions">
-            <div />
+            <p>Complete the required fields before creating this record.</p>
             <div><button type="button" className="button button-secondary" onClick={() => navigate("/subscriptions")}>Cancel</button><button type="submit" className="button button-primary" disabled={form.items.length === 0 || billingReadiness === null}>Create subscription</button></div>
           </FormActionSection>
+          </FormPageBody>
         </form>
       </section>
       </TransactionFormCard>

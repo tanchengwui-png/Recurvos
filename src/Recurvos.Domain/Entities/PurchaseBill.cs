@@ -11,7 +11,7 @@ public sealed class PurchaseBill : CompanyOwnedEntity
     public string ContactPhoneNumber { get; set; } = string.Empty;
     public Guid? PurchaseOrderId { get; set; }
     public Guid? GoodsReceivedNoteId { get; set; }
-    public Guid CreatedFromDocumentId { get; set; }
+    public Guid? CreatedFromDocumentId { get; set; }
     public string CreatedFromDocumentNumber { get; set; } = string.Empty;
     public string CreatedFromDocumentType { get; set; } = string.Empty;
     public string PurchaseBillNumber { get; set; } = string.Empty;

@@ -20,6 +20,7 @@ public sealed class CreditNoteService(
         var companyId = GetCompanyId();
         var notes = await dbContext.CreditNotes
             .Include(x => x.Lines)
+            .Include(x => x.Invoice)
             .Where(x => x.CompanyId == companyId)
             .OrderByDescending(x => x.IssuedAtUtc)
             .ToListAsync(cancellationToken);
@@ -33,6 +34,7 @@ public sealed class CreditNoteService(
         var invoice = await dbContext.Invoices
             .Include(x => x.Customer)
             .Include(x => x.LineItems)
+            .Include(x => x.Payments).ThenInclude(x => x.Refunds)
             .Include(x => x.CreditNotes).ThenInclude(x => x.Lines)
             .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.Id == request.InvoiceId, cancellationToken)
             ?? throw new InvalidOperationException("Invoice not found.");
@@ -87,6 +89,10 @@ public sealed class CreditNoteService(
             };
         }).ToList();
 
+        // Credit eligibility is independent of payment collection. A paid invoice
+        // may still be credited; only issued credit notes consume this allowance.
+        InvoicePaymentStateCalculator.Recalculate(invoice, invoice.Payments, invoice.CreditNotes);
+
         var subtotalReduction = lines.Sum(x => x.UnitAmount * x.Quantity);
         var taxReduction = lines.Sum(x => x.TaxAmount);
         var totalReduction = lines.Sum(x => x.LineTotal);
@@ -122,6 +128,10 @@ public sealed class CreditNoteService(
         };
 
         dbContext.CreditNotes.Add(creditNote);
+        // Keep the tracked aggregate in sync before calculating the invoice state
+        // and the post-credit document balance below.
+        invoice.CreditNotes.Add(creditNote);
+        InvoicePaymentStateCalculator.Recalculate(invoice, invoice.Payments, invoice.CreditNotes);
         dbContext.CustomerBalanceTransactions.Add(new CustomerBalanceTransaction
         {
             CompanyId = companyId,
@@ -140,8 +150,7 @@ public sealed class CreditNoteService(
         var company = await dbContext.Companies
             .Include(x => x.InvoiceSettings)
             .FirstAsync(x => x.Id == invoice.CompanyId, cancellationToken);
-        var issuedCreditsTotal = invoice.CreditNotes.Where(x => x.Status == CreditNoteStatus.Issued).Sum(x => x.TotalReduction);
-        var newOutstanding = Math.Max(0, invoice.Total - issuedCreditsTotal);
+        var newOutstanding = invoice.AmountDue;
         var pdfContent = await BuildCreditNotePdfAsync(company, invoice, creditNote, newOutstanding, cancellationToken);
         creditNote.PdfPath = await invoiceStorage.SaveDocumentPdfAsync(companyId, creditNote.CreditNoteNumber, pdfContent, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -187,6 +196,7 @@ public sealed class CreditNoteService(
         new(
             creditNote.Id,
             creditNote.InvoiceId,
+            creditNote.Invoice?.InvoiceNumber,
             creditNote.CustomerId,
             creditNote.CreditNoteNumber,
             creditNote.Currency,

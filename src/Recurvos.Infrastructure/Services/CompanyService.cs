@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Recurvos.Application.Abstractions;
@@ -6,6 +7,7 @@ using Recurvos.Application.Companies;
 using Recurvos.Application.Platform;
 using Recurvos.Application.ProductPlans;
 using Recurvos.Application.SubscriberAccounts;
+using Recurvos.Application.MasterData;
 using Recurvos.Domain.Enums;
 using Recurvos.Domain.Entities;
 using Recurvos.Infrastructure.Configuration;
@@ -20,10 +22,11 @@ public sealed class CompanyService(
     IPackageLimitService packageLimitService,
     IOptions<StorageOptions> storageOptions,
     IHostEnvironment environment,
-    ISubscriberAccountBillingReadService subscriberAccountBillingReadService) : ICompanyService
+    ISubscriberAccountBillingReadService subscriberAccountBillingReadService,
+    IMasterDataService masterDataService,
+    IAuditService auditService) : ICompanyService
 {
     private const int AbsoluteUploadMaxBytes = 5 * 1024 * 1024;
-    private const string FactoryResetConfirmationText = "RESET COMPANY DATA";
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
 
@@ -83,6 +86,7 @@ public sealed class CompanyService(
             IsActive = true,
         });
         await dbContext.SaveChangesAsync(cancellationToken);
+        await masterDataService.InitializeDefaultsAsync(company.Id, cancellationToken);
         return MapLookup(company);
     }
 
@@ -130,22 +134,13 @@ public sealed class CompanyService(
     public async Task FactoryResetAsync(Guid id, CompanyFactoryResetRequest request, CancellationToken cancellationToken = default)
     {
         var userId = currentUserService.UserId ?? throw new UnauthorizedAccessException();
-        if (!string.Equals(currentUserService.Role, "Owner", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(currentUserService.Role, "Admin", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new UnauthorizedAccessException("Only administrators can factory reset company data.");
-        }
-
-        if (!string.Equals(request.ConfirmationText?.Trim(), FactoryResetConfirmationText, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException($"Type {FactoryResetConfirmationText} to continue.");
-        }
-
         var targetCompany = await dbContext.Companies
-            .Where(x => x.Id == id && x.Memberships.Any(m => m.UserId == userId && m.IsActive && (m.Role == CompanyMembershipRole.Owner || m.Role == CompanyMembershipRole.Admin)) && !x.IsPlatformAccount)
+            .Where(x => x.Id == id && x.Memberships.Any(m => m.UserId == userId && m.IsActive && m.Role == CompanyMembershipRole.Owner) && !x.IsPlatformAccount)
             .Select(x => new
             {
                 x.Id,
+                x.Name,
+                x.LegalName,
                 x.LogoPath,
                 PaymentQrPath = x.InvoiceSettings != null ? x.InvoiceSettings.PaymentQrPath : null,
             })
@@ -156,19 +151,26 @@ public sealed class CompanyService(
             throw new KeyNotFoundException("Company not found.");
         }
 
-        if (await dbContext.Users.AnyAsync(x => x.CompanyId == id, cancellationToken))
+        var confirmationName = string.IsNullOrWhiteSpace(targetCompany.Name)
+            ? targetCompany.LegalName
+            : targetCompany.Name;
+        if (string.IsNullOrWhiteSpace(confirmationName))
         {
-            throw new InvalidOperationException("This company is the primary workspace for one or more user accounts and cannot be removed from Factory Reset.");
+            throw new InvalidOperationException("The company must have a name before it can be factory reset.");
         }
 
-        var targetCompanyIds = new[] { id };
+        if (!string.Equals(request.ConfirmationText, confirmationName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"Type the exact company name, {confirmationName}, to continue.");
+        }
+
         var filePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         AddFilePath(filePaths, targetCompany.LogoPath);
         AddFilePath(filePaths, targetCompany.PaymentQrPath);
 
         foreach (var path in await dbContext.Invoices
-                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.PdfPath != null)
+                     .Where(x => x.CompanyId == id && x.PdfPath != null)
                      .Select(x => x.PdfPath!)
                      .ToListAsync(cancellationToken))
         {
@@ -176,7 +178,7 @@ public sealed class CompanyService(
         }
 
         foreach (var path in await dbContext.Payments
-                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.ProofFilePath != null)
+                     .Where(x => x.CompanyId == id && x.ProofFilePath != null)
                      .Select(x => x.ProofFilePath!)
                      .ToListAsync(cancellationToken))
         {
@@ -184,7 +186,7 @@ public sealed class CompanyService(
         }
 
         foreach (var path in await dbContext.PaymentConfirmationSubmissions
-                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.ProofFilePath != null)
+                     .Where(x => x.CompanyId == id && x.ProofFilePath != null)
                      .Select(x => x.ProofFilePath!)
                      .ToListAsync(cancellationToken))
         {
@@ -192,55 +194,137 @@ public sealed class CompanyService(
         }
 
         foreach (var path in await dbContext.CreditNotes
-                     .Where(x => targetCompanyIds.Contains(x.CompanyId) && x.PdfPath != null)
+                     .Where(x => x.CompanyId == id && x.PdfPath != null)
                      .Select(x => x.PdfPath!)
                      .ToListAsync(cancellationToken))
         {
             AddFilePath(filePaths, path);
         }
 
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        // The production database is relational and uses one transaction for the complete
+        // reset. The in-memory provider used by integration tests has no transaction support.
+        await using var transaction = dbContext.Database.IsRelational()
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken)
+            : null;
 
-        await dbContext.ReconciliationResults.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.LedgerPostings.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.SettlementLines.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.PayoutBatches.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Disputes.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CustomerBalanceTransactions.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CreditNoteLines.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CreditNotes.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Refunds.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.PaymentAttempts.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.PaymentConfirmationSubmissions.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Payments.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.WhatsAppNotifications.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.ReminderSchedules.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.DunningRules.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CompanyAddresses.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.InvoiceLineItems.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.WebhookEvents.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.AuditLogs.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.FeedbackItems.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.WhatsAppOutboundQueues.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.EmailDispatchLogs.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Invoices.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.SubscriptionItems.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Subscriptions.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.ProductPlans.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.Products.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
-        await dbContext.CompanyInvoiceSettings.Where(x => targetCompanyIds.Contains(x.CompanyId)).ExecuteDeleteAsync(cancellationToken);
+        // Every query below is scoped to the requested workspace. Children are removed before
+        // their headers so the reset works with the database's normal FK protections intact.
+        var quotationIds = await dbContext.SalesQuotations.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var salesOrderIds = await dbContext.SalesOrders.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var deliveryOrderIds = await dbContext.DeliveryOrders.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var purchaseOrderIds = await dbContext.PurchaseOrders.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var goodsReceivedNoteIds = await dbContext.GoodsReceivedNotes.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var purchaseBillIds = await dbContext.PurchaseBills.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var purchasePaymentIds = await dbContext.PurchasePayments.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var purchaseCreditNoteIds = await dbContext.PurchaseCreditNotes.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var purchaseRefundIds = await dbContext.PurchaseRefunds.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var journalEntryIds = await dbContext.JournalEntries.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
 
-        var deleted = await dbContext.Companies
-            .Where(x => x.Id == id && !x.IsPlatformAccount)
-            .ExecuteDeleteAsync(cancellationToken);
-        if (deleted != 1)
+        await dbContext.ReconciliationResults.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.LedgerPostings.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SettlementLines.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PayoutBatches.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Disputes.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CustomerBalanceTransactions.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseRefundAllocations.Where(x => purchaseRefundIds.Contains(x.PurchaseRefundId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseRefunds.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseCreditNoteLines.Where(x => purchaseCreditNoteIds.Contains(x.PurchaseCreditNoteId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseCreditNotes.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchasePaymentAllocations.Where(x => purchasePaymentIds.Contains(x.PurchasePaymentId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchasePayments.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseBillLines.Where(x => purchaseBillIds.Contains(x.PurchaseBillId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseBills.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.GoodsReceivedNoteLines.Where(x => goodsReceivedNoteIds.Contains(x.GoodsReceivedNoteId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.GoodsReceivedNotes.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseOrderLines.Where(x => purchaseOrderIds.Contains(x.PurchaseOrderId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PurchaseOrders.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CreditNoteLines.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CreditNotes.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Refunds.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PaymentAttempts.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PaymentConfirmationSubmissions.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Payments.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.InvoiceLineItems.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Invoices.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.DeliveryOrderLines.Where(x => deliveryOrderIds.Contains(x.DeliveryOrderId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.DeliveryOrders.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SalesOrderLines.Where(x => salesOrderIds.Contains(x.SalesOrderId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SalesOrders.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SalesQuotationLines.Where(x => quotationIds.Contains(x.SalesQuotationId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SalesQuotations.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.JournalEntryLines.Where(x => journalEntryIds.Contains(x.JournalEntryId)).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.JournalEntries.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.InventoryMovements.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.InventoryBalances.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WhatsAppNotifications.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ReminderSchedules.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.DunningRules.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WebhookEvents.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.FeedbackItems.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.WhatsAppOutboundQueues.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.EmailDispatchLogs.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.SubscriptionItems.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Subscriptions.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ProductPlans.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Products.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+
+        var companyAccountIds = await dbContext.Accounts.Where(x => x.CompanyId == id).Select(x => x.Id).ToListAsync(cancellationToken);
+        var contacts = await dbContext.Customers.Where(x => x.CompanyId == id).ToListAsync(cancellationToken);
+        foreach (var contact in contacts)
         {
-            throw new KeyNotFoundException("Company not found.");
+            if (contact.ReceivableAccountId is { } receivableAccountId && companyAccountIds.Contains(receivableAccountId))
+            {
+                contact.ReceivableAccountId = null;
+                contact.ReceivableAccount = string.Empty;
+            }
+            if (contact.PayableAccountId is { } payableAccountId && companyAccountIds.Contains(payableAccountId))
+            {
+                contact.PayableAccountId = null;
+                contact.PayableAccount = string.Empty;
+            }
+            if (contact.IncomeAccountId is { } incomeAccountId && companyAccountIds.Contains(incomeAccountId))
+            {
+                contact.IncomeAccountId = null;
+                contact.IncomeAccount = string.Empty;
+            }
+            if (contact.ExpenseAccountId is { } expenseAccountId && companyAccountIds.Contains(expenseAccountId))
+            {
+                contact.ExpenseAccountId = null;
+                contact.ExpenseAccount = string.Empty;
+            }
+            contact.UpdatedAtUtc = DateTime.UtcNow;
+        }
+        // Persist account detachment before deleting this workspace's accounts.
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await dbContext.CompanyAddresses.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CompanyInvoiceSettings.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ContactGroups.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ProductGroups.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ProductCategories.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PriceLevels.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.TaxCodes.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.PaymentTerms.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.CurrencyDefinitions.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Warehouses.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Accounts.Where(x => x.CompanyId == id).ExecuteDeleteAsync(cancellationToken);
+        await dbContext.Companies.Where(x => x.Id == id).ExecuteUpdateAsync(setters => setters
+            .SetProperty(x => x.LogoPath, (string?)null)
+            .SetProperty(x => x.Address, string.Empty)
+            .SetProperty(x => x.InvoiceSequence, 1000)
+            .SetProperty(x => x.JournalEntrySequence, 1)
+            .SetProperty(x => x.UpdatedAtUtc, DateTime.UtcNow), cancellationToken);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await masterDataService.InitializeDefaultsAsync(id, cancellationToken);
+        await auditService.WriteAsync("company.factory-reset", nameof(Company), id.ToString(), id, $"Factory reset completed for {targetCompany.Name}.", cancellationToken);
+
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken);
         }
 
-        await transaction.CommitAsync(cancellationToken);
-
-        ClearCompanyStorageArtifacts(targetCompanyIds, filePaths);
+        ClearCompanyStorageArtifacts(new[] { id }, filePaths);
     }
 
     public async Task<CompanyLookupDto?> UploadLogoAsync(Guid id, Stream content, string fileName, CancellationToken cancellationToken = default)

@@ -24,7 +24,7 @@ public sealed class ContactGroupService(
             .OrderBy(x => x.Name)
             .ToListAsync(cancellationToken);
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
+            .Where(x => x.CompanyId == companyId)
             .ToListAsync(cancellationToken);
 
         return groups.Select(group => BuildDto(group, customers)).ToList();
@@ -41,7 +41,7 @@ public sealed class ContactGroupService(
         }
 
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
+            .Where(x => x.CompanyId == companyId)
             .ToListAsync(cancellationToken);
         return BuildDto(group, customers);
     }
@@ -55,7 +55,7 @@ public sealed class ContactGroupService(
 
         var selectedContactIds = request.ContactIds.Distinct().ToHashSet();
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
+            .Where(x => x.CompanyId == companyId)
             .ToListAsync(cancellationToken);
         EnsureAllContactsExist(selectedContactIds, customers);
 
@@ -88,7 +88,7 @@ public sealed class ContactGroupService(
 
         var selectedContactIds = request.ContactIds.Distinct().ToHashSet();
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
+            .Where(x => x.CompanyId == companyId)
             .ToListAsync(cancellationToken);
         EnsureAllContactsExist(selectedContactIds, customers);
 
@@ -112,7 +112,7 @@ public sealed class ContactGroupService(
         }
 
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(companyId.ToString()))
+            .Where(x => x.CompanyId == companyId)
             .ToListAsync(cancellationToken);
         ApplyMembership(string.Empty, group.Name, new HashSet<Guid>(), customers);
         dbContext.ContactGroups.Remove(group);

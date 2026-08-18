@@ -6,6 +6,7 @@ import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { CurrencySelect } from "../components/ui/CurrencySelect";
 import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
+import { openCreatedRecord } from "../lib/postCreateNavigation";
 import { normaliseCurrencyCode, validateCurrency } from "../lib/currency";
 import { formatCurrency } from "../lib/format";
 import type { CurrencyDefinition, MasterDataSnapshot, PurchaseBill, PurchasePayment } from "../types";
@@ -116,7 +117,7 @@ export function PurchasePaymentFormPage() {
           })),
         };
         const result = await api.post<PurchasePayment>("/purchases/payments", payload);
-        navigate(`/purchases/payments/${result.id}`);
+        openCreatedRecord(navigate, "/purchases/payments", "/purchases/payments", result.id);
       },
     });
   }
@@ -163,11 +164,11 @@ export function PurchasePaymentFormPage() {
             <span className="page-meta-chip"><span className="page-meta-chip-label">Payment Total</span><strong className="page-meta-chip-value">{formatCurrency(total, currency)}</strong></span>
           </div>
         </div>
+      </section>
         <div className="contact-page-actions">
           <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/payments")}>Cancel</button>
           <button type="button" className="button button-primary" onClick={() => void submit()}>Post payment</button>
         </div>
-      </section>
       </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

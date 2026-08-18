@@ -4,7 +4,7 @@ import { ConfirmModal } from "../components/ConfirmModal";
 import { HelperText } from "../components/ui/HelperText";
 import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { api } from "../lib/api";
-import { getAuth } from "../lib/auth";
+import { getAuth, resolveActiveCompanyId } from "../lib/auth";
 import { hasFeature } from "../lib/features";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
 import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CompanyPaymentGatewayTestResult, DunningRule, FeatureAccess, PlatformUploadPolicy, ReminderHistoryItem, ReminderHistoryPage } from "../types";
@@ -379,9 +379,10 @@ export function SettingsPage() {
       const companyList = await api.get<CompanyLookup[]>("/companies");
       setCompanies(companyList);
 
-      if (!selectedCompanyId && companyList[0]) {
-        setSelectedCompanyId(companyList[0].id);
-        await load(companyList[0].id);
+      if (!selectedCompanyId && companyList.length > 0) {
+        const activeCompanyId = resolveActiveCompanyId(companyList);
+        setSelectedCompanyId(activeCompanyId);
+        await load(activeCompanyId);
         return;
       }
 

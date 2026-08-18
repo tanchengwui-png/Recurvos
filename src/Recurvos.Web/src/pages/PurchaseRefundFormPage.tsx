@@ -5,6 +5,7 @@ import { HelperText } from "../components/ui/HelperText";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
+import { openCreatedRecord } from "../lib/postCreateNavigation";
 import { formatCurrency } from "../lib/format";
 import type { PurchasePayment, PurchasePaymentListItem, PurchaseRefund } from "../types";
 
@@ -109,7 +110,7 @@ export function PurchaseRefundFormPage() {
             amount: Number(item.refundAmount),
           })),
         });
-        navigate(`/purchases/refunds/${result.id}`);
+        openCreatedRecord(navigate, "/purchases/refunds", "/purchases/refunds", result.id);
       },
     });
   }
@@ -165,11 +166,11 @@ export function PurchaseRefundFormPage() {
             <span className="page-meta-chip"><span className="page-meta-chip-label">Refund Total</span><strong className="page-meta-chip-value">{formatCurrency(total, payment?.currency ?? "")}</strong></span>
           </div>
         </div>
+      </section>
         <div className="contact-page-actions">
           <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/refunds")}>Cancel</button>
           <button type="button" className="button button-primary" onClick={() => void submit()}>Record refund</button>
         </div>
-      </section>
       </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

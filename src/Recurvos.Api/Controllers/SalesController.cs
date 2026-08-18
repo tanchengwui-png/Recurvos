@@ -50,6 +50,14 @@ public sealed class SalesController(ISalesQuotationService salesQuotationService
         return result is null ? NotFound() : Ok(result);
     }
 
+    [HttpPost("quotations/{id:guid}/convert-to-delivery-order")]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<DeliveryOrderDetailsDto>> ConvertQuotationToDeliveryOrder(Guid id, ConvertQuotationToDeliveryOrderRequest request, CancellationToken cancellationToken)
+    {
+        var result = await salesQuotationService.ConvertToDeliveryOrderAsync(id, request, cancellationToken);
+        return result is null ? NotFound() : Ok(result);
+    }
+
     [HttpDelete("quotations/{id:guid}")]
     [Authorize(Policy = "ManageBilling")]
     public async Task<IActionResult> DeleteQuotation(Guid id, CancellationToken cancellationToken) =>

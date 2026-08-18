@@ -52,7 +52,7 @@ public sealed class CustomerService(
     {
         await EnsureReadAccessAsync(cancellationToken);
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()))
+            .Where(x => x.CompanyId == GetCompanyId())
             .OrderByDescending(x => x.CreatedAtUtc)
             .ToListAsync(cancellationToken);
         return customers.Select(BuildCustomerDto).ToList();
@@ -62,7 +62,7 @@ public sealed class CustomerService(
     {
         await EnsureReadAccessAsync(cancellationToken);
         var customer = await dbContext.Customers
-            .FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && x.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == id, cancellationToken);
         return customer is null ? null : BuildCustomerDto(customer);
     }
 
@@ -79,7 +79,6 @@ public sealed class CustomerService(
         var addresses = NormalizeAddresses(request.Addresses, request.BillingAddress);
         var groups = NormalizeStringList(request.Groups);
         var tags = NormalizeStringList(request.Tags);
-        var companyIds = await ValidateCompanyAssignmentsAsync(request.CompanyIds?.Any() == true ? request.CompanyIds : new[] { GetCompanyId() }, cancellationToken);
         ValidateConditionalFields(contactType, request.ReceivableAccount, request.PayableAccount);
         var receivableAccount = await ResolveAccountSelectionAsync(request.ReceivableAccountId, request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
         var payableAccount = await ResolveAccountSelectionAsync(request.PayableAccountId, request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
@@ -91,7 +90,7 @@ public sealed class CustomerService(
         var customer = new Customer
         {
             SubscriberId = GetSubscriberId(),
-            CompanyIdsJson = SerializeList(companyIds),
+            CompanyId = GetCompanyId(),
             Name = legalName,
             Email = emailAddresses.FirstOrDefault() ?? string.Empty,
             PhoneNumber = phoneNumbers.FirstOrDefault() ?? string.Empty,
@@ -138,7 +137,7 @@ public sealed class CustomerService(
     public async Task<CustomerDto?> UpdateAsync(Guid id, CustomerRequest request, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
-        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && x.Id == id, cancellationToken);
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == id, cancellationToken);
         if (customer is null)
         {
             return null;
@@ -153,7 +152,6 @@ public sealed class CustomerService(
         var addresses = NormalizeAddresses(request.Addresses, request.BillingAddress);
         var groups = NormalizeStringList(request.Groups);
         var tags = NormalizeStringList(request.Tags);
-        var companyIds = await ValidateCompanyAssignmentsAsync(request.CompanyIds, cancellationToken);
         ValidateConditionalFields(contactType, request.ReceivableAccount, request.PayableAccount);
         var receivableAccount = await ResolveAccountSelectionAsync(request.ReceivableAccountId, request.ReceivableAccount, AccountType.Asset, "Receivable account", cancellationToken);
         var payableAccount = await ResolveAccountSelectionAsync(request.PayableAccountId, request.PayableAccount, AccountType.Liability, "Payable account", cancellationToken);
@@ -164,7 +162,6 @@ public sealed class CustomerService(
         var paymentTerm = await ValidatePaymentTermAsync(request.PaymentTerm, cancellationToken);
 
         customer.EntityType = entityType;
-        customer.CompanyIdsJson = SerializeList(companyIds);
         customer.LegalName = legalName;
         customer.OtherName = request.OtherName.Trim();
         customer.RegistrationNumberType = request.RegistrationNumberType.Trim();
@@ -225,7 +222,7 @@ public sealed class CustomerService(
         }
 
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && selectedIds.Contains(x.Id))
+            .Where(x => x.CompanyId == GetCompanyId() && selectedIds.Contains(x.Id))
             .ToListAsync(cancellationToken);
 
         var foundIds = customers.Select(customer => customer.Id).ToHashSet();
@@ -571,7 +568,7 @@ public sealed class CustomerService(
 
         var selectedIds = records.Select(record => record.CustomerId).ToArray();
         var customers = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && selectedIds.Contains(x.Id))
+            .Where(x => x.CompanyId == GetCompanyId() && selectedIds.Contains(x.Id))
             .ToListAsync(cancellationToken);
 
         var customersById = customers.ToDictionary(customer => customer.Id);
@@ -719,7 +716,7 @@ public sealed class CustomerService(
     public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await featureEntitlementService.EnsureCurrentUserHasFeatureAsync(PlatformFeatureKeys.CustomerManagement, cancellationToken);
-        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyIdsJson.Contains(GetCompanyId().ToString()) && x.Id == id, cancellationToken);
+        var customer = await dbContext.Customers.FirstOrDefaultAsync(x => x.CompanyId == GetCompanyId() && x.Id == id, cancellationToken);
         if (customer is null)
         {
             return false;
@@ -1293,7 +1290,7 @@ public sealed class CustomerService(
 
     private static CustomerDto BuildCustomerDto(Customer customer) => new()
     {
-        CompanyIds = DeserializeList<Guid>(customer.CompanyIdsJson),
+        CompanyId = customer.CompanyId,
         Id = customer.Id,
         Name = customer.Name,
         Email = customer.Email,
@@ -1344,25 +1341,6 @@ public sealed class CustomerService(
         Tags = DeserializeList<string>(customer.TagsJson),
         MyInvoisControl = customer.MyInvoisControl,
     };
-
-    private async Task<IReadOnlyCollection<Guid>> ValidateCompanyAssignmentsAsync(IEnumerable<Guid>? companyIds, CancellationToken cancellationToken)
-    {
-        var requestedIds = (companyIds ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToArray();
-        if (requestedIds.Length == 0)
-        {
-            return Array.Empty<Guid>();
-        }
-
-        var assignedCount = await dbContext.CompanyMemberships.CountAsync(
-            membership => membership.UserId == GetSubscriberId() && membership.IsActive && requestedIds.Contains(membership.CompanyId),
-            cancellationToken);
-        if (assignedCount != requestedIds.Length)
-        {
-            throw new InvalidOperationException("One or more selected companies are unavailable.");
-        }
-
-        return requestedIds;
-    }
 
     private sealed record AccountSelection(Guid? AccountId, string AccountCode)
     {

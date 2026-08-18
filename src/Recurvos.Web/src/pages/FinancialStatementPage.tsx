@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import type { BalanceSheetReport, CashFlowReport, CompanyLookup, FinancialStatementGroup, ProfitAndLossReport } from "../types";
 
@@ -9,7 +10,7 @@ type StatementKind = "profit-and-loss" | "balance-sheet" | "cash-flow";
 export function FinancialStatementPage({ kind }: { kind: StatementKind }) {
   const navigate = useNavigate(); const [companies, setCompanies] = useState<CompanyLookup[]>([]); const [companyId, setCompanyId] = useState(""); const [from, setFrom] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)); const [to, setTo] = useState(new Date().toISOString().slice(0, 10)); const [compare, setCompare] = useState(false); const [report, setReport] = useState<ProfitAndLossReport | BalanceSheetReport | CashFlowReport | null>(null); const [open, setOpen] = useState<Record<string, boolean>>({}); const [error, setError] = useState("");
   const title = kind === "profit-and-loss" ? "Profit & Loss" : kind === "balance-sheet" ? "Balance Sheet" : "Cash Flow";
-  useEffect(() => { void api.get<CompanyLookup[]>("/companies").then(list => { setCompanies(list); setCompanyId(list[0]?.id ?? ""); }).catch(e => setError(e instanceof Error ? e.message : "Unable to load companies.")); }, []);
+  useEffect(() => { void api.get<CompanyLookup[]>("/companies").then(list => { setCompanies(list); setCompanyId(resolveActiveCompanyId(list)); }).catch(e => setError(e instanceof Error ? e.message : "Unable to load companies.")); }, []);
   const query = useMemo(() => { const p = new URLSearchParams({ companyId, fromDateUtc: new Date(`${from}T00:00:00Z`).toISOString(), toDateUtc: new Date(`${to}T00:00:00Z`).toISOString() }); if (kind === "profit-and-loss" && compare) p.set("comparePreviousPeriod", "true"); return p; }, [companyId, from, to, kind, compare]);
   useEffect(() => { if (!companyId) return; void api.get<ProfitAndLossReport | BalanceSheetReport | CashFlowReport>(`/accounting/statements/${kind}?${query}`).then(setReport).catch(e => setError(e instanceof Error ? e.message : `Unable to load ${title}.`)); }, [companyId, query, kind, title]);
   async function exportCsv() { try { const file = await api.download(`/accounting/statements/${kind}/csv?${query}`); const url = URL.createObjectURL(file.blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = file.fileName ?? `${kind}.csv`; anchor.click(); URL.revokeObjectURL(url); } catch (e) { setError(e instanceof Error ? e.message : "Unable to export report."); } }

@@ -7,6 +7,7 @@ import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
 import { useClientPagination } from "../hooks/useClientPagination";
 import { FormActionSection } from "../components/ui/FormActionSection";
+import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormSection } from "../components/ui/FormSection";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
@@ -384,6 +385,8 @@ export function ProductGroupsPage() {
             </div>
           </div>
 
+          <FormPageBody>
+          <div className="form-page-content">
           <div className="company-profile-fields-grid">
             <label className="form-label company-profile-field">
               Product Group Name
@@ -438,11 +441,13 @@ export function ProductGroupsPage() {
               </div>
             </FormSection>
           </section>
+          </div>
 
           <FormActionSection className="product-group-editor-actions">
             <p aria-live="polite">{editor.selectedProductIds.length} product{editor.selectedProductIds.length === 1 ? "" : "s"} selected</p>
             <div><button type="button" className="button button-secondary" onClick={resetEditor}>Cancel</button><button type="button" className="button button-primary" onClick={() => void submit()}>{editor.id ? "Update group" : "Save group"}</button></div>
           </FormActionSection>
+          </FormPageBody>
         </section>
       ) : null}
 

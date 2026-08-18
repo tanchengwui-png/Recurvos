@@ -20,6 +20,11 @@ public sealed class PurchaseBillsController(IPurchaseBillService purchaseBillSer
         return result is null ? NotFound() : Ok(result);
     }
 
+    [HttpPost]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<PurchaseBillDetailsDto>> Create(CreateDirectPurchaseBillRequest request, CancellationToken cancellationToken) =>
+        Ok(await purchaseBillService.CreateDirectAsync(request, cancellationToken));
+
     [HttpPost("/api/purchases/orders/{purchaseOrderId:guid}/convert-to-bill")]
     [Authorize(Policy = "ManageBilling")]
     public async Task<ActionResult<PurchaseBillDetailsDto>> CreateFromPurchaseOrder(Guid purchaseOrderId, CreatePurchaseBillRequest request, CancellationToken cancellationToken)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import type { CompanyLookup, FeedbackItem } from "../types";
 
 const categoryOptions = [
@@ -80,7 +81,7 @@ export function FeedbackPage() {
     void (async () => {
       const companyList = await api.get<CompanyLookup[]>("/companies");
       setCompanies(companyList);
-      const initialCompanyId = companyList[0]?.id ?? "";
+      const initialCompanyId = resolveActiveCompanyId(companyList);
       setSelectedCompanyId(initialCompanyId);
       const items = await api.get<FeedbackItem[]>(initialCompanyId ? `/feedback?companyId=${initialCompanyId}` : "/feedback");
       setFeedbackItems(items);

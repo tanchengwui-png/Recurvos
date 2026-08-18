@@ -167,6 +167,7 @@ public sealed record PriceLevelDto(Guid Id, string Code, string Name, decimal Ad
 
 public interface IMasterDataService
 {
+    Task InitializeDefaultsAsync(Guid companyId, CancellationToken cancellationToken = default);
     Task<MasterDataSnapshotDto> GetSnapshotAsync(CancellationToken cancellationToken = default);
 
     Task<IReadOnlyCollection<WarehouseDto>> ListWarehousesAsync(MasterDataQueryRequest request, CancellationToken cancellationToken = default);

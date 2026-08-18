@@ -64,6 +64,14 @@ function formatStatusLabel(status?: string | null) {
     .join(" ");
 }
 
+function getCompanyInitials(name?: string | null) {
+  const words = (name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return (words.slice(0, 2).map((word) => word.charAt(0)).join("") || "R").toUpperCase();
+}
+
 function getGracePeriodCountdown(value?: string | null) {
   if (!value) {
     return null;
@@ -180,6 +188,8 @@ function getWorkspacePageTitle(pathname: string, isPlatformOwner: boolean) {
   if (pathname.startsWith("/contact-groups")) return "Contact groups";
   if (pathname.startsWith("/product-groups")) return "Product groups";
   if (pathname.startsWith("/invoices")) return "Invoices";
+  if (pathname.startsWith("/credit-notes")) return "Credit Notes";
+  if (pathname.startsWith("/refunds")) return "Refunds";
   if (pathname.startsWith("/payments")) return "Payments";
   if (pathname.startsWith("/foundation")) return "Foundation";
   if (pathname.startsWith("/settings/master-data")) return "Master data";
@@ -581,6 +591,15 @@ export function AppShell() {
     setActiveCompanyId(companyId);
     setActiveCompanyIdState(companyId);
     setAccountMenuOpen(false);
+
+    // A company edit URL names a specific record. Keep the workspace picker and
+    // the record being edited in sync instead of leaving the previous company
+    // visible after the active workspace changes.
+    if (/^\/companies\/[^/]+\/edit$/.test(location.pathname)) {
+      navigate(`/companies/${companyId}/edit`, { replace: true });
+      return;
+    }
+
     navigate("/app", { replace: true });
   }
 
@@ -593,13 +612,15 @@ export function AppShell() {
     void api.get<CompanyLookup[]>("/companies").then(async (companies) => {
       if (cancelled) return;
       setCompanyCount(companies.length);
-      const companyId = companies.find((company) => company.id === auth.companyId)?.id ?? companies[0]?.id;
+      const companyId = companies.find((company) => company.id === activeCompanyId)?.id
+        ?? companies.find((company) => company.id === auth.companyId)?.id
+        ?? companies[0]?.id;
       if (!companyId) return;
       const readiness = await api.get<BillingReadiness>(`/settings/billing-readiness?companyId=${companyId}`).catch(() => null);
       if (!cancelled) setPendingSetupCount(readiness ? readiness.items.filter((item) => !item.done).length : null);
     }).catch(() => !cancelled && setCompanyCount(null));
     return () => { cancelled = true; };
-  }, [auth?.companyId, auth?.isPlatformOwner, location.pathname]);
+  }, [activeCompanyId, auth?.companyId, auth?.isPlatformOwner, location.pathname]);
 
   useEffect(() => {
     if (!auth || auth.isPlatformOwner) {
@@ -681,6 +702,7 @@ export function AppShell() {
           hint: getFeatureRequirementLabel(featureAccess, "manual_invoices"),
           isActive: (pathname) => matchesPrefix(pathname, "/invoices") || matchesPrefix(pathname, "/sales/invoices"),
         },
+        { label: "Credit Notes", path: "/credit-notes", icon: "document", disabled: !(featureKeys.has("manual_invoices") || featureKeys.has("recurring_invoices")), hint: getFeatureRequirementLabel(featureAccess, "manual_invoices") },
         {
           label: "Payments",
           path: "/payments",
@@ -689,6 +711,7 @@ export function AppShell() {
           hint: getFeatureRequirementLabel(featureAccess, "payment_tracking"),
           badgeKey: "payments",
         },
+        { label: "Refunds", path: "/refunds", icon: "finance", disabled: !featureKeys.has("payment_tracking"), hint: getFeatureRequirementLabel(featureAccess, "payment_tracking") },
       ];
   const tenantPurchaseLinks: NavEntry[] = auth?.isPlatformOwner
     ? []
@@ -767,7 +790,7 @@ export function AppShell() {
       ]
     : [
         { title: "Main", items: tenantMainLinks },
-        { title: "Sales", groups: [{ key: "sales", label: "Sales", icon: "invoice", items: tenantSalesLinks, activePrefixes: ["/sales", "/invoices", "/payments"] }] },
+        { title: "Sales", groups: [{ key: "sales", label: "Sales", icon: "invoice", items: tenantSalesLinks, activePrefixes: ["/sales", "/invoices", "/credit-notes", "/payments", "/refunds"] }] },
         { title: "Purchases", groups: [{ key: "purchases", label: "Purchases", icon: "document", items: tenantPurchaseLinks, activePrefixes: ["/purchases"] }] },
         { title: "Finance", groups: [{ key: "finance", label: "Finance", icon: "finance", items: financeLinks, activePrefixes: ["/finance"] }] },
         { title: "Foundation", groups: [{ key: "foundation", label: "Foundation", icon: "list", items: foundationLinks, activePrefixes: ["/foundation"] }] },
@@ -908,6 +931,66 @@ export function AppShell() {
   }
 
   const billingReminder = showBillingReminder ? getBillingReminderCopy() : null;
+  const activeCompany = workspaceCompanies.find((company) => company.id === activeCompanyId);
+  const activeCompanyName = activeCompany?.name ?? auth?.companyName ?? "Company";
+  const closeAccountMenu = () => setAccountMenuOpen(false);
+
+  const renderAccountDropdown = () => (
+    <div className="desktop-account-dropdown" role="menu" aria-label="Account and workspace menu">
+      <div className="desktop-account-dropdown-header">
+        <div className="desktop-account-dropdown-avatar">
+          {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
+        </div>
+        <div className="desktop-account-dropdown-copy">
+          <strong>{auth?.isPlatformOwner ? auth?.companyName : auth?.fullName}</strong>
+          <span>{auth?.email}</span>
+        </div>
+      </div>
+      {auth?.isPlatformOwner ? (
+        <p className="desktop-account-dropdown-note">Platform owner account</p>
+      ) : (
+        <>
+          <div className="desktop-account-dropdown-section workspace-menu-section">
+            <p className="desktop-account-dropdown-section-label">Workspace</p>
+            <div className="workspace-menu-list" role="group" aria-label="Available workspaces">
+              {workspaceCompanies.map((company) => {
+                const isActive = company.id === activeCompanyId;
+                return (
+                  <button
+                    key={company.id}
+                    type="button"
+                    className={`workspace-menu-row ${isActive ? "workspace-menu-row-active" : ""}`}
+                    role="menuitemradio"
+                    aria-checked={isActive}
+                    onClick={() => switchCompany(company.id)}
+                  >
+                    <span className="workspace-menu-avatar" aria-hidden="true">{getCompanyInitials(company.name)}</span>
+                    <span className="workspace-menu-copy">
+                      <strong title={company.name}>{company.name}</strong>
+                      {isActive ? <span>Current workspace</span> : null}
+                    </span>
+                    {isActive ? <span className="workspace-menu-check" aria-label="Current workspace">✓</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="workspace-menu-actions">
+              <Link role="menuitem" to="/companies/new" onClick={closeAccountMenu}>+ Create company</Link>
+              <Link role="menuitem" to="/companies" onClick={closeAccountMenu}>Manage companies</Link>
+            </div>
+          </div>
+          <div className="desktop-account-dropdown-section desktop-account-dropdown-billing">
+            <p className="desktop-account-dropdown-stat">
+              {companyCount === null ? "Billing profiles: -" : `Billing profiles: ${companyCount}`}
+            </p>
+            <Link className="desktop-account-dropdown-billing-link" role="menuitem" to="/package-billing" onClick={closeAccountMenu}>
+              Manage invoices and payments
+            </Link>
+          </div>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -1029,6 +1112,7 @@ export function AppShell() {
       </aside>
       <main className="content">
         <div ref={appbarRef} className="appbar-stack">
+        <div ref={accountMenuRef} className="account-menu-region">
         <header className="mobile-appbar">
           <button
             type="button"
@@ -1045,14 +1129,19 @@ export function AppShell() {
             <h1>{currentPageLabel}</h1>
             <span className="mobile-appbar-subtitle">{auth?.isPlatformOwner ? auth?.companyName : auth?.companyName ?? "Account"}</span>
           </div>
-          <button
-            type="button"
-            className="mobile-appbar-account"
-            onClick={() => setMobileNavOpen(true)}
-            aria-label="Open account menu"
-          >
-            {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
-          </button>
+          <div className="mobile-appbar-account-menu">
+            <button
+              type="button"
+              className="mobile-appbar-account"
+              onClick={() => setAccountMenuOpen((current) => !current)}
+              aria-haspopup="menu"
+              aria-expanded={accountMenuOpen}
+              aria-label="Open account and workspace menu"
+            >
+              {getCompanyInitials(activeCompanyName)}
+            </button>
+            {accountMenuOpen ? renderAccountDropdown() : null}
+          </div>
         </header>
         <header className="desktop-appbar">
           <div className="desktop-appbar-left">
@@ -1062,7 +1151,7 @@ export function AppShell() {
             </div>
           </div>
           <div className="desktop-appbar-right">
-            <div ref={accountMenuRef} className="desktop-appbar-user-menu">
+            <div className="desktop-appbar-user-menu">
               <button
                 type="button"
                 className={`desktop-appbar-user-chip ${accountMenuOpen ? "desktop-appbar-user-chip-open" : ""}`}
@@ -1071,11 +1160,11 @@ export function AppShell() {
                 onClick={() => setAccountMenuOpen((current) => !current)}
               >
                 <div className="desktop-appbar-user-avatar">
-                  {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
+                  {getCompanyInitials(activeCompanyName)}
                 </div>
                 <div className="desktop-appbar-user-copy">
-                  <strong>{auth?.fullName ?? auth?.companyName ?? "Account"}</strong>
-                  <span>{auth?.isPlatformOwner ? "Platform Owner" : "Business Dashboard"}</span>
+                  <strong title={activeCompanyName}>{auth?.isPlatformOwner ? auth?.companyName : activeCompanyName}</strong>
+                  <span>{auth?.isPlatformOwner ? "Platform Owner" : auth?.fullName}</span>
                 </div>
                 <span className={`desktop-appbar-user-caret ${accountMenuOpen ? "desktop-appbar-user-caret-open" : ""}`} aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1083,54 +1172,11 @@ export function AppShell() {
                   </svg>
                 </span>
               </button>
-              {accountMenuOpen ? (
-                <div className="desktop-account-dropdown" role="menu" aria-label="Account details">
-                  <div className="desktop-account-dropdown-header">
-                    <div className="desktop-account-dropdown-avatar">
-                      {(auth?.fullName ?? auth?.companyName ?? "R").slice(0, 1).toUpperCase()}
-                    </div>
-                    <div className="desktop-account-dropdown-copy">
-                      <strong>{auth?.isPlatformOwner ? auth?.companyName : auth?.fullName}</strong>
-                      <span>{auth?.email}</span>
-                    </div>
-                  </div>
-                  {auth?.isPlatformOwner ? (
-                    <p className="desktop-account-dropdown-note">Platform owner account</p>
-                  ) : (
-                    <>
-                      <label className="form-label">
-                        Company workspace
-                        <select value={activeCompanyId} onChange={(event) => switchCompany(event.target.value)}>
-                          {workspaceCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-                        </select>
-                      </label>
-                      <div className="desktop-account-dropdown-meta">
-                        <div className="desktop-account-dropdown-row">
-                          <span className="desktop-account-dropdown-label">Package</span>
-                          <strong>{formatPackageLabel(featureAccess?.packageCode)}</strong>
-                        </div>
-                        <div className="desktop-account-dropdown-row">
-                          <span className="desktop-account-dropdown-label">Status</span>
-                          <span className={`status-pill ${featureAccess?.packageStatus?.toLowerCase() === "active" ? "status-pill-active" : "status-pill-inactive"}`}>
-                            {formatStatusLabel(featureAccess?.packageStatus) || "-"}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="desktop-account-dropdown-stat">
-                        {companyCount === null ? "Billing profiles: -" : `Billing profiles: ${companyCount}`}
-                      </p>
-                    </>
-                  )}
-                  <p className="desktop-account-dropdown-note">
-                    {auth?.isPlatformOwner
-                      ? "Manage subscriber businesses across the Recurvos platform"
-                      : "Manage invoices and payments in one place"}
-                  </p>
-                </div>
-              ) : null}
+              {accountMenuOpen ? renderAccountDropdown() : null}
             </div>
           </div>
         </header>
+        </div>
         </div>
         <div ref={contentBodyRef} className="content-body">
           {billingReminder ? (
@@ -1192,7 +1238,7 @@ export function AppShell() {
               }}
             />
           ) : null}
-          <Outlet />
+          <Outlet key={activeCompanyId || "default-workspace"} />
         </div>
       </main>
       <ConfirmModal

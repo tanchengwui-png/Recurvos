@@ -170,13 +170,13 @@ public static class ProductValidators
         }
 
         ValidateCustomPrices(
-            request.HasCustomSalesPrices,
+            true,
             request.CustomSalesPrices,
             "sales",
             errors);
 
         ValidateCustomPrices(
-            request.HasCustomPurchasePrices,
+            true,
             request.CustomPurchasePrices,
             "purchase",
             errors);

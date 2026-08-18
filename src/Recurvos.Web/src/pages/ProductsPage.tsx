@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { RecordDetailField, RecordDetailsModal, RecordDetailSection } from "../components/RecordDetailsModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { ListToolbar } from "../components/ListToolbar";
 import { TablePagination } from "../components/TablePagination";
@@ -13,16 +14,25 @@ import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
 import type { CompanyLookup, FeatureAccess, PlatformPackage, Product, ProductDetails } from "../types";
 
-function ProductPreviewField({ label, value }: { label: string; value?: string | number | null }) {
-  return <div className="product-preview-field"><span>{label}</span><strong>{value === "" || value == null ? "—" : value}</strong></div>;
-}
-
-function ProductPreviewSection({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="product-preview-section"><h4>{title}</h4><div className="product-preview-grid">{children}</div></section>;
-}
-
 function formatQuantity(value?: number | null) {
   return value == null ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(value);
+}
+
+function formatDateRange(start?: string | null, end?: string | null) {
+  const format = (value?: string | null) => value ? new Date(value).toLocaleDateString() : "Any date";
+  return `${format(start)} – ${format(end)}`;
+}
+
+function ProductDetailTable({ title, headings, rows }: { title: string; headings: string[]; rows: string[][] }) {
+  return <section className="product-preview-section product-preview-table-section">
+    <h4>{title}</h4>
+    <div className="table-scroll table-scroll-bounded">
+      <table className="catalog-table">
+        <thead><tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead>
+        <tbody>{rows.map((row, index) => <tr key={`${title}-${index}`}>{row.map((value, cellIndex) => <td key={`${index}-${cellIndex}`}>{value || "—"}</td>)}</tr>)}</tbody>
+      </table>
+    </div>
+  </section>;
 }
 
 function AddProductMenu({ onManual, onImport, onBatchUpdate }: { onManual: () => void; onImport: () => void; onBatchUpdate: () => void }) {
@@ -385,47 +395,35 @@ export function ProductsPage() {
         /> : null}
       </section>
       {selectedProduct ? (
-        <div className="modal-backdrop product-preview-backdrop" role="presentation" onClick={() => setExpandedId(null)}>
-          <div className="card product-preview-modal" role="dialog" aria-modal="true" aria-labelledby="product-detail-title" onClick={(event) => event.stopPropagation()}>
-            <div className="product-preview-modal-header">
-              <div>
-                <p className="eyebrow">Product summary</p>
-                <h3 id="product-detail-title">{selectedProduct.name}</h3>
-                <p className="muted">{selectedProduct.companyName}</p>
-              </div>
-              <div className="product-preview-modal-actions">
-                <button type="button" className="button button-secondary button-compact" onClick={() => navigate(`/products/${selectedProduct.id}/edit`)}>Edit product</button>
-                <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
-              </div>
-            </div>
-            <div className="product-preview-modal-body">
-              {!detailProduct ? <p className="muted">Loading product details...</p> : <div className="product-preview-form">
+        <RecordDetailsModal eyebrow="Product summary" title={selectedProduct.name} subtitle={selectedProduct.companyName} onClose={() => setExpandedId(null)} actions={<button type="button" className="button button-secondary button-compact" onClick={() => navigate(`/products/${selectedProduct.id}/edit`)}>Edit product</button>}>
+          {!detailProduct ? <p className="muted">Loading product details...</p> : <div className="product-preview-form">
                 <div className="product-preview-statuses">
                   <span className={`status-pill ${detailProduct.isActive ? "status-pill-active" : "status-pill-inactive"}`}>{detailProduct.isActive ? "Active" : "Inactive"}</span>
                   <span className={`status-pill ${detailProduct.trackInventory ? "" : "status-pill-inactive"}`}>{detailProduct.trackInventory ? "Inventory tracked" : "Inventory not tracked"}</span>
                   {detailProduct.isSelling ? <span className="status-pill">For sale</span> : null}
                   {detailProduct.isBuying ? <span className="status-pill">For purchase</span> : null}
                 </div>
-                <ProductPreviewSection title="Product information">
-                  <ProductPreviewField label="Product name" value={detailProduct.name} /><ProductPreviewField label="Product code" value={detailProduct.code} /><ProductPreviewField label="Company" value={detailProduct.companyName} /><ProductPreviewField label="Barcode" value={detailProduct.barcode} />
-                  <ProductPreviewField label="Classification code" value={detailProduct.category} /><ProductPreviewField label="Product groups" value={detailProduct.productGroups.join(", ")} /><ProductPreviewField label="Bin location" value={detailProduct.binLocation} /><ProductPreviewField label="Description" value={detailProduct.description} />
-                </ProductPreviewSection>
-                <ProductPreviewSection title="Inventory">
-                  <ProductPreviewField label="Inventory account" value={detailProduct.trackInventory ? detailProduct.inventoryAccount : "Not tracked"} /><ProductPreviewField label="Reorder level" value={detailProduct.trackInventory ? formatQuantity(detailProduct.reorderLevel) : null} /><ProductPreviewField label="Opening quantity" value={detailProduct.trackInventory ? formatQuantity(detailProduct.openingQuantity) : null} /><ProductPreviewField label="Opening cost" value={detailProduct.trackInventory && detailProduct.openingCost != null ? formatCurrency(detailProduct.openingCost) : null} />
-                </ProductPreviewSection>
-                <ProductPreviewSection title="Sales">
-                  <ProductPreviewField label="Sales price" value={detailProduct.isSelling && detailProduct.salesPrice != null ? formatCurrency(detailProduct.salesPrice) : null} /><ProductPreviewField label="Sales tax" value={detailProduct.isSelling ? detailProduct.salesTaxCode : null} /><ProductPreviewField label="Income account" value={detailProduct.isSelling ? detailProduct.incomeAccount : null} /><ProductPreviewField label="Sales description" value={detailProduct.isSelling ? detailProduct.salesDescription : null} />
-                </ProductPreviewSection>
-                <ProductPreviewSection title="Purchases">
-                  <ProductPreviewField label="Purchase price" value={detailProduct.isBuying && detailProduct.purchasePrice != null ? formatCurrency(detailProduct.purchasePrice) : null} /><ProductPreviewField label="Purchase tax" value={detailProduct.isBuying ? detailProduct.purchaseTaxCode : null} /><ProductPreviewField label="Expense account" value={detailProduct.isBuying ? detailProduct.expenseAccount : null} /><ProductPreviewField label="Preferred supplier" value={detailProduct.isBuying ? detailProduct.preferredSupplierName : null} />
-                </ProductPreviewSection>
-                <ProductPreviewSection title="Units of measurement">
-                  <ProductPreviewField label="Base unit" value={detailProduct.baseUnitLabel} /><ProductPreviewField label="Multiple units" value={detailProduct.hasMultipleUoms ? "Enabled" : "Disabled"} /><ProductPreviewField label="Additional UOMs" value={detailProduct.uomConversions.length} /><ProductPreviewField label="Custom prices" value={detailProduct.customSalesPrices.length + detailProduct.customPurchasePrices.length} />
-                </ProductPreviewSection>
+                <RecordDetailSection title="Product information">
+                  <RecordDetailField label="Product name" value={detailProduct.name} /><RecordDetailField label="Product code" value={detailProduct.code} /><RecordDetailField label="Company" value={detailProduct.companyName} /><RecordDetailField label="Barcode" value={detailProduct.barcode} />
+                  <RecordDetailField label="Classification code" value={detailProduct.category} /><RecordDetailField label="Product groups" value={detailProduct.productGroups.join(", ")} /><RecordDetailField label="Bin location" value={detailProduct.binLocation} /><RecordDetailField label="Description" value={detailProduct.description} />
+                </RecordDetailSection>
+                {detailProduct.trackInventory ? <RecordDetailSection title="Inventory">
+                  <RecordDetailField label="Inventory account" value={detailProduct.inventoryAccount} /><RecordDetailField label="Reorder level" value={formatQuantity(detailProduct.reorderLevel)} /><RecordDetailField label="Opening quantity" value={formatQuantity(detailProduct.openingQuantity)} /><RecordDetailField label="Opening cost" value={detailProduct.openingCost != null ? formatCurrency(detailProduct.openingCost) : null} />
+                </RecordDetailSection> : null}
+                {detailProduct.isSelling ? <RecordDetailSection title="Sales">
+                  <RecordDetailField label="Sales price" value={detailProduct.salesPrice != null ? formatCurrency(detailProduct.salesPrice) : null} /><RecordDetailField label="Sales tax" value={detailProduct.salesTaxCode} /><RecordDetailField label="Income account" value={detailProduct.incomeAccount} /><RecordDetailField label="Sales description" value={detailProduct.salesDescription} />
+                </RecordDetailSection> : null}
+                {detailProduct.isBuying ? <RecordDetailSection title="Purchases">
+                  <RecordDetailField label="Purchase price" value={detailProduct.purchasePrice != null ? formatCurrency(detailProduct.purchasePrice) : null} /><RecordDetailField label="Purchase tax" value={detailProduct.purchaseTaxCode} /><RecordDetailField label="Expense account" value={detailProduct.expenseAccount} /><RecordDetailField label="Preferred supplier" value={detailProduct.preferredSupplierName} />
+                </RecordDetailSection> : null}
+                <RecordDetailSection title="Units of measurement">
+                  <RecordDetailField label="Base unit" value={detailProduct.baseUnitLabel} /><RecordDetailField label="Multiple units" value={detailProduct.hasMultipleUoms ? "Enabled" : "Disabled"} />
+                </RecordDetailSection>
+                {detailProduct.uomConversions.length > 0 ? <ProductDetailTable title="Additional UOMs" headings={["UOM", "Factor", "Sales price", "Purchase price", "Defaults"]} rows={detailProduct.uomConversions.map((item) => [item.label, formatQuantity(item.factor), item.salePrice == null ? "—" : formatCurrency(item.salePrice), item.purchasePrice == null ? "—" : formatCurrency(item.purchasePrice), [item.isDefaultSalesUom ? "Sales" : "", item.isDefaultPurchaseUom ? "Purchase" : ""].filter(Boolean).join(", ") || "—"])} /> : null}
+                {detailProduct.customSalesPrices.length > 0 ? <ProductDetailTable title="Custom sales prices" headings={["Applies to", "UOM", "Minimum qty", "Date range", "Price"]} rows={detailProduct.customSalesPrices.map((item) => [item.contactName || item.contactGroup || item.priceLevel || item.contactCode, item.uom, formatQuantity(item.minQuantity), formatDateRange(item.dateFromUtc, item.dateToUtc), formatCurrency(item.unitPrice)])} /> : null}
+                {detailProduct.customPurchasePrices.length > 0 ? <ProductDetailTable title="Custom purchase prices" headings={["Applies to", "UOM", "Minimum qty", "Date range", "Price"]} rows={detailProduct.customPurchasePrices.map((item) => [item.contactName || item.contactGroup || item.priceLevel || item.contactCode, item.uom, formatQuantity(item.minQuantity), formatDateRange(item.dateFromUtc, item.dateToUtc), formatCurrency(item.unitPrice)])} /> : null}
               </div>}
-            </div>
-          </div>
-        </div>
+        </RecordDetailsModal>
       ) : null}
 
       <ConfirmModal

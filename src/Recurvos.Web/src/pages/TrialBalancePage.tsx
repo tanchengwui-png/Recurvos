@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
+import { resolveActiveCompanyId } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
 import type { CompanyLookup, TrialBalanceReport } from "../types";
 
 export function TrialBalancePage() {
   const [companies, setCompanies] = useState<CompanyLookup[]>([]); const [companyId, setCompanyId] = useState(""); const [from, setFrom] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)); const [to, setTo] = useState(new Date().toISOString().slice(0, 10)); const [report, setReport] = useState<TrialBalanceReport | null>(null); const [error, setError] = useState("");
-  useEffect(() => { void api.get<CompanyLookup[]>("/companies").then(list => { setCompanies(list); setCompanyId(list[0]?.id ?? ""); }).catch(e => setError(e instanceof Error ? e.message : "Unable to load companies.")); }, []);
+  useEffect(() => { void api.get<CompanyLookup[]>("/companies").then(list => { setCompanies(list); setCompanyId(resolveActiveCompanyId(list)); }).catch(e => setError(e instanceof Error ? e.message : "Unable to load companies.")); }, []);
   const query = useMemo(() => new URLSearchParams({ companyId, fromDateUtc: new Date(`${from}T00:00:00Z`).toISOString(), toDateUtc: new Date(`${to}T00:00:00Z`).toISOString() }), [companyId, from, to]);
   async function load() { if (!companyId) return; try { setError(""); setReport(await api.get<TrialBalanceReport>(`/accounting/reports/trial-balance?${query}`)); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load trial balance."); } }
   useEffect(() => { void load(); }, [query]);

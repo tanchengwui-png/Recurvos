@@ -183,6 +183,11 @@ public sealed class AccountingExportService(
             return "Paid";
         }
 
+        if (invoice.Status == InvoiceStatus.Refunded)
+        {
+            return "Refunded";
+        }
+
         if (invoice.Status == InvoiceStatus.Voided)
         {
             return "Void";

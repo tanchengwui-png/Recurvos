@@ -826,6 +826,7 @@ public sealed class SubscriberPackageBillingService(
         customer = new Customer
         {
             SubscriberId = platformOwnerUserId,
+            CompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException(),
             Name = billingAccount.BillingContactName ?? string.Empty,
             Email = billingAccount.BillingEmail ?? string.Empty,
             PhoneNumber = billingAccount.BillingPhone ?? string.Empty,

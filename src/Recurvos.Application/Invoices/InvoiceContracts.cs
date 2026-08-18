@@ -19,6 +19,15 @@ public sealed class RecordInvoicePaymentRequest
     public DateTime? PaidAtUtc { get; set; }
 }
 
+public sealed class SendInvoiceRequest
+{
+    [EmailAddress, MaxLength(320)]
+    public string? RecipientEmail { get; set; }
+
+    [MaxLength(2000)]
+    public string? Message { get; set; }
+}
+
 public sealed class ReverseInvoicePaymentRequest
 {
     [Required, MaxLength(250)]
@@ -169,6 +178,7 @@ public sealed record InvoiceDto(
     string? TaxRegistrationNo,
     decimal Total,
     decimal PaidAmount,
+    decimal RefundedAmount,
     decimal BalanceAmount,
     string Currency,
     string? CompanyAddressSnapshot,
@@ -178,7 +188,9 @@ public sealed record InvoiceDto(
     IReadOnlyCollection<CreditNoteDto> CreditNotes,
     IReadOnlyCollection<RefundDto> Refunds,
     decimal CreditedAmount,
-    decimal EligibleCreditAmount);
+    decimal EligibleCreditAmount,
+    Guid? SalesOrderId = null,
+    Guid? DeliveryOrderId = null);
 
 public interface IInvoiceService
 {
@@ -187,7 +199,7 @@ public interface IInvoiceService
     Task<InvoiceDto> CreateAsync(CreateInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> CreateFromSalesOrderAsync(Guid salesOrderId, CreateSalesInvoiceRequest request, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> CreateFromDeliveryOrderAsync(Guid deliveryOrderId, CreateSalesInvoiceRequest request, CancellationToken cancellationToken = default);
-    Task<bool> SendInvoiceAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> SendInvoiceAsync(Guid id, SendInvoiceRequest? request = null, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> MarkPaidAsync(Guid id, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> RecordPaymentAsync(Guid id, RecordInvoicePaymentRequest request, CancellationToken cancellationToken = default);
     Task<InvoiceDto?> RecordPaymentWithProofAsync(Guid id, RecordInvoicePaymentRequest request, PaymentProofUpload? proof, CancellationToken cancellationToken = default);

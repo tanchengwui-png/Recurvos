@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
+import { ShareDocumentModal } from "../components/ShareDocumentModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
 import { RowActionMenu } from "../components/RowActionMenu";
 import { TablePagination } from "../components/TablePagination";
@@ -10,11 +11,12 @@ import { useDragToScroll } from "../hooks/useDragToScroll";
 import { useSyncedHorizontalScroll } from "../hooks/useSyncedHorizontalScroll";
 import { HelperText } from "../components/ui/HelperText";
 import { api } from "../lib/api";
-import { getAuth } from "../lib/auth";
+import { getAuth, resolveActiveCompanyId } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
+import { openCreatedEmbeddedRecord } from "../lib/postCreateNavigation";
 import { hasFeature } from "../lib/features";
 import { DEFAULT_UPLOAD_POLICY, formatUploadSizeLabel, prepareImageUpload } from "../lib/uploads";
-import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, Payment, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
+import type { BillingReadiness, CompanyInvoiceSettings, CompanyLookup, CreditNote, Customer, FeatureAccess, Invoice, InvoiceWhatsAppLinkOptions, Payment, PaymentConfirmationLink, PlatformUploadPolicy } from "../types";
 
 const DEFAULT_WHATSAPP_TEMPLATE = [
   "Hi {CustomerName},",
@@ -26,7 +28,7 @@ const DEFAULT_WHATSAPP_TEMPLATE = [
   "If payment has already been made, please ignore this message. Thank you.",
 ].join("\n");
 
-type InvoiceSortColumn = "invoice" | "customer" | "status" | "source" | "period" | "total" | "paid" | "balance" | "due";
+type InvoiceSortColumn = "invoice" | "customer" | "status" | "source" | "period" | "total" | "paid" | "refunded" | "balance" | "due";
 type InvoiceSortState = { column: InvoiceSortColumn; direction: "asc" | "desc" } | null;
 
 function compareInvoices(left: Invoice, right: Invoice, sortState: InvoiceSortState) {
@@ -64,6 +66,9 @@ function compareInvoices(left: Invoice, right: Invoice, sortState: InvoiceSortSt
     case "paid":
       result = compareNumber(left.paidAmount, right.paidAmount);
       break;
+    case "refunded":
+      result = compareNumber(left.refundedAmount, right.refundedAmount);
+      break;
     case "balance":
       result = compareNumber(left.balanceAmount, right.balanceAmount);
       break;
@@ -84,6 +89,10 @@ function getInvoiceMobileStatusClassName(invoice: Invoice) {
     return "subscription-mobile-status-cancelled";
   }
 
+  if (invoice.status === "Refunded") {
+    return "subscription-mobile-status-refunded";
+  }
+
   if (invoice.balanceAmount <= 0) {
     return "subscription-mobile-status-active";
   }
@@ -101,20 +110,37 @@ function getInvoicePeriodLabel(invoice: Invoice) {
     : "-";
 }
 
+function getInvoiceHistoryDescription(action: string, description: string) {
+  const labels: Record<string, string> = {
+    "invoice.created": "Invoice created",
+    "invoice.created-from-sales-order": "Invoice created from sales order",
+    "invoice.created-from-delivery-order": "Invoice created from delivery order",
+    "invoice.sent": "Invoice sent",
+    "invoice.auto-sent": "Invoice sent automatically",
+    "invoice.payment-recorded": "Payment recorded",
+    "invoice.payment-reversed": "Payment reversed",
+    "payment.link.created": "Online payment link generated",
+  };
+  return labels[action] ?? description;
+}
+
 export function InvoicesPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const tableScrollRef = useDragToScroll<HTMLDivElement>();
-  const paymentFormRef = useRef<HTMLDivElement | null>(null);
   const creditNoteFormRef = useRef<HTMLDivElement | null>(null);
   const adjustPaymentFormRef = useRef<HTMLDivElement | null>(null);
   const { copyTextWithFallback, clipboardFallbackModal } = useClipboardWithFallback();
   const [items, setItems] = useState<Invoice[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [pageLoadError, setPageLoadError] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [shareInvoice, setShareInvoice] = useState<Invoice | null>(null);
   const [formError, setFormError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
-  const [confirmState, setConfirmState] = useState<{ title: string; description: string; action: () => Promise<void> } | null>(null);
+  const [confirmState, setConfirmState] = useState<{ title: string; description: string; details?: ReactNode; confirmDisabled?: boolean; action: () => Promise<void> } | null>(null);
   const [paymentForm, setPaymentForm] = useState<{ invoiceId: string; amount: string; method: string; reference: string; paidAtUtc: string; proofFile: File | null; useFullBalance: boolean } | null>(null);
   const [creditNoteForm, setCreditNoteForm] = useState<{ invoiceId: string; invoiceNumber: string; customerName: string; currency: string; eligibleCreditAmount: number; reason: string; issuedAtUtc: string; description: string; amount: string } | null>(null);
   const [adjustPaymentForm, setAdjustPaymentForm] = useState<{ invoiceId: string; invoiceNumber: string; currency: string; invoiceTotal: number; paidAmount: number; mode: "reverse" | "refund"; selectedPaymentId: string; amount: string; reason: string } | null>(null);
@@ -124,9 +150,9 @@ export function InvoicesPage() {
   const [uploadPolicy, setUploadPolicy] = useState<PlatformUploadPolicy>(DEFAULT_UPLOAD_POLICY);
   const [sortState, setSortState] = useState<InvoiceSortState>(null);
   const [searchQuery, setSearchQuery] = useState(searchParams.get("search") ?? "");
-  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "paid" | "overdue" | "voided">(() => {
+  const [statusFilter, setStatusFilter] = useState<"all" | "open" | "paid" | "refunded" | "overdue" | "voided">(() => {
     const value = searchParams.get("status");
-    return value === "open" || value === "paid" || value === "overdue" || value === "voided" ? value : "all";
+    return value === "open" || value === "paid" || value === "refunded" || value === "overdue" || value === "voided" ? value : "all";
   });
   const [sourceFilter, setSourceFilter] = useState<"all" | "manual" | "subscription" | "platform">(() => {
     const value = searchParams.get("source");
@@ -153,6 +179,10 @@ export function InvoicesPage() {
     }
 
     if (statusFilter === "paid" && item.balanceAmount > 0) {
+      return false;
+    }
+
+    if (statusFilter === "refunded" && item.status !== "Refunded") {
       return false;
     }
 
@@ -183,26 +213,41 @@ export function InvoicesPage() {
   const { topScrollRef, topInnerRef, contentScrollRef, bottomScrollRef, bottomInnerRef } = useSyncedHorizontalScroll([pagination.pagedItems.length, expandedId, pagination.currentPage, pagination.pageSize]);
   const selectedInvoice = expandedId ? items.find((item) => item.id === expandedId) ?? null : null;
 
-  async function load() {
-    const companies = await api.get<CompanyLookup[]>("/companies").catch(() => []);
-    const readinessPath = companies[0]?.id
-      ? `/settings/billing-readiness?companyId=${companies[0].id}`
-      : null;
+  useEffect(() => {
+    const createdInvoiceId = (location.state as { createdInvoiceId?: string } | null)?.createdInvoiceId;
+    if (!createdInvoiceId || !items.some((item) => item.id === createdInvoiceId)) return;
+    setExpandedId(createdInvoiceId);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [items, location.pathname, location.state, navigate]);
 
-    const [invoiceList, paymentList, readiness, settings, policy, access] = await Promise.all([
-      api.get<Invoice[]>("/invoices"),
-      api.get<Payment[]>("/payments").catch(() => []),
-      readinessPath ? api.get<BillingReadiness>(readinessPath) : Promise.resolve(null),
-      api.get<CompanyInvoiceSettings>("/settings/invoice-settings"),
-      api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
-      api.get<FeatureAccess>("/settings/feature-access").catch(() => null),
-    ]);
-    setItems(invoiceList);
-    setPayments(paymentList);
-    setBillingReadiness(readiness);
-    setInvoiceSettings(settings);
-    setUploadPolicy(policy);
-    setFeatureAccess(access);
+  async function load() {
+    setPageLoadError("");
+    try {
+      const companies = await api.get<CompanyLookup[]>("/companies").catch(() => []);
+      const activeCompanyId = resolveActiveCompanyId(companies);
+      const readinessPath = activeCompanyId
+        ? `/settings/billing-readiness?companyId=${activeCompanyId}`
+        : null;
+
+      const [invoiceList, paymentList, customerList, readiness, settings, policy, access] = await Promise.all([
+        api.get<Invoice[]>("/invoices"),
+        api.get<Payment[]>("/payments").catch(() => []),
+        api.get<Customer[]>("/customers").catch(() => []),
+        readinessPath ? api.get<BillingReadiness>(readinessPath).catch(() => null) : Promise.resolve(null),
+        api.get<CompanyInvoiceSettings>("/settings/invoice-settings").catch(() => null),
+        api.get<PlatformUploadPolicy>("/settings/upload-policy").catch(() => DEFAULT_UPLOAD_POLICY),
+        api.get<FeatureAccess>("/settings/feature-access").catch(() => null),
+      ]);
+      setItems(invoiceList);
+      setPayments(paymentList);
+      setCustomers(customerList);
+      setBillingReadiness(readiness);
+      setInvoiceSettings(settings);
+      setUploadPolicy(policy);
+      setFeatureAccess(access);
+    } catch (error) {
+      setPageLoadError(error instanceof Error ? error.message : "Invoices could not be loaded. Please refresh and try again.");
+    }
   }
 
   function getFeatureHint(featureKey: string) {
@@ -219,8 +264,23 @@ export function InvoicesPage() {
     return sendCount === 1 ? "Sent" : `Sent x${sendCount}`;
   }
 
+  function getInvoiceRecipient(invoice: Invoice) {
+    const email = customers.find((customer) => customer.id === invoice.customerId)?.email?.trim() ?? "";
+    return /^\S+@\S+\.\S+$/.test(email) ? email : null;
+  }
+
+  function openShareInvoice(invoice: Invoice) {
+    setShareInvoice(invoice);
+  }
+
   useEffect(() => {
     void load();
+  }, []);
+
+  useEffect(() => {
+    const refreshInvoiceState = () => void load();
+    window.addEventListener("recurvos:payment-state-changed", refreshInvoiceState);
+    return () => window.removeEventListener("recurvos:payment-state-changed", refreshInvoiceState);
   }, []);
 
   useEffect(() => {
@@ -251,12 +311,6 @@ export function InvoicesPage() {
       setSearchParams(nextParams, { replace: true });
     }
   }, [searchParams, searchQuery, setSearchParams, sourceFilter, statusFilter]);
-
-  useEffect(() => {
-    if (paymentForm) {
-      paymentFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [paymentForm]);
 
   useEffect(() => {
     if (creditNoteForm) {
@@ -307,18 +361,6 @@ export function InvoicesPage() {
     const anchor = document.createElement("a");
     anchor.href = objectUrl;
     anchor.download = file.fileName ?? `${invoiceNumber}.pdf`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(objectUrl);
-  }
-
-  async function downloadReceipt(id: string, invoiceNumber: string) {
-    const file = await api.download(`/invoices/${id}/receipt`);
-    const objectUrl = URL.createObjectURL(file.blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = file.fileName ?? `${invoiceNumber}-receipt.pdf`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -396,38 +438,6 @@ export function InvoicesPage() {
     return await api.get<InvoiceWhatsAppLinkOptions>(`/invoices/${invoice.id}/whatsapp-links`);
   }
 
-  function normalizePhoneNumberForWa(phoneNumber?: string | null) {
-    if (!phoneNumber) {
-      return null;
-    }
-
-    let normalized = phoneNumber.replace(/[^\d+]/g, "");
-    if (!normalized) {
-      return null;
-    }
-
-    if (normalized.startsWith("+")) {
-      normalized = normalized.slice(1);
-    } else if (normalized.startsWith("00")) {
-      normalized = normalized.slice(2);
-    } else if (normalized.startsWith("0")) {
-      normalized = `60${normalized.slice(1)}`;
-    }
-
-    return normalized || null;
-  }
-
-  async function buildWhatsAppBrowserLink(invoice: Invoice) {
-    const normalizedPhoneNumber = normalizePhoneNumberForWa(invoice.customerPhoneNumber);
-    if (!normalizedPhoneNumber) {
-      throw new Error(`No customer phone number is saved for ${invoice.customerName}.`);
-    }
-
-    const links = await getWhatsAppLinks(invoice);
-    const message = buildWhatsAppInvoiceMessage(invoice, links);
-    return `https://wa.me/${normalizedPhoneNumber}?text=${encodeURIComponent(message)}`;
-  }
-
   async function copyWhatsAppMessage(invoice: Invoice) {
     try {
       setFormError("");
@@ -450,29 +460,6 @@ export function InvoicesPage() {
     } catch (error) {
       setSuccessMessage("");
       setFormError(error instanceof Error ? error.message : "Unable to copy WhatsApp message.");
-    }
-  }
-
-  async function copyWhatsAppBrowserLink(invoice: Invoice) {
-    try {
-      setFormError("");
-      setSuccessMessage("");
-      const url = await buildWhatsAppBrowserLink(invoice);
-      await copyTextWithFallback({
-        text: url,
-        title: "Copy WhatsApp browser link",
-        onCopied: () => {
-          setFormError("");
-          setSuccessMessage(`WhatsApp browser link copied for invoice ${invoice.invoiceNumber}.`);
-        },
-        onCopyFailed: (error) => {
-          setSuccessMessage("");
-          setFormError(error.message);
-        },
-      });
-    } catch (error) {
-      setSuccessMessage("");
-      setFormError(error instanceof Error ? error.message : "Unable to copy WhatsApp browser link.");
     }
   }
 
@@ -502,22 +489,6 @@ export function InvoicesPage() {
 
   function hasPaymentLink(invoice: Invoice) {
     return invoice.history.some((entry) => entry.action === "payment.link.created");
-  }
-
-  function getPaymentLinkActionLabel(invoice: Invoice) {
-    if (hasPaymentLink(invoice)) {
-      return "Payment link";
-    }
-
-    if (!hasFeature(featureAccess, "payment_link_generation")) {
-      return "Upgrade for payment link";
-    }
-
-    if (!invoiceSettings?.paymentGatewayReady) {
-      return "Set up payment gateway";
-    }
-
-    return "Collect now";
   }
 
   function getOnlinePaymentAction(invoice: Invoice) {
@@ -642,106 +613,16 @@ export function InvoicesPage() {
         label: "View details",
         onClick: () => setExpandedId(item.id),
       },
-      {
-        label: "Send invoice",
-        disabled: !billingReadiness?.isReady || item.status === "Voided",
-        title: item.status === "Voided"
-          ? "Voided invoices cannot be sent."
-          : !billingReadiness?.isReady
-            ? "Complete billing setup before sending invoices."
-            : undefined,
-        onClick: () => setConfirmState({
-          title: "Send invoice",
-          description: `Send invoice ${item.invoiceNumber} to ${item.customerName}?`,
-          action: async () => {
-            try {
-              setFormError("");
-              await api.post(`/invoices/${item.id}/send`);
-              setSuccessMessage(`Invoice ${item.invoiceNumber} was sent to ${item.customerName}.`);
-              setConfirmState(null);
-              await load();
-            } catch (error) {
-              setSuccessMessage("");
-              const nextError = error instanceof Error ? error.message : "Unable to send invoice.";
-              setFormError(nextError);
-              throw new Error(nextError);
-            }
-          },
-        }),
-      },
-      {
+      ...(canRecordPayment(item) ? [{
         label: "Record payment",
-        disabled: item.status === "Voided" || item.balanceAmount <= 0,
-        title: item.status === "Voided"
-          ? "Voided invoices cannot receive payments."
-          : item.balanceAmount <= 0
-            ? "This invoice is already fully paid."
-            : undefined,
         onClick: () => openRecordPaymentForm(item),
-      },
+      }] : []),
       {
-        label: getPaymentLinkActionLabel(item),
-        disabled: !hasFeature(featureAccess, "payment_link_generation") || !invoiceSettings?.paymentGatewayReady || item.balanceAmount <= 0,
-        title: item.balanceAmount <= 0
-          ? "This invoice has no outstanding balance."
-          : !hasFeature(featureAccess, "payment_link_generation")
-            ? getFeatureHint("payment_link_generation")
-            : !invoiceSettings?.paymentGatewayReady
-              ? "Set up a payment gateway in Settings > Payment first."
-              : undefined,
-        onClick: async () => {
-          try {
-            await copyPaymentLink(item);
-          } catch (error) {
-            setSuccessMessage("");
-            setFormError(error instanceof Error ? error.message : "Unable to copy payment link.");
-          }
-        },
+        label: "Share",
+        onClick: () => openShareInvoice(item),
       },
-      {
-        label: "Copy payment confirmation URL",
-        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !hasFeature(featureAccess, "public_payment_confirmation"),
-        title: item.status === "Voided"
-          ? "Voided invoices cannot issue payment confirmation links."
-          : item.balanceAmount <= 0
-            ? "This invoice is already fully paid."
-            : !hasFeature(featureAccess, "public_payment_confirmation")
-              ? getFeatureHint("public_payment_confirmation")
-              : undefined,
-        onClick: () => void copyPaymentConfirmationUrl(item),
-      },
-      {
-        label: "Copy WhatsApp message",
-        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !hasFeature(featureAccess, "whatsapp_copy_message"),
-        title: item.status === "Voided"
-          ? "Voided invoices should not be shared for payment."
-          : item.balanceAmount <= 0
-            ? "This invoice is already fully paid."
-            : !hasFeature(featureAccess, "whatsapp_copy_message")
-              ? getFeatureHint("whatsapp_copy_message")
-              : undefined,
-        onClick: () => void copyWhatsAppMessage(item),
-      },
-      {
-        label: "Copy WhatsApp browser link",
-        disabled: item.status === "Voided" || item.balanceAmount <= 0 || !hasFeature(featureAccess, "whatsapp_browser_link"),
-        title: item.status === "Voided"
-          ? "Voided invoices should not be shared for payment."
-          : item.balanceAmount <= 0
-            ? "This invoice is already fully paid."
-            : !hasFeature(featureAccess, "whatsapp_browser_link")
-              ? getFeatureHint("whatsapp_browser_link")
-              : undefined,
-        onClick: () => void copyWhatsAppBrowserLink(item),
-      },
-      {
+      ...(item.status !== "Voided" && item.eligibleCreditAmount > 0 ? [{
         label: "Issue credit note",
-        disabled: item.status === "Voided" || item.eligibleCreditAmount <= 0,
-        title: item.status === "Voided"
-          ? "Voided invoices cannot receive credit notes."
-          : item.eligibleCreditAmount <= 0
-            ? "This invoice has no remaining eligible amount for a credit note."
-            : undefined,
         onClick: () => {
           setAdjustPaymentForm(null);
           setPaymentForm(null);
@@ -757,63 +638,7 @@ export function InvoicesPage() {
             amount: "",
           });
         },
-      },
-      ...(item.paidAmount > 0 ? [{
-        label: "Adjust payment",
-        onClick: () => {
-          const refundablePayments = payments.filter((payment) =>
-            payment.invoiceId === item.id
-            && payment.status === "Succeeded"
-            && payment.attempts.length === 0
-            && payment.refundedAmount < payment.amount);
-          setPaymentForm(null);
-          setCreditNoteForm(null);
-          setAdjustPaymentForm({
-            invoiceId: item.id,
-            invoiceNumber: item.invoiceNumber,
-            currency: item.currency,
-            invoiceTotal: item.total,
-            paidAmount: item.paidAmount,
-            mode: "reverse",
-            selectedPaymentId: refundablePayments[0]?.id ?? "",
-            amount: "",
-            reason: "",
-          });
-        },
-      }, {
-        label: "Download receipt",
-        onClick: () => void downloadReceipt(item.id, item.invoiceNumber),
       }] : []),
-      { label: "Download PDF", onClick: () => void downloadPdf(item.id, item.invoiceNumber) },
-      {
-        label: "Void invoice",
-        tone: "danger" as const,
-        disabled: item.status === "Voided" || item.balanceAmount <= 0 || item.paidAmount > 0 || item.creditNotes.some((note) => note.status === "Issued"),
-        title: item.status === "Voided"
-          ? "This invoice is already voided."
-          : item.balanceAmount <= 0
-            ? "Fully paid invoices cannot be voided."
-            : item.paidAmount > 0
-              ? "Paid invoices cannot be voided."
-              : item.creditNotes.some((note) => note.status === "Issued")
-                ? "Invoices with issued credit notes cannot be voided."
-                : undefined,
-        onClick: () => setConfirmState({
-          title: "Void invoice",
-          description: `Void invoice ${item.invoiceNumber}?`,
-          action: async () => {
-            try {
-              await api.post(`/invoices/${item.id}/cancel`);
-              setConfirmState(null);
-              await load();
-            } catch (error) {
-              const nextError = error instanceof Error ? error.message : "Unable to void invoice.";
-              setFormError(nextError);
-              throw new Error(nextError);
-            }
-          },
-        }),
-      },
     ];
   }
 
@@ -858,6 +683,7 @@ export function InvoicesPage() {
       </header>
 
       {successMessage ? <HelperText>{successMessage}</HelperText> : null}
+      {pageLoadError ? <HelperText tone="error">{pageLoadError}</HelperText> : null}
       {formError ? <HelperText tone="error">{formError}</HelperText> : null}
 
       <div className="catalog-toolbar card subtle-card invoice-filter-bar">
@@ -873,10 +699,11 @@ export function InvoicesPage() {
         </label>
         <label className="form-label invoice-filter-select">
           Status
-          <select aria-label="Filter invoices by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "open" | "paid" | "overdue" | "voided")}>
+          <select aria-label="Filter invoices by status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "open" | "paid" | "refunded" | "overdue" | "voided")}>
             <option value="all">All statuses</option>
             <option value="open">Outstanding</option>
             <option value="paid">Paid</option>
+            <option value="refunded">Refunded</option>
             <option value="overdue">Overdue</option>
             <option value="voided">Voided</option>
           </select>
@@ -897,6 +724,7 @@ export function InvoicesPage() {
           <div>
             <h3 className="section-title">Invoice records</h3>
           </div>
+          <button type="button" className="button button-primary" onClick={() => navigate("/invoices/create")}>Create invoice</button>
         </div>
         {searchQuery || statusFilter !== "all" || sourceFilter !== "all" ? (
           <HelperText>{`${filteredItems.length} matching invoice${filteredItems.length === 1 ? "" : "s"} found.`}</HelperText>
@@ -959,6 +787,10 @@ export function InvoicesPage() {
                   <span className="subscription-mobile-meta-value">{formatCurrency(item.paidAmount, item.currency)}</span>
                 </div>
                 <div className="subscription-mobile-meta-row">
+                  <span className="subscription-mobile-meta-label">Refunded</span>
+                  <span className="subscription-mobile-meta-value">{formatCurrency(item.refundedAmount, item.currency)}</span>
+                </div>
+                <div className="subscription-mobile-meta-row">
                   <span className="subscription-mobile-meta-label">Balance</span>
                   <span className="subscription-mobile-meta-value">{formatCurrency(item.balanceAmount, item.currency)}</span>
                 </div>
@@ -993,21 +825,23 @@ export function InvoicesPage() {
                 {renderSortHeader("Period", "period")}
                 {renderSortHeader("Total", "total")}
                 {renderSortHeader("Paid", "paid")}
+                {renderSortHeader("Refunded", "refunded")}
                 {renderSortHeader("Balance", "balance")}
                 {renderSortHeader("Due", "due")}
+                <th className="actions-cell">Action</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={9}
+                  colSpan={11}
                   title="No invoices yet"
                   description="Wait for subscription renewals to generate invoices automatically, or use invoice actions here once records exist."
                   actions={<button type="button" className="button button-secondary" onClick={() => navigate("/help/quick-start")}>Quick Start</button>}
                 />
               ) : filteredItems.length === 0 ? (
                 <EmptyTableRow
-                  colSpan={9}
+                  colSpan={11}
                   title="No matching invoices"
                   description="Try a different keyword or filter to narrow the invoice list."
                 />
@@ -1038,12 +872,11 @@ export function InvoicesPage() {
                             </div>
                           ) : null}
                         </div>
-	                        <RowActionMenu items={getInvoiceActions(item)} />
                       </div>
                     </td>
                     <td>{item.customerName}</td>
                     <td>
-                      <span className={`status-pill ${item.statusLabel === "Paid" ? "status-pill-active" : "status-pill-inactive"}`}>
+                      <span className={`status-pill ${item.statusLabel === "Paid" ? "status-pill-active" : item.statusLabel === "Refunded" ? "status-pill-refunded" : "status-pill-inactive"}`}>
                         {item.statusLabel}
                       </span>
                     </td>
@@ -1051,8 +884,10 @@ export function InvoicesPage() {
                     <td>{getInvoicePeriodLabel(item)}</td>
                     <td>{formatCurrency(item.total, item.currency)}</td>
                     <td>{formatCurrency(item.paidAmount, item.currency)}</td>
+                    <td>{formatCurrency(item.refundedAmount, item.currency)}</td>
                     <td>{formatCurrency(item.balanceAmount, item.currency)}</td>
                     <td>{new Date(item.dueDateUtc).toLocaleDateString()}</td>
+                    <td className="actions-cell"><RowActionMenu items={getInvoiceActions(item)} /></td>
                   </tr>
                 </Fragment>
               ))}
@@ -1066,19 +901,41 @@ export function InvoicesPage() {
         <TablePagination {...pagination} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
 
         {paymentForm ? (
-          <div ref={paymentFormRef} className="form-stack invoice-inline-panel" style={{ marginTop: "1rem" }}>
+          <div className="form-stack invoice-inline-panel invoice-inline-payment-panel">
             <p className="eyebrow">Record payment</p>
             <HelperText>Record the payment here. Upload proof if the customer sent a transfer slip, receipt, or remittance advice.</HelperText>
             <div className="invoice-payment-grid">
-              <label className="form-label">
-                Amount
+              <div className="form-label">
+                <span className="invoice-payment-amount-label-row">
+                  <label htmlFor="record-payment-amount">Amount</label>
+                  <label className="checkbox-row invoice-payment-full-balance-toggle">
+                    <input
+                      type="checkbox"
+                      checked={paymentForm.useFullBalance}
+                      onChange={(event) => setPaymentForm((current) => {
+                        if (!current) {
+                          return current;
+                        }
+
+                        const invoice = items.find((item) => item.id === current.invoiceId);
+                        return {
+                          ...current,
+                          useFullBalance: event.target.checked,
+                          amount: event.target.checked ? String(invoice?.balanceAmount ?? current.amount) : current.amount,
+                        };
+                      })}
+                    />
+                    <span>Use full outstanding balance</span>
+                  </label>
+                </span>
                 <input
+                  id="record-payment-amount"
                   className="text-input"
                   value={paymentForm.amount}
                   disabled={paymentForm.useFullBalance}
                   onChange={(event) => setPaymentForm((current) => current ? { ...current, amount: event.target.value } : current)}
                 />
-              </label>
+              </div>
               <label className="form-label">
                 Method
                 <select value={paymentForm.method} onChange={(event) => setPaymentForm((current) => current ? { ...current, method: event.target.value } : current)}>
@@ -1127,25 +984,6 @@ export function InvoicesPage() {
               />
             </label>
             <HelperText>{`PNG, JPG, JPEG, and WEBP images up to ${formatUploadSizeLabel(uploadPolicy.uploadMaxBytes)} are allowed.${uploadPolicy.autoCompressUploads ? " Large images are compressed automatically before upload." : ""}`}</HelperText>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={paymentForm.useFullBalance}
-                onChange={(event) => setPaymentForm((current) => {
-                  if (!current) {
-                    return current;
-                  }
-
-                  const invoice = items.find((item) => item.id === current.invoiceId);
-                  return {
-                    ...current,
-                    useFullBalance: event.target.checked,
-                    amount: event.target.checked ? String(invoice?.balanceAmount ?? current.amount) : current.amount,
-                  };
-                })}
-              />
-              <span>Use full outstanding balance</span>
-            </label>
             <div className="button-stack">
               <button type="button" className="button button-primary" onClick={() => setConfirmState({
                 title: "Record payment",
@@ -1165,10 +1003,11 @@ export function InvoicesPage() {
                       formData.append("proofFile", paymentForm.proofFile);
                     }
 
-                    await api.postForm(`/invoices/${paymentForm.invoiceId}/record-payment-with-proof`, formData);
+                    const created = await api.postForm<Payment>(`/invoices/${paymentForm.invoiceId}/record-payment-with-proof`, formData);
                     setConfirmState(null);
                     setPaymentForm(null);
                     await load();
+                    openCreatedEmbeddedRecord(navigate, "/payments", created.id);
                   } catch (error) {
                     const nextError = error instanceof Error ? error.message : "Unable to record payment.";
                     setFormError(nextError);
@@ -1232,7 +1071,7 @@ export function InvoicesPage() {
                   }
 
                   try {
-                    await api.post("/credit-notes", {
+                    const created = await api.post<CreditNote>("/credit-notes", {
                       invoiceId: creditNoteForm.invoiceId,
                       reason: creditNoteForm.reason,
                       issuedAtUtc: new Date(creditNoteForm.issuedAtUtc).toISOString(),
@@ -1246,6 +1085,7 @@ export function InvoicesPage() {
                     setConfirmState(null);
                     setCreditNoteForm(null);
                     await load();
+                    openCreatedEmbeddedRecord(navigate, "/credit-notes", created.id);
                   } catch (error) {
                     const nextError = error instanceof Error ? error.message : "Unable to issue credit note.";
                     setFormError(nextError);
@@ -1357,12 +1197,18 @@ export function InvoicesPage() {
                       });
                       setSuccessMessage(`The latest manual payment on invoice ${adjustPaymentForm.invoiceNumber} was reversed.`);
                     } else {
-                      await api.post(`/refunds/payments/${selectedPayment!.id}`, {
+                      const created = await api.post<{ id: string }>(`/refunds/payments/${selectedPayment!.id}`, {
                         amount: Number(adjustPaymentForm.amount),
                         reason: adjustPaymentForm.reason,
                         invoiceId: adjustPaymentForm.invoiceId,
                       });
                       setSuccessMessage(`A refund was recorded for invoice ${adjustPaymentForm.invoiceNumber}.`);
+                      setConfirmState(null);
+                      setFormError("");
+                      setAdjustPaymentForm(null);
+                      await load();
+                      openCreatedEmbeddedRecord(navigate, "/refunds", created.id);
+                      return;
                     }
 
                     setConfirmState(null);
@@ -1386,11 +1232,15 @@ export function InvoicesPage() {
         ) : null}
       </section>
 
+      <ShareDocumentModal open={Boolean(shareInvoice)} documentLabel="Invoice" documentNumber={shareInvoice?.invoiceNumber ?? ""} recipientName={shareInvoice?.customerName} defaultRecipientEmail={shareInvoice ? getInvoiceRecipient(shareInvoice) ?? "" : ""} canSend={Boolean(billingReadiness?.isReady && shareInvoice?.status !== "Voided")} onClose={() => setShareInvoice(null)} onSend={async (recipientEmail, message) => { if (!shareInvoice) return; await api.post(`/invoices/${shareInvoice.id}/send`, { recipientEmail, message }); setSuccessMessage(`Invoice ${shareInvoice.invoiceNumber} was sent.`); await load(); }} />
+
       <ConfirmModal
         open={confirmState !== null}
         title={confirmState?.title ?? ""}
         description={confirmState?.description ?? ""}
+        details={confirmState?.details}
         confirmLabel="Confirm"
+        confirmDisabled={confirmState?.confirmDisabled}
         onConfirm={async () => { if (confirmState) await confirmState.action(); }}
         onCancel={() => setConfirmState(null)}
       />
@@ -1408,22 +1258,26 @@ export function InvoicesPage() {
           >
             <div className="product-preview-modal-header">
               <div>
-                <p className="eyebrow">Invoice detail</p>
-                <h3 id="invoice-detail-title">{selectedInvoice.invoiceNumber}</h3>
-                <p className="muted">{selectedInvoice.customerName}</p>
+                <p className="eyebrow">Record Summary</p>
+                <h3 id="invoice-detail-title">Details</h3>
+                <p className="muted">{selectedInvoice.invoiceNumber}</p>
               </div>
-              <button type="button" className="button button-secondary button-compact" onClick={() => setExpandedId(null)}>Close</button>
+              <button type="button" className="button button-secondary button-compact" aria-label="Close details" onClick={() => setExpandedId(null)}>×</button>
             </div>
 
             <div className="product-preview-modal-body">
               <div className="invoice-detail-panel">
-              <div className="invoice-detail-hero">
-                <div className="invoice-detail-hero-copy">
-                  <p className="eyebrow">Summary</p>
-                  <h3>{selectedInvoice.invoiceNumber}</h3>
-                  <p className="muted">{selectedInvoice.customerName}</p>
-                </div>
+              <div className="invoice-detail-inline-actions">
+                <button type="button" className="button button-secondary" onClick={() => setExpandedId(null)}>Back</button>
+                {canRecordPayment(selectedInvoice) ? <button type="button" className="button button-secondary" onClick={() => openRecordPaymentForm(selectedInvoice)}>Record payment</button> : null}
+                <button type="button" className="button button-secondary" onClick={() => openShareInvoice(selectedInvoice)}>Share</button>
+                <button type="button" className="button button-secondary" onClick={() => window.print()}>Print</button>
+                <button type="button" className="button button-primary" onClick={() => void downloadPdf(selectedInvoice.id, selectedInvoice.invoiceNumber)}>Export PDF</button>
+              </div>
+              <div className="invoice-detail-hero invoice-detail-hero-summary">
+                <div className="invoice-detail-hero-copy"><h3>{selectedInvoice.customerName}</h3><p className="muted"><span className={`status-pill ${selectedInvoice.statusLabel === "Paid" ? "status-pill-active" : selectedInvoice.statusLabel === "Refunded" ? "status-pill-refunded" : "status-pill-inactive"}`}>{selectedInvoice.statusLabel}</span></p></div>
                 <div className="invoice-detail-summary">
+                  <div className="invoice-detail-stat"><p className="eyebrow">Invoice No</p><strong>{selectedInvoice.invoiceNumber}</strong></div>
                   <div className="invoice-detail-stat">
                     <p className="eyebrow">Issue Date</p>
                     <strong>{new Date(selectedInvoice.issueDateUtc).toLocaleDateString()}</strong>
@@ -1433,13 +1287,19 @@ export function InvoicesPage() {
                     <strong>{new Date(selectedInvoice.dueDateUtc).toLocaleDateString()}</strong>
                   </div>
                   <div className="invoice-detail-stat">
-                    <p className="eyebrow">Total</p>
-                    <strong>{formatCurrency(selectedInvoice.total, selectedInvoice.currency)}</strong>
+                    <p className="eyebrow">Status</p>
+                    <strong><span className={`status-pill ${selectedInvoice.statusLabel === "Paid" ? "status-pill-active" : selectedInvoice.statusLabel === "Refunded" ? "status-pill-refunded" : "status-pill-inactive"}`}>{selectedInvoice.statusLabel}</span></strong>
                   </div>
                   <div className="invoice-detail-stat">
-                    <p className="eyebrow">Balance</p>
-                    <strong>{formatCurrency(selectedInvoice.balanceAmount, selectedInvoice.currency)}</strong>
+                    <p className="eyebrow">Source</p>
+                    <strong>{selectedInvoice.sourceType}</strong>
                   </div>
+                  {selectedInvoice.deliveryOrderId ? <div className="invoice-detail-stat"><p className="eyebrow">Source Delivery Order</p><strong><a className="inline-link" href={`/sales/delivery-orders/${selectedInvoice.deliveryOrderId}`} onClick={(event) => { event.preventDefault(); navigate(`/sales/delivery-orders/${selectedInvoice.deliveryOrderId}`, { state: { backgroundLocation: location } }); }}>View Delivery Order</a></strong></div> : null}
+                  {selectedInvoice.salesOrderId ? <div className="invoice-detail-stat"><p className="eyebrow">Source Sales Order</p><strong><a className="inline-link" href={`/sales/orders/${selectedInvoice.salesOrderId}`} onClick={(event) => { event.preventDefault(); navigate(`/sales/orders/${selectedInvoice.salesOrderId}`, { state: { backgroundLocation: location } }); }}>View Sales Order</a></strong></div> : null}
+                  {selectedInvoice.periodStartUtc && selectedInvoice.periodEndUtc ? <div className="invoice-detail-stat">
+                    <p className="eyebrow">Period</p>
+                    <strong>{getInvoicePeriodLabel(selectedInvoice)}</strong>
+                  </div> : null}
                 </div>
               </div>
               {selectedInvoice.balanceAmount > 0 ? (
@@ -1460,14 +1320,13 @@ export function InvoicesPage() {
                     >
                       {getOnlinePaymentAction(selectedInvoice).label}
                     </button>
-                    <button
+                    {canRecordPayment(selectedInvoice) ? <button
                       type="button"
                       className="button button-secondary"
                       onClick={() => openRecordPaymentForm(selectedInvoice)}
-                      disabled={!canRecordPayment(selectedInvoice)}
                     >
                       Record payment
-                    </button>
+                    </button> : null}
                     <button
                       type="button"
                       className="button button-secondary"
@@ -1500,14 +1359,14 @@ export function InvoicesPage() {
                 <div className="invoice-detail-main">
                   <div className="invoice-detail-block">
                     <div className="invoice-detail-block-header">
-                      <p className="eyebrow">Line Items</p>
+                      <p className="eyebrow">Invoice Items</p>
                     </div>
                     <div className="invoice-detail-list invoice-detail-list-spacious">
                       {selectedInvoice.lineItems.map((line) => (
                         <div key={`${line.description}-${line.lineTotal}`} className="invoice-detail-list-row invoice-detail-list-row-top">
                           <div className="invoice-detail-line-copy">
                             <strong>{line.description}</strong>
-                            <span className="muted">{`${line.quantity} x ${formatCurrency(line.unitAmount, selectedInvoice.currency)}`}</span>
+                            <span className="muted">{`${line.quantity} × ${formatCurrency(line.unitAmount, selectedInvoice.currency)} = ${formatCurrency(line.totalAmount, selectedInvoice.currency)}${selectedInvoice.isTaxEnabled ? ` + ${formatCurrency(line.taxAmount, selectedInvoice.currency)} tax` : ""}`}</span>
                           </div>
                           <strong>{formatCurrency(line.lineTotal, selectedInvoice.currency)}</strong>
                         </div>
@@ -1523,8 +1382,7 @@ export function InvoicesPage() {
                       {selectedInvoice.history.length > 0 ? selectedInvoice.history.map((entry) => (
                         <div key={`${entry.createdAtUtc}-${entry.action}`} className="invoice-detail-list-row invoice-detail-list-row-top">
                           <div className="invoice-detail-line-copy">
-                            <strong>{entry.description}</strong>
-                            <span className="muted">{entry.action}</span>
+                            <strong>{getInvoiceHistoryDescription(entry.action, entry.description)}</strong>
                           </div>
                           <span className="muted">{new Date(entry.createdAtUtc).toLocaleString()}</span>
                         </div>
@@ -1536,36 +1394,12 @@ export function InvoicesPage() {
                 <div className="invoice-detail-aside">
                   <div className="invoice-detail-block">
                     <div className="invoice-detail-block-header">
-                      <p className="eyebrow">Overview</p>
-                    </div>
-                    <div className="invoice-detail-list">
-                      <div className="invoice-detail-list-row">
-                        <span>Status</span>
-                        <strong>{selectedInvoice.statusLabel}</strong>
-                      </div>
-                      <div className="invoice-detail-list-row">
-                        <span>Source</span>
-                        <strong>{selectedInvoice.sourceType}</strong>
-                      </div>
-                      <div className="invoice-detail-list-row invoice-detail-list-row-top">
-                        <span>Period</span>
-                        <strong className="invoice-detail-align-right">
-                          {selectedInvoice.periodStartUtc && selectedInvoice.periodEndUtc
-                            ? `${new Date(selectedInvoice.periodStartUtc).toLocaleDateString()} - ${new Date(selectedInvoice.periodEndUtc).toLocaleDateString()}`
-                            : "-"}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="invoice-detail-block">
-                    <div className="invoice-detail-block-header">
                       <p className="eyebrow">Billing Address</p>
                     </div>
                     <div className="invoice-detail-list">
                       <div className="invoice-detail-list-row invoice-detail-list-row-top">
-                        <span>Saved with invoice</span>
-                        <strong className="invoice-detail-align-right" style={{ whiteSpace: "pre-line" }}>
+                        <span>Billing address</span>
+                        <strong className="invoice-detail-address" style={{ whiteSpace: "pre-line" }}>
                           {selectedInvoice.companyAddressSnapshot || "-"}
                         </strong>
                       </div>
@@ -1574,9 +1408,12 @@ export function InvoicesPage() {
 
                   <div className="invoice-detail-block">
                     <div className="invoice-detail-block-header">
-                      <p className="eyebrow">Amounts</p>
+                      <p className="eyebrow">Document</p>
                     </div>
                     <div className="invoice-detail-list">
+                      <div className="invoice-detail-list-row"><span>Status</span><strong>{selectedInvoice.statusLabel}</strong></div>
+                      <div className="invoice-detail-list-row"><span>Currency</span><strong>{selectedInvoice.currency}</strong></div>
+                      <div className="invoice-detail-list-row"><span>Due Date</span><strong>{new Date(selectedInvoice.dueDateUtc).toLocaleDateString()}</strong></div>
                       <div className="invoice-detail-list-row">
                         <span>Subtotal</span>
                         <strong>{formatCurrency(selectedInvoice.subtotal, selectedInvoice.currency)}</strong>
@@ -1586,15 +1423,53 @@ export function InvoicesPage() {
                         <strong>{formatCurrency(selectedInvoice.taxAmount, selectedInvoice.currency)}</strong>
                       </div>
                       <div className="invoice-detail-list-row">
-                        <span>Paid</span>
+                        <span>Total</span>
+                        <strong>{formatCurrency(selectedInvoice.total, selectedInvoice.currency)}</strong>
+                      </div>
+                      <div className="invoice-detail-list-row"><span>Outstanding</span><strong>{formatCurrency(selectedInvoice.balanceAmount, selectedInvoice.currency)}</strong></div>
+                    </div>
+                  </div>
+
+                  <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header"><p className="eyebrow">Payment Summary</p></div>
+                    <div className="invoice-detail-list">
+                      <div className="invoice-detail-list-row">
+                        <span>Payments received</span>
+                        <strong>{formatCurrency(selectedInvoice.paidAmount + selectedInvoice.refundedAmount, selectedInvoice.currency)}</strong>
+                      </div>
+                      {selectedInvoice.refundedAmount > 0 ? <div className="invoice-detail-list-row">
+                        <span>Refunds issued</span>
+                        <strong>{formatCurrency(selectedInvoice.refundedAmount, selectedInvoice.currency)}</strong>
+                      </div> : null}
+                      <div className="invoice-detail-list-row">
+                        <span>Net paid</span>
                         <strong>{formatCurrency(selectedInvoice.paidAmount, selectedInvoice.currency)}</strong>
                       </div>
+                      {selectedInvoice.creditedAmount > 0 ? <div className="invoice-detail-list-row">
+                        <span>Credit notes</span>
+                        <strong>{formatCurrency(selectedInvoice.creditedAmount, selectedInvoice.currency)}</strong>
+                      </div> : null}
                       <div className="invoice-detail-list-row">
-                        <span>Balance</span>
+                        <span>Outstanding</span>
                         <strong>{formatCurrency(selectedInvoice.balanceAmount, selectedInvoice.currency)}</strong>
                       </div>
                     </div>
                   </div>
+
+                  {payments.some((payment) => payment.invoiceId === selectedInvoice.id && payment.status === "Succeeded") ? <div className="invoice-detail-block">
+                    <div className="invoice-detail-block-header"><p className="eyebrow">Payment information</p></div>
+                    <div className="invoice-detail-list">
+                      {payments.filter((payment) => payment.invoiceId === selectedInvoice.id && payment.status === "Succeeded").map((payment) => (
+                        <div key={payment.id} className="invoice-detail-list-row invoice-detail-list-row-top">
+                          <div className="invoice-detail-line-copy">
+                            <strong>{payment.gatewayName}</strong>
+                            <span className="muted">{`${payment.paidAtUtc ? new Date(payment.paidAtUtc).toLocaleDateString() : "Payment date unavailable"}${payment.externalPaymentId ? ` · ${payment.externalPaymentId}` : ""}`}</span>
+                          </div>
+                          <strong>{`${formatCurrency(payment.netCollectedAmount, payment.currency)} net${payment.refundedAmount > 0 ? ` · ${formatCurrency(payment.refundedAmount, payment.currency)} refunded` : ""}`}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  </div> : null}
 
                   <div className="invoice-detail-block">
                     <div className="invoice-detail-block-header">
@@ -1666,13 +1541,6 @@ export function InvoicesPage() {
                 </div>
               </div>
 
-              <div className="invoice-detail-endcap">
-                <div>
-                  <p className="eyebrow">End of details</p>
-                  <p className="muted">You have reached the end of this invoice.</p>
-                </div>
-                <button type="button" className="button button-secondary" onClick={() => setExpandedId(null)}>Close details</button>
-              </div>
             </div>
             </div>
           </div>

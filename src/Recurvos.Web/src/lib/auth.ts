@@ -25,6 +25,14 @@ export function getActiveCompanyId() {
   return localStorage.getItem(ACTIVE_COMPANY_STORAGE_KEY) ?? getAuth()?.companyId ?? null;
 }
 
+/** Prefer the workspace selected in the app shell whenever a page needs a default company. */
+export function resolveActiveCompanyId<T extends { id: string }>(companies: readonly T[]) {
+  const activeCompanyId = getActiveCompanyId();
+  return activeCompanyId && companies.some((company) => company.id === activeCompanyId)
+    ? activeCompanyId
+    : companies[0]?.id ?? "";
+}
+
 export function setActiveCompanyId(companyId: string) {
   localStorage.setItem(ACTIVE_COMPANY_STORAGE_KEY, companyId);
   window.dispatchEvent(new Event("recurvos:company-changed"));

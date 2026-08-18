@@ -129,10 +129,10 @@ public sealed class ProductService(
             BaseUnitLabel = request.BaseUnitLabel.Trim(),
             HasMultipleUoms = request.HasMultipleUoms,
             UomConversionsJson = SerializeList(request.HasMultipleUoms ? normalizedUomConversions : Array.Empty<ProductUomConversionDto>()),
-            HasCustomSalesPrices = request.HasCustomSalesPrices,
-            CustomSalesPricesJson = SerializeList(request.HasCustomSalesPrices ? normalizedCustomSalesPrices : Array.Empty<ProductCustomPriceDto>()),
-            HasCustomPurchasePrices = request.HasCustomPurchasePrices,
-            CustomPurchasePricesJson = SerializeList(request.HasCustomPurchasePrices ? normalizedCustomPurchasePrices : Array.Empty<ProductCustomPriceDto>()),
+            HasCustomSalesPrices = normalizedCustomSalesPrices.Count > 0,
+            CustomSalesPricesJson = SerializeList(normalizedCustomSalesPrices),
+            HasCustomPurchasePrices = normalizedCustomPurchasePrices.Count > 0,
+            CustomPurchasePricesJson = SerializeList(normalizedCustomPurchasePrices),
             IsSubscriptionProduct = request.IsSubscriptionProduct,
             IsActive = request.IsActive,
         };
@@ -171,6 +171,10 @@ public sealed class ProductService(
             request.PurchasePrice);
         var normalizedCustomSalesPrices = NormalizeCustomPrices(request.CustomSalesPrices);
         var normalizedCustomPurchasePrices = NormalizeCustomPrices(request.CustomPurchasePrices);
+        if (!request.HasCustomSalesPrices && normalizedCustomSalesPrices.Count == 0)
+            normalizedCustomSalesPrices = DeserializeList<ProductCustomPriceDto>(product.CustomSalesPricesJson).ToList();
+        if (!request.HasCustomPurchasePrices && normalizedCustomPurchasePrices.Count == 0)
+            normalizedCustomPurchasePrices = DeserializeList<ProductCustomPriceDto>(product.CustomPurchasePricesJson).ToList();
         await ValidateCustomPriceReferencesAsync(product.CompanyId, request.BaseUnitLabel, normalizedUomConversions, normalizedCustomSalesPrices, cancellationToken);
         await ValidateCustomPriceReferencesAsync(product.CompanyId, request.BaseUnitLabel, normalizedUomConversions, normalizedCustomPurchasePrices, cancellationToken);
         var inventoryAccount = await ResolveAccountSelectionAsync(request.TrackInventory ? request.InventoryAccountId : null, request.TrackInventory ? request.InventoryAccount : string.Empty, AccountType.Asset, "Inventory account", cancellationToken);
@@ -212,11 +216,10 @@ public sealed class ProductService(
         product.BaseUnitLabel = request.BaseUnitLabel.Trim();
         product.HasMultipleUoms = request.HasMultipleUoms;
         product.UomConversionsJson = SerializeList(request.HasMultipleUoms ? normalizedUomConversions : Array.Empty<ProductUomConversionDto>());
-        product.HasCustomSalesPrices = request.HasCustomSalesPrices;
-        product.CustomSalesPricesJson = SerializeList(request.HasCustomSalesPrices ? normalizedCustomSalesPrices : Array.Empty<ProductCustomPriceDto>());
-        product.HasCustomPurchasePrices = request.HasCustomPurchasePrices;
-        product.CustomPurchasePricesJson = SerializeList(request.HasCustomPurchasePrices ? normalizedCustomPurchasePrices : Array.Empty<ProductCustomPriceDto>());
-        product.IsSubscriptionProduct = request.IsSubscriptionProduct;
+        product.HasCustomSalesPrices = normalizedCustomSalesPrices.Count > 0;
+        product.CustomSalesPricesJson = SerializeList(normalizedCustomSalesPrices);
+        product.HasCustomPurchasePrices = normalizedCustomPurchasePrices.Count > 0;
+        product.CustomPurchasePricesJson = SerializeList(normalizedCustomPurchasePrices);
         product.IsActive = request.IsActive;
         product.UpdatedAtUtc = DateTime.UtcNow;
 
@@ -451,7 +454,7 @@ public sealed class ProductService(
         var activePlans = product.Plans.Where(x => x.IsActive).ToList();
         var defaultPlan = activePlans.FirstOrDefault(x => x.IsDefault) ?? activePlans.OrderBy(x => x.UnitAmount).FirstOrDefault();
         var productType = activePlans.Count == 0
-            ? (product.IsSubscriptionProduct ? "Subscription" : "One-Time")
+            ? "One-Time"
             : activePlans.Select(x => x.BillingType).Distinct().Count() > 1
                 ? "Mixed"
                 : activePlans.All(x => x.BillingType == BillingType.OneTime)
@@ -623,7 +626,7 @@ public sealed class ProductService(
         var knownContactIds = contactIds.Length == 0
             ? new HashSet<Guid>()
             : (await dbContext.Customers
-                .Where(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && contactIds.Contains(x.Id))
+                .Where(x => x.CompanyId == activeCompanyId && contactIds.Contains(x.Id))
                 .Select(x => x.Id)
                 .ToListAsync(cancellationToken))
                 .ToHashSet();
@@ -747,7 +750,7 @@ public sealed class ProductService(
 
         var activeCompanyId = currentUserService.CompanyId ?? throw new UnauthorizedAccessException();
         var supplier = await dbContext.Customers
-            .Where(x => x.CompanyIdsJson.Contains(activeCompanyId.ToString()) && x.Id == supplierId.Value)
+            .Where(x => x.CompanyId == activeCompanyId && x.Id == supplierId.Value)
             .Select(x => new { x.Id, x.Name, x.ContactType })
             .FirstOrDefaultAsync(cancellationToken);
 

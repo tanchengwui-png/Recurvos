@@ -5,11 +5,31 @@ import { HelperText } from "../components/ui/HelperText";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { api } from "../lib/api";
+import { openCreatedRecord } from "../lib/postCreateNavigation";
 import { formatCurrency } from "../lib/format";
 import type { PurchaseBill, PurchaseCreditNote } from "../types";
 
 type LineForm = { description: string; quantity: number; unitAmount: number; taxAmount: number };
 const emptyLine: LineForm = { description: "", quantity: 1, unitAmount: 0, taxAmount: 0 };
+
+function buildCreditNoteLines(bill: PurchaseBill): LineForm[] {
+  let remainingCredit = bill.amountDue;
+
+  return bill.lines.flatMap((line) => {
+    const lineTotal = (line.quantity * line.unitPrice) + line.taxAmount;
+    const creditAmount = Math.min(remainingCredit, lineTotal);
+    remainingCredit -= creditAmount;
+    if (creditAmount <= 0 || lineTotal <= 0) return [];
+
+    const proportion = creditAmount / lineTotal;
+    return [{
+      description: line.description,
+      quantity: Number((line.quantity * proportion).toFixed(6)),
+      unitAmount: line.unitPrice,
+      taxAmount: Number((line.taxAmount * proportion).toFixed(2)),
+    }];
+  });
+}
 
 export function PurchaseCreditNoteFormPage() {
   const navigate = useNavigate();
@@ -24,11 +44,32 @@ export function PurchaseCreditNoteFormPage() {
 
   useEffect(() => {
     if (!purchaseBillId) return;
-    void api.get<PurchaseBill>(`/purchases/bills/${purchaseBillId}`).then(setPurchaseBill);
+    void api.get<PurchaseBill>(`/purchases/bills/${purchaseBillId}`).then((bill) => {
+      setPurchaseBill(bill);
+      const billLines = buildCreditNoteLines(bill);
+      setLines(billLines.length > 0 ? billLines : [{ ...emptyLine }]);
+    });
   }, [purchaseBillId]);
 
   function updateLine(index: number, next: Partial<LineForm>) {
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...next } : line));
+  }
+
+  function updateCreditAmount(nextAmount: number) {
+    if (!Number.isFinite(nextAmount) || nextAmount < 0) return;
+    setLines((current) => {
+      const currentAmount = current.reduce((sum, line) => sum + (line.quantity * line.unitAmount) + line.taxAmount, 0);
+      if (currentAmount <= 0) {
+        return current.map((line, index) => index === 0 ? { ...line, quantity: 1, unitAmount: nextAmount, taxAmount: 0 } : line);
+      }
+
+      const multiplier = nextAmount / currentAmount;
+      return current.map((line) => ({
+        ...line,
+        unitAmount: Number((line.unitAmount * multiplier).toFixed(6)),
+        taxAmount: Number((line.taxAmount * multiplier).toFixed(2)),
+      }));
+    });
   }
 
   const currency = purchaseBill?.currency ?? "";
@@ -56,7 +97,7 @@ export function PurchaseCreditNoteFormPage() {
           })),
         };
         const result = await api.post<PurchaseCreditNote>("/purchases/credit-notes", payload);
-        navigate(`/purchases/credit-notes/${result.id}`);
+        openCreatedRecord(navigate, "/purchases/credit-notes", "/purchases/credit-notes", result.id);
       },
     });
   }
@@ -65,18 +106,22 @@ export function PurchaseCreditNoteFormPage() {
     <div className="page">
       <FormPageHeader backLabel="Back to Credit Notes" backHref="/purchases/credit-notes" breadcrumbs={<><span>Credit Notes</span><span>/</span><span>New Credit Note</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-      <TransactionFormCard title="Credit note details" description="Supplier, bill details and credit lines.">
+      <TransactionFormCard title="Credit note details" description="Supplier, bill details and credit note items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
           <label className="form-label">Purchase Bill<input className="text-input" value={purchaseBill?.purchaseBillNumber ?? ""} readOnly /></label>
           <label className="form-label">Supplier<input className="text-input" value={purchaseBill?.contactName ?? ""} readOnly /></label>
           <label className="form-label">Issued Date<input type="date" className="text-input" value={issuedAtUtc} onChange={(event) => setIssuedAtUtc(event.target.value)} /></label>
           <label className="form-label">Outstanding<input className="text-input" value={purchaseBill ? formatCurrency(purchaseBill.amountDue, currency) : ""} readOnly /></label>
+          <label className="form-label">
+            Credit Amount
+            <input type="number" min="0" max={purchaseBill?.amountDue ?? undefined} step="0.01" className="text-input" value={Number(total.toFixed(2))} onFocus={(event) => event.currentTarget.select()} onChange={(event) => updateCreditAmount(Number(event.target.value))} />
+          </label>
           <label className="form-label master-data-form-wide">Reason<input className="text-input" value={reason} onChange={(event) => setReason(event.target.value)} /></label>
         </div>
       </section>
       <section className="card">
-        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Credit Lines</h3></div><button type="button" className="button button-secondary" onClick={() => setLines((current) => [...current, { ...emptyLine }])}>Add line</button></div>
+        <div className="card-section-header"><div className="section-header-cluster"><h3 className="section-title">Credit Note Items</h3></div><button type="button" className="button button-secondary" onClick={() => setLines((current) => [...current, { ...emptyLine }])}>Add item</button></div>
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Description</th><th>Qty</th><th>Unit Amount</th><th>Tax Amount</th><th>Total</th><th /></tr></thead>
@@ -99,11 +144,11 @@ export function PurchaseCreditNoteFormPage() {
             <span className="page-meta-chip"><span className="page-meta-chip-label">Credit Total</span><strong className="page-meta-chip-value">{formatCurrency(total, currency)}</strong></span>
           </div>
         </div>
-        <div className="contact-page-actions">
+      </section>
+        <div className="contact-page-actions form-footer-create">
           <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/credit-notes")}>Cancel</button>
           <button type="button" className="button button-primary" onClick={() => void submit()}>Apply credit note</button>
         </div>
-      </section>
       </TransactionFormCard>
       <ConfirmModal open={confirmState !== null} title={confirmState?.title ?? ""} description={confirmState?.description ?? ""} confirmLabel="Confirm" onConfirm={async () => { await confirmState?.action(); }} onCancel={() => setConfirmState(null)} />
     </div>

@@ -5,6 +5,9 @@ namespace Recurvos.Application.Sales;
 
 public sealed class SalesDocumentLineRequest
 {
+    // Set only when updating an order that was converted from a quotation.
+    // This preserves the direct document-chain relationship used for capacity checks.
+    public Guid? SourceQuotationLineId { get; set; }
     public Guid? ProductId { get; set; }
     public Guid? TaxCodeId { get; set; }
 
@@ -23,8 +26,12 @@ public sealed class SalesDocumentLineRequest
 
 public sealed class DeliveryOrderLineRequest
 {
-    [Required]
-    public Guid SalesOrderLineId { get; set; }
+    public Guid? SalesOrderLineId { get; set; }
+    public Guid? ProductId { get; set; }
+    public Guid? TaxCodeId { get; set; }
+    [MaxLength(1000)] public string Description { get; set; } = string.Empty;
+    [Range(typeof(decimal), "0.00", "9999999999999999")] public decimal UnitPrice { get; set; }
+    [Range(typeof(decimal), "0.00", "100.00")] public decimal TaxRate { get; set; }
 
     [Range(typeof(decimal), "0.01", "9999999999999999")]
     public decimal Quantity { get; set; }
@@ -78,13 +85,45 @@ public sealed class ConvertQuotationToSalesOrderRequest
 
     [MaxLength(4000)]
     public string Notes { get; set; } = string.Empty;
+
+    [MinLength(1)]
+    public List<ConvertQuotationLineRequest> Lines { get; set; } = new();
 }
 
-public sealed record SalesDocumentLineDto(Guid Id, Guid? ProductId, Guid? TaxCodeId, string ProductNameSnapshot, string Description, decimal Quantity, decimal UnitPrice, decimal TaxRate, decimal TaxAmount, decimal LineTotal, Guid? SourceQuotationLineId, Guid? SalesOrderLineId, decimal DeliveredQuantity, decimal InvoicedQuantity);
+public sealed class ConvertQuotationLineRequest
+{
+    [Required]
+    public Guid SalesQuotationLineId { get; set; }
 
-public sealed record SalesQuotationListItemDto(Guid Id, Guid CompanyId, string CompanyName, string QuotationNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, DateTime? ExpiryDateUtc, string Currency, decimal TotalAmount, SalesQuotationStatus Status, Guid? ConvertedSalesOrderId);
+    [Range(typeof(decimal), "0.01", "9999999999999999")]
+    public decimal Quantity { get; set; }
+}
 
-public sealed record SalesQuotationDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string QuotationNumber, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, DateTime DocumentDateUtc, DateTime? ExpiryDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, SalesQuotationStatus Status, Guid? ConvertedSalesOrderId, IReadOnlyCollection<SalesDocumentLineDto> Lines);
+public sealed class ConvertQuotationToDeliveryOrderRequest
+{
+    [Required]
+    public Guid WarehouseId { get; set; }
+
+    [Required]
+    public DateTime DocumentDateUtc { get; set; }
+
+    [MaxLength(100)]
+    public string ReferenceNo { get; set; } = string.Empty;
+
+    [MaxLength(4000)]
+    public string Notes { get; set; } = string.Empty;
+
+    [MinLength(1)]
+    public List<ConvertQuotationLineRequest> Lines { get; set; } = new();
+}
+
+public sealed record SalesDocumentLineDto(Guid Id, Guid? ProductId, Guid? TaxCodeId, string ProductNameSnapshot, string Description, decimal Quantity, decimal UnitPrice, decimal TaxRate, decimal TaxAmount, decimal LineTotal, Guid? SourceQuotationLineId, Guid? SalesOrderLineId, decimal DeliveredQuantity, decimal InvoicedQuantity, decimal ConvertedQuantity = 0, decimal RemainingQuantity = 0);
+
+public sealed record SalesOrderLinkDto(Guid Id, string SalesOrderNumber, DateTime DocumentDateUtc, SalesOrderStatus Status, decimal TotalAmount, string Currency);
+
+public sealed record SalesQuotationListItemDto(Guid Id, Guid CompanyId, string CompanyName, string QuotationNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, DateTime? ExpiryDateUtc, string Currency, decimal TotalAmount, SalesQuotationStatus Status, SalesQuotationConversionStatus ConversionStatus, bool IsTransactionallyLocked, Guid? ConvertedSalesOrderId);
+
+public sealed record SalesQuotationDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string QuotationNumber, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, DateTime DocumentDateUtc, DateTime? ExpiryDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, SalesQuotationStatus Status, SalesQuotationConversionStatus ConversionStatus, bool IsTransactionallyLocked, Guid? ConvertedSalesOrderId, IReadOnlyCollection<SalesDocumentLineDto> Lines, IReadOnlyCollection<SalesOrderLinkDto> SalesOrders);
 
 public sealed class SalesOrderListQuery
 {
@@ -137,7 +176,13 @@ public sealed class DeliveryOrderUpsertRequest
     public Guid? CompanyId { get; set; }
 
     [Required]
-    public Guid SalesOrderId { get; set; }
+    public Guid? SalesOrderId { get; set; }
+
+    [Required]
+    public Guid ContactId { get; set; }
+
+    [MaxLength(20)]
+    public string Currency { get; set; } = "MYR";
 
     [Required]
     public Guid? WarehouseId { get; set; }
@@ -160,13 +205,15 @@ public sealed class DeliveryOrderStatusRequest
     public DeliveryOrderStatus Status { get; set; }
 }
 
-public sealed record SalesOrderListItemDto(Guid Id, Guid CompanyId, string CompanyName, string SalesOrderNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, string Currency, decimal TotalAmount, SalesOrderStatus Status, Guid? SalesQuotationId);
+public sealed record SalesOrderListItemDto(Guid Id, Guid CompanyId, string CompanyName, string SalesOrderNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, string Currency, decimal TotalAmount, SalesOrderStatus Status, bool HasDirectInvoiceableQuantity, bool HasOutstandingQuantity, Guid? SalesQuotationId);
 
-public sealed record SalesOrderDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string SalesOrderNumber, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, DateTime DocumentDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, SalesOrderStatus Status, Guid? SalesQuotationId, IReadOnlyCollection<SalesDocumentLineDto> Lines);
+public sealed record SalesInvoiceLinkDto(Guid Id, string InvoiceNumber, DateTime IssueDateUtc, InvoiceStatus Status, decimal TotalAmount, string Currency, Guid? DeliveryOrderId);
 
-public sealed record DeliveryOrderListItemDto(Guid Id, Guid CompanyId, string CompanyName, string DeliveryOrderNumber, Guid SalesOrderId, string SalesOrderNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, string Currency, decimal TotalAmount, DeliveryOrderStatus Status);
+public sealed record SalesOrderDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string SalesOrderNumber, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, DateTime DocumentDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, SalesOrderStatus Status, Guid? SalesQuotationId, IReadOnlyCollection<SalesDocumentLineDto> Lines, IReadOnlyCollection<SalesInvoiceLinkDto>? Invoices = null);
 
-public sealed record DeliveryOrderDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string DeliveryOrderNumber, Guid SalesOrderId, string SalesOrderNumber, Guid? WarehouseId, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, DateTime DocumentDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, DeliveryOrderStatus Status, IReadOnlyCollection<SalesDocumentLineDto> Lines);
+public sealed record DeliveryOrderListItemDto(Guid Id, Guid CompanyId, string CompanyName, string DeliveryOrderNumber, Guid? SalesOrderId, Guid? SalesQuotationId, string SalesOrderNumber, Guid ContactId, string ContactName, DateTime DocumentDateUtc, string Currency, decimal TotalAmount, DeliveryOrderStatus Status, bool HasInvoiceableQuantity);
+
+public sealed record DeliveryOrderDetailsDto(Guid Id, Guid CompanyId, string CompanyName, string DeliveryOrderNumber, Guid? SalesOrderId, Guid? SalesQuotationId, string SalesOrderNumber, Guid? WarehouseId, Guid ContactId, string ContactName, string ContactEmail, string ContactPhoneNumber, DateTime DocumentDateUtc, string Currency, string ReferenceNo, string Notes, decimal Subtotal, decimal TaxAmount, decimal TotalAmount, DeliveryOrderStatus Status, IReadOnlyCollection<SalesDocumentLineDto> Lines, IReadOnlyCollection<SalesInvoiceLinkDto>? Invoices = null);
 
 public interface ISalesQuotationService
 {
@@ -176,6 +223,7 @@ public interface ISalesQuotationService
     Task<SalesQuotationDetailsDto?> UpdateAsync(Guid id, SalesQuotationUpsertRequest request, CancellationToken cancellationToken = default);
     Task<SalesQuotationDetailsDto?> SetStatusAsync(Guid id, SalesQuotationStatusRequest request, CancellationToken cancellationToken = default);
     Task<SalesOrderDetailsDto?> ConvertToSalesOrderAsync(Guid id, ConvertQuotationToSalesOrderRequest request, CancellationToken cancellationToken = default);
+    Task<DeliveryOrderDetailsDto?> ConvertToDeliveryOrderAsync(Guid id, ConvertQuotationToDeliveryOrderRequest request, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
 }
 
