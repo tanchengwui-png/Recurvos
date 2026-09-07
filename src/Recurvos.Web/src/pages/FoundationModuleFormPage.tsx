@@ -6,9 +6,11 @@ import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { FormActionSection } from "../components/ui/FormActionSection";
 import { FormPageBody } from "../components/ui/FormPageBody";
 import { FormSection } from "../components/ui/FormSection";
+import { SearchableSelect } from "../components/ui/SearchableSelect";
 import { StandardFormLayout } from "../components/ui/StandardFormLayout";
 import { api } from "../lib/api";
-import { parseWarehouseAddress, serializeWarehouseAddress, type WarehouseAddress } from "../lib/warehouseAddress";
+import { countryOptions, malaysiaStateOptions } from "../lib/localeOptions";
+import { isMalaysiaCountry, parseWarehouseAddress, serializeWarehouseAddress, type WarehouseAddress } from "../lib/warehouseAddress";
 import type { MasterDataSnapshot } from "../types";
 import { foundationModules, type FoundationField, type FoundationModuleConfig, type FoundationRecord } from "./foundationModules";
 
@@ -243,6 +245,10 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
     postcode: String(values.postcode ?? ""),
     country: String(values.country ?? "Malaysia"),
   };
+  const warehouseCountryOptions = !warehouseAddress.country || countryOptions.some((option) => option.value === warehouseAddress.country)
+    ? countryOptions
+    : [{ value: warehouseAddress.country, label: `Legacy country: ${warehouseAddress.country}` }, ...countryOptions];
+  const warehouseUsesMalaysiaState = isMalaysiaCountry(warehouseAddress.country);
 
   async function submit() {
     try {
@@ -283,7 +289,7 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
 
   return (
     <StandardFormLayout className="page standard-form-page foundation-form-page">
-      <FormPageHeader backLabel={`Back to ${moduleConfig.label}`} backHref={moduleConfig.path} breadcrumbs={<><span>{moduleConfig.label}</span><span>/</span><span>{actionTitle}</span></>} description={helperText} />
+      <FormPageHeader backLabel={`Back to ${moduleConfig.label}`} backHref={moduleConfig.path} breadcrumbs={<><span>{moduleConfig.label}</span><span>/</span><span>{actionTitle}</span></>} />
       {error ? <HelperText tone="error">{error}</HelperText> : null}
       {loading ? (
         <section className="card"><p className="muted">Loading {moduleConfig.singularLabel}...</p></section>
@@ -435,13 +441,31 @@ export function FoundationModuleFormPage({ moduleKey }: { moduleKey: string }) {
                 <label className="form-label">City<input className="text-input" autoComplete="address-level2" value={warehouseAddress.city} onChange={(event) => setValues((current) => ({ ...current, city: event.target.value }))} /></label>
               </div>
               <div className="foundation-form-field">
-                <label className="form-label">State<input className="text-input" autoComplete="address-level1" value={warehouseAddress.state} onChange={(event) => setValues((current) => ({ ...current, state: event.target.value }))} /></label>
+                <label className="form-label">{warehouseUsesMalaysiaState ? "State" : "State / Province"}
+                  {warehouseUsesMalaysiaState ? (
+                    <select value={warehouseAddress.state} onChange={(event) => setValues((current) => ({ ...current, state: event.target.value }))} autoComplete="address-level1">
+                      <option value="">Select state</option>
+                      {malaysiaStateOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  ) : <input className="text-input" autoComplete="address-level1" value={warehouseAddress.state} onChange={(event) => setValues((current) => ({ ...current, state: event.target.value }))} />}
+                </label>
               </div>
               <div className="foundation-form-field">
                 <label className="form-label">Postcode<input className="text-input" autoComplete="postal-code" value={warehouseAddress.postcode} onChange={(event) => setValues((current) => ({ ...current, postcode: event.target.value }))} /></label>
               </div>
               <div className="foundation-form-field">
-                <label className="form-label">Country<input className="text-input" autoComplete="country-name" value={warehouseAddress.country} onChange={(event) => setValues((current) => ({ ...current, country: event.target.value }))} /></label>
+                <label className="form-label">Country
+                  <SearchableSelect
+                    value={warehouseAddress.country}
+                    onChange={(country) => setValues((current) => ({ ...current, country, state: current.country === country ? current.state : "" }))}
+                    options={warehouseCountryOptions}
+                    placeholder="Select country"
+                    searchPlaceholder="Search countries"
+                    ariaLabel="Warehouse country"
+                    clearable
+                    portalPopover
+                  />
+                </label>
               </div>
             </> : null}
           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { SearchableSelectOption } from "../../lib/localeOptions";
 
@@ -18,7 +18,7 @@ type SearchableSelectProps = {
   loading?: boolean;
   error?: string;
   portalPopover?: boolean;
-  portalPopoverZIndex?: number;
+  portalPopoverZIndex?: CSSProperties["zIndex"];
   onCreate?: (name: string) => void;
   createLabel?: string;
   /** Keeps the create action available below the scrollable results. */
@@ -40,7 +40,7 @@ export function SearchableSelect({
   loading = false,
   error = "",
   portalPopover = false,
-  portalPopoverZIndex = 1000,
+  portalPopoverZIndex = "var(--z-popover)",
   onCreate,
   createLabel = "Add",
   persistentCreateAction = false,
@@ -52,7 +52,7 @@ export function SearchableSelect({
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const listboxId = useId();
-  const [portalPopoverStyle, setPortalPopoverStyle] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [portalPopoverStyle, setPortalPopoverStyle] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
   const selectedOption = useMemo(
     () => options.find((option) => option.value === value) ?? null,
     [options, value],
@@ -113,7 +113,23 @@ export function SearchableSelect({
     function updatePosition() {
       const bounds = containerRef.current?.getBoundingClientRect();
       if (!bounds) return;
-      setPortalPopoverStyle({ top: bounds.bottom + 6, left: bounds.left, width: bounds.width });
+
+      const viewportPadding = 8;
+      const popoverGap = 6;
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      const popoverHeight = popoverRef.current?.getBoundingClientRect().height ?? 0;
+      const spaceBelow = Math.max(0, viewportHeight - bounds.bottom - popoverGap - viewportPadding);
+      const spaceAbove = Math.max(0, bounds.top - popoverGap - viewportPadding);
+      const opensAbove = spaceBelow < popoverHeight && spaceAbove > spaceBelow;
+      const availableHeight = opensAbove ? spaceAbove : spaceBelow;
+      const renderedHeight = Math.min(popoverHeight || availableHeight, availableHeight);
+
+      setPortalPopoverStyle({
+        top: opensAbove ? Math.max(viewportPadding, bounds.top - popoverGap - renderedHeight) : bounds.bottom + popoverGap,
+        left: Math.max(viewportPadding, Math.min(bounds.left, window.innerWidth - bounds.width - viewportPadding)),
+        width: Math.min(bounds.width, window.innerWidth - viewportPadding * 2),
+        maxHeight: availableHeight,
+      });
     }
 
     updatePosition();
@@ -195,7 +211,7 @@ export function SearchableSelect({
     <div
       ref={popoverRef}
       className="searchable-select-popover"
-      style={portalPopover && portalPopoverStyle ? { position: "fixed", top: portalPopoverStyle.top, left: portalPopoverStyle.left, right: "auto", width: portalPopoverStyle.width, zIndex: portalPopoverZIndex } : undefined}
+      style={portalPopover && portalPopoverStyle ? { position: "fixed", top: portalPopoverStyle.top, left: portalPopoverStyle.left, right: "auto", width: portalPopoverStyle.width, maxHeight: portalPopoverStyle.maxHeight, zIndex: portalPopoverZIndex } : undefined}
     >
       <input
         ref={searchInputRef}

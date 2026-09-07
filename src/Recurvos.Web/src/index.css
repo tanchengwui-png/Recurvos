@@ -51,6 +51,7 @@
   --workspace-section-header-height: 3.75rem;
   --workspace-field-gap: 0.75rem;
   --z-quick-start: 1201;
+  --z-popover: 1250;
   --z-modal-backdrop: 1300;
   /* Contacts list page is the canonical workspace rhythm. */
   --list-page-horizontal-padding: 1.25rem;
@@ -6237,7 +6238,10 @@ select:hover {
   left: 0;
   right: 0;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0;
+  max-height: calc(100dvh - 1rem);
+  overflow: hidden;
   padding: 0.65rem;
   border-radius: 14px;
   border: 1px solid var(--border-subtle);
@@ -6255,6 +6259,7 @@ select:hover {
   padding: 0;
   list-style: none;
   max-height: 15rem;
+  min-height: 0;
   overflow: auto;
   display: grid;
   gap: 0.2rem;
@@ -13571,7 +13576,14 @@ body:has(.app-shell) .quickstart-float-button {
 /* Foundation forms use one compact content card and lightweight headings for
    related fields, rather than nesting several card surfaces. */
 .foundation-form-page .form-page-content {
-  max-width: 62rem;
+  width: 100%;
+  max-width: none;
+}
+
+/* Foundation navigation is intentionally compact: the card owns the helper
+   text, while this existing-token gap keeps it visually distinct. */
+.foundation-form-page > .form-page-header {
+  margin-bottom: var(--space-1);
 }
 
 .foundation-form-page .standard-form-section.foundation-form-card {

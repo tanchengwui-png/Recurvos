@@ -31,6 +31,33 @@ function readString(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+export function isMalaysiaCountry(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "malaysia" || normalized === "my";
+}
+
+export function normalizeWarehouseCountry(value: string) {
+  const normalized = value.trim();
+  if (isMalaysiaCountry(normalized)) return "Malaysia";
+  return countryOptions.find((option) => option.value.toLowerCase() === normalized.toLowerCase())?.value ?? normalized;
+}
+
+function normalizeMalaysiaState(value: string) {
+  const normalized = value.trim().toLowerCase();
+  const legacyNames: Record<string, string> = {
+    "w.p. kuala lumpur": "Kuala Lumpur",
+    "wilayah persekutuan kuala lumpur": "Kuala Lumpur",
+    "w.p. labuan": "Labuan",
+    "wilayah persekutuan labuan": "Labuan",
+    "w.p. putrajaya": "Putrajaya",
+    "wilayah persekutuan putrajaya": "Putrajaya",
+    melaka: "Malacca",
+    "pulau pinang": "Penang",
+  };
+  const canonical = legacyNames[normalized] ?? value;
+  return malaysiaStateOptions.find((option) => option.value.toLowerCase() === canonical.trim().toLowerCase())?.value ?? "";
+}
+
 /** Converts current and legacy warehouse address storage into form-friendly fields. */
 export function parseWarehouseAddress(value: string | null | undefined): ParsedWarehouseAddress {
   const raw = value?.trim() ?? "";
@@ -53,14 +80,17 @@ export function parseWarehouseAddress(value: string | null | undefined): ParsedW
     }
 
     const record = parsed as Record<string, unknown>;
+    const country = normalizeWarehouseCountry(readString(record.country) || readString(record.countryName) || "Malaysia");
+    const state = readString(record.state) || readString(record.stateName);
+
     return {
       address: {
         addressLine1: readString(record.addressLine1) || readString(record.address) || readString(record.address1) || readString(record.line1) || readString(record.street) || readString(record.streetAddress),
         addressLine2: readString(record.addressLine2) || readString(record.address2) || readString(record.line2),
         city: readString(record.city),
-        state: readString(record.state) || readString(record.stateName),
+        state: isMalaysiaCountry(country) ? normalizeMalaysiaState(state) : state,
         postcode: readString(record.postcode) || readString(record.postalCode) || readString(record.postal_code) || readString(record.zip) || readString(record.zipCode),
-        country: readString(record.country) || readString(record.countryName) || "Malaysia",
+        country,
       },
       extraProperties: Object.fromEntries(Object.entries(record).filter(([key]) => !knownKeys.has(key))),
     };
@@ -95,3 +125,4 @@ export function formatWarehouseAddress(value: string | null | undefined) {
     address.country,
   ].filter(Boolean).join(", ") || "-";
 }
+import { countryOptions, malaysiaStateOptions } from "./localeOptions";
