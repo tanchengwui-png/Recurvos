@@ -34,6 +34,7 @@ public sealed class PurchaseCreditNoteService(
     public async Task<PurchaseCreditNoteDetailsDto> CreateAsync(CreatePurchaseCreditNoteRequest request, CancellationToken cancellationToken = default)
     {
         var bill = await dbContext.PurchaseBills
+            .Include(x => x.Lines)
             .FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == request.PurchaseBillId, cancellationToken)
             ?? throw new InvalidOperationException("Purchase bill not found.");
 
@@ -52,20 +53,44 @@ public sealed class PurchaseCreditNoteService(
             throw new InvalidOperationException("At least one purchase credit note line is required.");
         }
 
+        var previouslyCreditedByLine = await dbContext.PurchaseCreditNoteLines
+            .Where(line => line.PurchaseCreditNote!.PurchaseBillId == bill.Id
+                && line.PurchaseCreditNote.Status != PurchaseCreditNoteStatus.Cancelled
+                && line.PurchaseBillLineId.HasValue)
+            .GroupBy(line => line.PurchaseBillLineId!.Value)
+            .ToDictionaryAsync(group => group.Key, group => group.Sum(line => line.Quantity), cancellationToken);
+        var billLines = bill.Lines.ToDictionary(line => line.Id);
+        var selectedLineIds = new HashSet<Guid>();
         var lines = request.Lines.Select(line =>
         {
-            if (string.IsNullOrWhiteSpace(line.Description))
+            if (!line.PurchaseBillLineId.HasValue || !billLines.TryGetValue(line.PurchaseBillLineId.Value, out var sourceLine))
             {
-                throw new InvalidOperationException("Purchase credit note description is required.");
+                throw new InvalidOperationException("Each purchase credit note line must reference a purchase bill line.");
             }
+
+            if (!selectedLineIds.Add(sourceLine.Id))
+            {
+                throw new InvalidOperationException("A purchase bill line can only be credited once per credit note.");
+            }
+
+            var remainingQuantity = Math.Max(0m, sourceLine.Quantity - previouslyCreditedByLine.GetValueOrDefault(sourceLine.Id));
+            if (line.Quantity <= 0m || line.Quantity > remainingQuantity)
+            {
+                throw new InvalidOperationException($"Credit quantity for {sourceLine.Description} cannot exceed the remaining quantity of {remainingQuantity:0.##}.");
+            }
+
+            var taxAmount = sourceLine.Quantity == 0m
+                ? 0m
+                : decimal.Round(sourceLine.TaxAmount * line.Quantity / sourceLine.Quantity, 2, MidpointRounding.AwayFromZero);
 
             return new PurchaseCreditNoteLine
             {
-                Description = line.Description.Trim(),
+                PurchaseBillLineId = sourceLine.Id,
+                Description = sourceLine.Description,
                 Quantity = line.Quantity,
-                UnitAmount = line.UnitAmount,
-                TaxAmount = line.TaxAmount,
-                LineTotal = (line.Quantity * line.UnitAmount) + line.TaxAmount,
+                UnitAmount = sourceLine.UnitPrice,
+                TaxAmount = taxAmount,
+                LineTotal = (line.Quantity * sourceLine.UnitPrice) + taxAmount,
             };
         }).ToList();
 
@@ -196,5 +221,5 @@ public sealed class PurchaseCreditNoteService(
         new(entity.Id, entity.CompanyId, entity.Company?.Name ?? string.Empty, entity.PurchaseBillId, entity.PurchaseBill?.PurchaseBillNumber ?? string.Empty, entity.PurchaseCreditNoteNumber, entity.ContactId, entity.ContactName, entity.ContactEmail, entity.ContactPhoneNumber, entity.IssuedAtUtc, entity.Currency, entity.SubtotalReduction, entity.TaxReduction, entity.TotalReduction, entity.Reason, entity.Status, entity.Lines.Select(MapLine).ToList());
 
     private static PurchaseCreditNoteLineDto MapLine(PurchaseCreditNoteLine entity) =>
-        new(entity.Id, entity.Description, entity.Quantity, entity.UnitAmount, entity.TaxAmount, entity.LineTotal);
+        new(entity.Id, entity.PurchaseBillLineId, entity.Description, entity.Quantity, entity.UnitAmount, entity.TaxAmount, entity.LineTotal);
 }

@@ -93,7 +93,7 @@ public sealed class StatementService(
                 && x.PaidAtUtc.HasValue)
             .Select(x => new CustomerPaymentEntry(
                 x.Id,
-                x.InvoiceId,
+                x.InvoiceId!.Value,
                 x.PaidAtUtc!.Value,
                 x.ExternalPaymentId,
                 x.Amount,
@@ -158,7 +158,7 @@ public sealed class StatementService(
 
                 return new CustomerRefundEntry(
                     x.Id,
-                    x.InvoiceId ?? paymentInvoice.InvoiceId,
+                    x.InvoiceId ?? paymentInvoice.InvoiceId!.Value,
                     x.CreatedAtUtc,
                     x.ExternalRefundId,
                     x.Amount,

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { BrandLogo } from "./BrandLogo";
 import { ConfirmModal } from "./ConfirmModal";
 import { InstallPromptCard } from "./InstallPromptCard";
@@ -743,11 +743,11 @@ export function AppShell() {
         { label: "Cash Flow", path: "/finance/cash-flow", icon: "finance", disabled: false, hint: "" },
         {
           label: "Statement of Account",
-          path: "/customers#statement-of-account",
+          path: "/finance/statements",
           icon: "finance",
           disabled: !featureKeys.has("customer_management"),
           hint: getFeatureRequirementLabel(featureAccess, "customer_management"),
-          isActive: (pathname, hash) => (pathname === "/customers" && hash === "#statement-of-account") || /^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname),
+          isActive: (pathname) => pathname === "/finance/statements" || /^\/customers\/[^/]+\/statement(?:\/|$)/.test(pathname),
         },
         { label: "AR Aging", path: "/finance#ar-aging", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
         { label: "AP Aging", path: "/finance#ap-aging", icon: "finance", disabled: false, hint: getFeatureRequirementLabel(featureAccess, "finance_exports") },
@@ -866,7 +866,7 @@ export function AppShell() {
     }
 
     return (
-      <NavLink
+      <Link
         key={item.path}
         to={item.path}
         className={`nav-link ${active ? "active" : ""}${compact ? " nav-link-compact" : ""}`}
@@ -877,7 +877,7 @@ export function AppShell() {
           <span>{item.label}</span>
         </span>
         {badgeCount > 0 ? <span className="nav-link-badge">{badgeCount}</span> : null}
-      </NavLink>
+      </Link>
     );
   }
 

@@ -15,7 +15,7 @@ import { formatCurrency } from "../lib/format";
 import { resolveProductUnitPrice } from "../lib/productPricing";
 import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, Product, PurchaseOrder, TaxCode } from "../types";
 
-type LineForm = { productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
+type LineForm = { lineId?: string; productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
 const emptyLine: LineForm = { productId: "", taxCodeId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 0 };
 
 function parseContactTypes(value: string) {
@@ -25,7 +25,6 @@ function parseContactTypes(value: string) {
 export function PurchaseOrderFormPage() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [contacts, setContacts] = useState<Customer[]>([]);
   const [currencies, setCurrencies] = useState<CurrencyDefinition[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -55,7 +54,6 @@ export function PurchaseOrderFormPage() {
       const supplierContacts = contactList.filter((item) => parseContactTypes(item.contactType).includes("Supplier"));
       const activeCurrencies = snapshot.currencies.filter((item) => item.isActive);
       const activeTaxCodes = snapshot.taxCodes.filter((item) => item.isActive && (item.scope === "Purchase" || item.scope === "Both"));
-      setCompanies(companyList);
       setContacts(supplierContacts);
       setCurrencies(activeCurrencies);
       setTaxCodes(activeTaxCodes);
@@ -68,7 +66,7 @@ export function PurchaseOrderFormPage() {
         setCurrency(order.currency);
         setReferenceNo(order.referenceNo);
         setNotes(order.notes);
-        setLines(order.lines.map((line) => ({ productId: line.productId ?? "", taxCodeId: line.taxCodeId ?? "", description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })));
+        setLines(order.lines.map((line) => ({ lineId: line.id, productId: line.productId ?? "", taxCodeId: line.taxCodeId ?? "", description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })));
       } else {
         setCompanyId(resolveActiveCompanyId(companyList));
         setContactId(supplierContacts[0]?.id ?? "");
@@ -132,7 +130,7 @@ export function PurchaseOrderFormPage() {
             currency: normaliseCurrencyCode(currency),
             referenceNo,
             notes,
-            lines: lines.map((line) => ({ productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
+            lines: lines.map((line) => ({ lineId: line.lineId || null, productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
           };
           if (id) { await api.put(`/purchases/orders/${id}`, payload); navigate("/purchases/orders"); }
           else { const created = await api.post<{ id: string }>(`/purchases/orders`, payload); openCreatedRecord(navigate, "/purchases/orders", "/purchases/orders", created.id); }
@@ -150,7 +148,6 @@ export function PurchaseOrderFormPage() {
       <TransactionFormCard title="Purchase order details" description="Supplier, dates, currency, reference and order items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
-          <label className="form-label">Company<select value={companyId} onChange={(event) => { const nextCompanyId = event.target.value; setCompanyId(nextCompanyId); setContactId(contacts.find((contact) => contact.companyId === nextCompanyId)?.id ?? ""); }}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="form-label">Supplier<select value={contactId} onChange={(event) => setContactId(event.target.value)}>{companyContacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
           <label className="form-label">Document Date<input type="date" className="text-input" value={documentDateUtc} onChange={(event) => setDocumentDateUtc(event.target.value)} /></label>
           <label className="form-label">
@@ -176,7 +173,7 @@ export function PurchaseOrderFormPage() {
                       description: line.description || product?.name || "",
                       unitPrice: getSuggestedUnitPrice(productId) ?? line.unitPrice,
                     });
-                  }} options={filteredProducts.map((product) => ({ value: product.id, label: product.name, keywords: [product.code] }))} placeholder="Search products..." searchPlaceholder="Search products..." emptyText="No products found." ariaLabel="Product" portalPopover onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => setQuickCreate({ index, name }) : undefined} createLabel="Add" /></td>
+                  }} options={filteredProducts.map((product) => ({ value: product.id, label: product.name, keywords: [product.code] }))} placeholder="Search products..." searchPlaceholder="Search products..." emptyText="No products found." ariaLabel="Product" portalPopover onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => setQuickCreate({ index, name }) : undefined} createLabel="Add new product" persistentCreateAction /></td>
                   <td><input className="text-input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} /></td>
                   <td><input type="number" min="0.01" step="0.01" className="text-input" value={line.quantity} onChange={(event) => { event.currentTarget.value = updateLineNumber(index, "quantity", event.target.value); }} /></td>
                   <td><input type="number" min="0" step="0.01" className="text-input" value={line.unitPrice} onChange={(event) => { event.currentTarget.value = updateLineNumber(index, "unitPrice", event.target.value); }} /></td>

@@ -579,6 +579,12 @@ public sealed class InvoiceService(
         }
 
         dbContext.Payments.Add(payment);
+        dbContext.SalesPaymentAllocations.Add(new SalesPaymentAllocation
+        {
+            Payment = payment,
+            InvoiceId = invoice.Id,
+            Amount = request.Amount,
+        });
 
         await dbContext.SaveChangesAsync(cancellationToken);
         await platformOwnerNotificationService.TryNotifyNewPaymentAsync(payment.Id, cancellationToken);
@@ -2493,6 +2499,7 @@ public sealed class InvoiceService(
             .Include(x => x.LineItems)
             .Include(x => x.Refunds)
             .Include(x => x.Payments).ThenInclude(x => x.Refunds)
+            .Include(x => x.Payments).ThenInclude(x => x.Allocations)
             .Include(x => x.CreditNotes).ThenInclude(x => x.Lines)
             .Where(x => x.CompanyId == companyId);
 
@@ -2950,7 +2957,7 @@ public sealed class InvoiceService(
             invoice.Currency,
             invoice.CompanyAddressSnapshot,
             invoice.PdfPath,
-            invoice.LineItems.Select(x => new InvoiceLineItemDto(x.TaxCodeId, x.Description, x.Quantity, x.UnitAmount, x.TaxRate, x.TaxAmount, x.TotalAmount, x.LineTotal)).ToList(),
+            invoice.LineItems.Select(x => new InvoiceLineItemDto(x.Id, x.TaxCodeId, x.Description, x.Quantity, x.UnitAmount, x.TaxRate, x.TaxAmount, x.TotalAmount, x.LineTotal)).ToList(),
             history.TryGetValue(invoice.Id, out var entries) ? entries : Array.Empty<InvoiceHistoryDto>(),
             invoice.CreditNotes.OrderByDescending(x => x.IssuedAtUtc).Select(creditNote => CreditNoteService.Map(creditNote)).ToList(),
             invoice.Refunds.OrderByDescending(x => x.CreatedAtUtc).Select(refund => RefundService.Map(refund)).ToList(),

@@ -18,8 +18,11 @@ type SearchableSelectProps = {
   loading?: boolean;
   error?: string;
   portalPopover?: boolean;
+  portalPopoverZIndex?: number;
   onCreate?: (name: string) => void;
   createLabel?: string;
+  /** Keeps the create action available below the scrollable results. */
+  persistentCreateAction?: boolean;
 };
 
 export function SearchableSelect({
@@ -37,8 +40,10 @@ export function SearchableSelect({
   loading = false,
   error = "",
   portalPopover = false,
+  portalPopoverZIndex = 1000,
   onCreate,
   createLabel = "Add",
+  persistentCreateAction = false,
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -73,13 +78,14 @@ export function SearchableSelect({
   }, [options, query]);
   const creatableName = query.trim();
   const canCreate = Boolean(onCreate && creatableName && !options.some((option) => option.label.trim().toLowerCase() === creatableName.toLowerCase()));
+  const showCreateAction = Boolean(onCreate && (persistentCreateAction || canCreate));
+  const selectableItemCount = filteredOptions.length + (showCreateAction ? 1 : 0);
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
-    setHighlightedIndex(0);
     searchInputRef.current?.focus();
   }, [isOpen]);
 
@@ -121,8 +127,18 @@ export function SearchableSelect({
 
   function open() {
     if (!disabled) {
+      setHighlightedIndex(0);
       setIsOpen(true);
     }
+  }
+
+  function toggle() {
+    if (isOpen) {
+      setIsOpen(false);
+      setQuery("");
+      return;
+    }
+    open();
   }
 
   function selectOption(nextValue: string) {
@@ -145,7 +161,7 @@ export function SearchableSelect({
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setHighlightedIndex((current) => Math.min(current + 1, Math.max(filteredOptions.length - 1, 0)));
+      setHighlightedIndex((current) => Math.min(current + 1, Math.max(selectableItemCount - 1, 0)));
       return;
     }
 
@@ -160,6 +176,10 @@ export function SearchableSelect({
       const selected = filteredOptions[highlightedIndex];
       if (selected) {
         selectOption(selected.value);
+      } else if (showCreateAction) {
+        onCreate?.(creatableName);
+        setIsOpen(false);
+        setQuery("");
       }
       return;
     }
@@ -175,7 +195,7 @@ export function SearchableSelect({
     <div
       ref={popoverRef}
       className="searchable-select-popover"
-      style={portalPopover && portalPopoverStyle ? { position: "fixed", top: portalPopoverStyle.top, left: portalPopoverStyle.left, right: "auto", width: portalPopoverStyle.width, zIndex: 1000 } : undefined}
+      style={portalPopover && portalPopoverStyle ? { position: "fixed", top: portalPopoverStyle.top, left: portalPopoverStyle.left, right: "auto", width: portalPopoverStyle.width, zIndex: portalPopoverZIndex } : undefined}
     >
       <input
         ref={searchInputRef}
@@ -194,7 +214,7 @@ export function SearchableSelect({
           <li key={`${option.value}-${option.label}`} role="option" aria-selected={option.value === value}>
             <button
               type="button"
-              className={`searchable-select-option ${index === highlightedIndex ? "searchable-select-option-active" : ""}`.trim()}
+              className={`searchable-select-option ${index === highlightedIndex ? "searchable-select-option-active" : ""} ${option.value === value ? "searchable-select-option-selected" : ""}`.trim()}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectOption(option.value)}
               onMouseEnter={() => setHighlightedIndex(index)}
@@ -206,14 +226,16 @@ export function SearchableSelect({
           <li className="searchable-select-empty">{emptyText}</li>
         )}
       </ul>
-      {canCreate ? (
-        <button type="button" className="lookup-add-option" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+      {showCreateAction ? (
+        <div className="searchable-select-create-action">
+          <button type="button" className={`lookup-add-option ${highlightedIndex === filteredOptions.length ? "lookup-add-option-active" : ""}`.trim()} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setHighlightedIndex(filteredOptions.length)} onClick={() => {
           onCreate?.(creatableName);
           setIsOpen(false);
           setQuery("");
         }}>
-          {`+ ${createLabel} "${creatableName}"`}
-        </button>
+          {persistentCreateAction ? `+ ${createLabel}` : `+ ${createLabel} "${creatableName}"`}
+          </button>
+        </div>
       ) : null}
     </div>
   ) : null;
@@ -229,7 +251,7 @@ export function SearchableSelect({
         aria-controls={listboxId}
         aria-label={ariaLabel}
         disabled={disabled}
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={toggle}
         onKeyDown={handleTriggerKeyDown}
       >
         <span className={selectedOption ? "searchable-select-value" : "searchable-select-placeholder"}>

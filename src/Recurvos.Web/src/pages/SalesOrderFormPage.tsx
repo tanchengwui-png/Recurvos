@@ -15,7 +15,7 @@ import { formatCurrency } from "../lib/format";
 import { resolveProductUnitPrice } from "../lib/productPricing";
 import type { CompanyLookup, CurrencyDefinition, Customer, MasterDataSnapshot, PriceLevel, Product, SalesOrder, SalesQuotation, SalesQuotationListItem, TaxCode } from "../types";
 
-type LineForm = { sourceQuotationLineId?: string | null; productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
+type LineForm = { lineId?: string; sourceQuotationLineId?: string | null; productId: string; taxCodeId: string; description: string; quantity: number; unitPrice: number; taxRate: number };
 const emptyLine: LineForm = { productId: "", taxCodeId: "", description: "", quantity: 1, unitPrice: 0, taxRate: 0 };
 
 export function SalesOrderFormPage() {
@@ -23,7 +23,6 @@ export function SalesOrderFormPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const quotationId = searchParams.get("quotationId") ?? "";
-  const [companies, setCompanies] = useState<CompanyLookup[]>([]);
   const [contacts, setContacts] = useState<Customer[]>([]);
   const [currencies, setCurrencies] = useState<CurrencyDefinition[]>([]);
   const [priceLevels, setPriceLevels] = useState<PriceLevel[]>([]);
@@ -59,7 +58,6 @@ export function SalesOrderFormPage() {
       const activeCurrencies = snapshot.currencies.filter((item) => item.isActive);
       const activePriceLevels = snapshot.priceLevels.filter((item) => item.isActive);
       const activeTaxCodes = snapshot.taxCodes.filter((item) => item.isActive && (item.scope === "Sales" || item.scope === "Both"));
-      setCompanies(companyList);
       setContacts(contactList);
       setCurrencies(activeCurrencies);
       setPriceLevels(activePriceLevels);
@@ -75,7 +73,7 @@ export function SalesOrderFormPage() {
         setReferenceNo(order.referenceNo);
         setNotes(order.notes);
         setSalesQuotationId(order.salesQuotationId ?? "");
-        setLines(order.lines.map((line) => ({ sourceQuotationLineId: line.sourceQuotationLineId, productId: line.productId ?? "", taxCodeId: line.taxCodeId ?? "", description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })));
+        setLines(order.lines.map((line) => ({ lineId: line.id, sourceQuotationLineId: line.sourceQuotationLineId, productId: line.productId ?? "", taxCodeId: line.taxCodeId ?? "", description: line.description, quantity: line.quantity, unitPrice: line.unitPrice, taxRate: line.taxRate })));
         if (order.salesQuotationId) {
           const linkedQuotation = await api.get<SalesQuotation>(`/sales/quotations/${order.salesQuotationId}`);
           setSelectedQuotation(linkedQuotation);
@@ -187,7 +185,7 @@ export function SalesOrderFormPage() {
             referenceNo,
             notes,
             salesQuotationId: salesQuotationId || null,
-            lines: lines.map((line) => ({ sourceQuotationLineId: line.sourceQuotationLineId || null, productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
+            lines: lines.map((line) => ({ lineId: line.lineId || null, sourceQuotationLineId: line.sourceQuotationLineId || null, productId: line.productId || null, taxCodeId: line.taxCodeId || null, description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), taxRate: Number(line.taxRate) })),
           };
           if (id) { await api.put(`/sales/orders/${id}`, payload); navigate("/sales/orders"); }
           else { const created = await api.post<{ id: string }>(`/sales/orders`, payload); openCreatedRecord(navigate, "/sales/orders", "/sales/orders", created.id); }
@@ -205,7 +203,6 @@ export function SalesOrderFormPage() {
       <TransactionFormCard title="Sales order details" description="Customer, dates, currency, reference and order items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
-          <label className="form-label">Company<select value={companyId} onChange={(event) => { const nextCompanyId = event.target.value; setCompanyId(nextCompanyId); setContactId(contacts.find((contact) => contact.companyId === nextCompanyId)?.id ?? ""); }} disabled={!id && Boolean(salesQuotationId)}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="form-label">Contact<select value={contactId} onChange={(event) => setContactId(event.target.value)} disabled={!id && Boolean(salesQuotationId)}>{companyContacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
           <label className="form-label">Document Date<input type="date" className="text-input" value={documentDateUtc} onChange={(event) => setDocumentDateUtc(event.target.value)} /></label>
           <label className="form-label">
@@ -249,7 +246,7 @@ export function SalesOrderFormPage() {
                       description: line.description || product?.name || "",
                       unitPrice: suggestedUnitPrice ?? line.unitPrice,
                     });
-                  }} options={filteredProducts.map((product) => ({ value: product.id, label: product.name, keywords: [product.code] }))} placeholder="Search products..." searchPlaceholder="Search products..." emptyText="No products found." ariaLabel="Product" portalPopover onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => setQuickCreate({ index, name }) : undefined} createLabel="Add" /></td>
+                  }} options={filteredProducts.map((product) => ({ value: product.id, label: product.name, keywords: [product.code] }))} placeholder="Search products..." searchPlaceholder="Search products..." emptyText="No products found." ariaLabel="Product" portalPopover onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => setQuickCreate({ index, name }) : undefined} createLabel="Add new product" persistentCreateAction /></td>
                   <td><input className="text-input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} /></td>
                   <td><input type="number" min="0.01" step="0.01" className="text-input" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} /></td>
                   <td><input type="number" min="0" step="0.01" className="text-input" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: Number(event.target.value) })} /></td>

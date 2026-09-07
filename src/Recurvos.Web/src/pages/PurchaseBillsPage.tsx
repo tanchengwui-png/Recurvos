@@ -43,7 +43,7 @@ export function PurchaseBillsPage() {
     return [
       { label: "View details", onClick: () => navigate(`/purchases/bills/${item.id}`, { state: { backgroundLocation: location } }) },
       ...(item.status !== "Cancelled" && item.amountDue > 0 ? [{ label: "Create Credit Note", onClick: () => navigate(`/purchases/credit-notes/new?purchaseBillId=${item.id}`) }] : []),
-      ...(item.status !== "Cancelled" && item.amountDue > 0 ? [{ label: "Record Payment", onClick: () => navigate(`/purchases/payments/new?purchaseBillId=${item.id}`) }] : []),
+      ...(item.status !== "Cancelled" && item.amountDue > 0 ? [{ label: "Record Payment", onClick: () => navigate(`/purchases/payments/new?supplierId=${item.contactId}&purchaseBillId=${item.id}`) }] : []),
       ...((item.status === "Issued" || item.status === "Overdue") ? [{
         label: "Cancel Bill",
         onClick: () => setConfirmState({

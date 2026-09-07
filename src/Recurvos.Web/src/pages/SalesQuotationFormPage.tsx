@@ -200,7 +200,6 @@ export function SalesQuotationFormPage() {
       <TransactionFormCard title="Quotation details" description="Customer, dates, currency, reference and quotation items.">
       <section className="card">
         <div className="master-data-form-grid master-data-form-grid-wide">
-          <label className="form-label">Company<select value={companyId} onChange={(event) => { const nextCompanyId = event.target.value; setCompanyId(nextCompanyId); setContactId(contacts.find((contact) => contact.companyId === nextCompanyId)?.id ?? ""); setCurrencyError(""); }}>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label className="form-label">Contact<select value={contactId} onChange={(event) => setContactId(event.target.value)}>{companyContacts.map((item) => <option key={item.id} value={item.id}>{item.legalName || item.name}</option>)}</select></label>
           <label className="form-label">Document Date<input type="date" className="text-input" value={documentDateUtc} onChange={(event) => setDocumentDateUtc(event.target.value)} /></label>
           <label className="form-label">Expiry Date<input type="date" className="text-input" value={expiryDateUtc} onChange={(event) => setExpiryDateUtc(event.target.value)} /></label>
@@ -233,7 +232,7 @@ export function SalesQuotationFormPage() {
                       description: line.description || product?.name || "",
                       unitPrice: suggestedUnitPrice ?? line.unitPrice,
                     });
-                  }} options={filteredProducts.map((product) => ({ value: product.id, label: product.name, keywords: [product.code] }))} placeholder="Search products..." searchPlaceholder="Search products..." emptyText="No products found." ariaLabel="Product" portalPopover onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => setQuickCreate({ index, name }) : undefined} createLabel="Add" /></td>
+                  }} options={filteredProducts.map((product) => ({ value: product.id, label: product.name, keywords: [product.code] }))} placeholder="Search products..." searchPlaceholder="Search products..." emptyText="No products found." ariaLabel="Product" portalPopover onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => setQuickCreate({ index, name }) : undefined} createLabel="Add new product" persistentCreateAction /></td>
                   <td><input className="text-input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} /></td>
                   <td><input type="number" min="0.01" step="0.01" className="text-input" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} /></td>
                   <td><input type="number" min="0" step="0.01" className="text-input" value={line.unitPrice} onChange={(event) => updateLine(index, { unitPrice: Number(event.target.value) })} /></td>

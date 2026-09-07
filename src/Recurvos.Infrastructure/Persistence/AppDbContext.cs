@@ -54,6 +54,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<InvoiceLineItem> InvoiceLineItems => Set<InvoiceLineItem>();
     public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<SalesPaymentAllocation> SalesPaymentAllocations => Set<SalesPaymentAllocation>();
     public DbSet<PaymentConfirmationSubmission> PaymentConfirmationSubmissions => Set<PaymentConfirmationSubmission>();
     public DbSet<PaymentAttempt> PaymentAttempts => Set<PaymentAttempt>();
     public DbSet<Refund> Refunds => Set<Refund>();
@@ -1451,6 +1452,9 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             .HasIndex(x => new { x.PurchaseCreditNoteId, x.CreatedAtUtc });
 
         modelBuilder.Entity<PurchaseCreditNoteLine>()
+            .HasIndex(x => x.PurchaseBillLineId);
+
+        modelBuilder.Entity<PurchaseCreditNoteLine>()
             .Property(x => x.Description)
             .HasMaxLength(250)
             .IsRequired();
@@ -2175,6 +2179,19 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<InvoiceLineItem>().Property(x => x.TotalAmount).HasPrecision(18, 2);
         modelBuilder.Entity<InvoiceLineItem>().Property(x => x.LineTotal).HasPrecision(18, 2);
         modelBuilder.Entity<Payment>().Property(x => x.Amount).HasPrecision(18, 2);
+        modelBuilder.Entity<Payment>()
+            .HasOne(x => x.Invoice)
+            .WithMany(x => x.Payments)
+            .HasForeignKey(x => x.InvoiceId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SalesPaymentAllocation>(entity =>
+        {
+            entity.Property(x => x.Amount).HasPrecision(18, 2);
+            entity.HasIndex(x => new { x.PaymentId, x.InvoiceId }).IsUnique();
+            entity.HasIndex(x => x.InvoiceId);
+            entity.HasOne(x => x.Payment).WithMany(x => x.Allocations).HasForeignKey(x => x.PaymentId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.Invoice).WithMany(x => x.PaymentAllocations).HasForeignKey(x => x.InvoiceId).OnDelete(DeleteBehavior.Restrict);
+        });
         modelBuilder.Entity<Payment>().Property(x => x.ProofFilePath).HasMaxLength(500);
         modelBuilder.Entity<Payment>().Property(x => x.ProofFileName).HasMaxLength(255);
         modelBuilder.Entity<Payment>().Property(x => x.ProofContentType).HasMaxLength(100);

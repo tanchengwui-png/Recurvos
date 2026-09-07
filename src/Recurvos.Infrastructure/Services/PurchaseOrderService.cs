@@ -75,8 +75,9 @@ public sealed class PurchaseOrderService(
         var entity = await dbContext.PurchaseOrders.Include(x => x.Lines)
             .FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == id, cancellationToken);
         if (entity is null) return null;
-        if (entity.Status is PurchaseOrderStatus.Closed or PurchaseOrderStatus.Cancelled or PurchaseOrderStatus.PartiallyReceived or PurchaseOrderStatus.FullyReceived)
-            throw new InvalidOperationException("Received, closed, or cancelled purchase orders cannot be edited.");
+        if (entity.Status is PurchaseOrderStatus.Closed or PurchaseOrderStatus.Cancelled)
+            throw new InvalidOperationException("Closed or cancelled purchase orders cannot be edited.");
+        await EnsurePurchaseOrderAmendmentDoesNotExceedConsumptionAsync(entity, request.Lines, cancellationToken);
 
         var companyId = await ValidateCommonAsync(request.CompanyId, request.ContactId, request.Lines, cancellationToken);
         if (entity.CompanyId != companyId) throw new InvalidOperationException("Purchase order company cannot be changed.");
@@ -92,8 +93,6 @@ public sealed class PurchaseOrderService(
         entity.ReferenceNo = request.ReferenceNo.Trim();
         entity.Notes = request.Notes.Trim();
         entity.UpdatedAtUtc = DateTime.UtcNow;
-        dbContext.PurchaseOrderLines.RemoveRange(entity.Lines);
-        entity.Lines.Clear();
         await ApplyLinesAsync(entity, request.Lines, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         await auditService.WriteAsync("purchase-order.updated", nameof(PurchaseOrder), entity.Id.ToString(), entity.PurchaseOrderNumber, cancellationToken);
@@ -143,10 +142,29 @@ public sealed class PurchaseOrderService(
         return companyId.Value;
     }
 
+    private async Task EnsurePurchaseOrderAmendmentDoesNotExceedConsumptionAsync(PurchaseOrder order, IReadOnlyCollection<PurchaseDocumentLineRequest> requests, CancellationToken cancellationToken)
+    {
+        var consumed = await dbContext.GoodsReceivedNoteLines
+            .Where(x => x.GoodsReceivedNote!.PurchaseOrderId == order.Id && x.GoodsReceivedNote.Status != GoodsReceivedNoteStatus.Cancelled && x.PurchaseOrderLineId.HasValue)
+            .Select(x => new { LineId = x.PurchaseOrderLineId!.Value, x.Quantity })
+            .Concat(dbContext.PurchaseBillLines.Where(x => x.PurchaseBill!.PurchaseOrderId == order.Id && x.PurchaseBill.Status != PurchaseBillStatus.Cancelled && x.PurchaseOrderLineId.HasValue)
+                .Select(x => new { LineId = x.PurchaseOrderLineId!.Value, x.Quantity }))
+            .GroupBy(x => x.LineId).Select(x => new { LineId = x.Key, Quantity = x.Sum(y => y.Quantity) })
+            .ToDictionaryAsync(x => x.LineId, x => x.Quantity, cancellationToken);
+        foreach (var line in order.Lines.Where(x => consumed.ContainsKey(x.Id)))
+        {
+            var amendment = requests.SingleOrDefault(x => x.LineId == line.Id);
+            var used = consumed[line.Id];
+            if (amendment is null) throw new InvalidOperationException($"Line '{line.Description}' cannot be deleted because {used} units have already been received or billed.");
+            if (amendment.Quantity < used) throw new InvalidOperationException($"Quantity for '{line.Description}' cannot be reduced below {used} because {used} units have already been received or billed.");
+        }
+    }
+
     private async Task ApplyLinesAsync(PurchaseOrder entity, IReadOnlyCollection<PurchaseDocumentLineRequest> requests, CancellationToken cancellationToken)
     {
         var subtotal = 0m;
         var tax = 0m;
+        var existing = entity.Lines.ToDictionary(x => x.Id);
         var lines = new List<PurchaseOrderLine>();
         var order = 1;
         foreach (var request in requests)
@@ -156,22 +174,23 @@ public sealed class PurchaseOrderService(
             var lineSubtotal = Math.Round(request.Quantity * request.UnitPrice, 2, MidpointRounding.AwayFromZero);
             var lineTax = Math.Round(lineSubtotal * (taxRate / 100m), 2, MidpointRounding.AwayFromZero);
             var productName = ResolveProductSnapshot(request.ProductId, entity.CompanyId);
-            lines.Add(new PurchaseOrderLine
-            {
-                SortOrder = order++,
-                ProductId = request.ProductId,
-                TaxCodeId = taxCode?.Id,
-                ProductNameSnapshot = productName,
-                Description = request.Description.Trim(),
-                Quantity = request.Quantity,
-                UnitPrice = request.UnitPrice,
-                TaxRate = taxRate,
-                TaxAmount = lineTax,
-                LineTotal = lineSubtotal + lineTax,
-            });
+            var line = request.LineId.HasValue && existing.TryGetValue(request.LineId.Value, out var persisted)
+                ? persisted : new PurchaseOrderLine();
+            line.SortOrder = order++;
+            line.ProductId = request.ProductId;
+            line.TaxCodeId = taxCode?.Id;
+            line.ProductNameSnapshot = productName;
+            line.Description = request.Description.Trim();
+            line.Quantity = request.Quantity;
+            line.UnitPrice = request.UnitPrice;
+            line.TaxRate = taxRate;
+            line.TaxAmount = lineTax;
+            line.LineTotal = lineSubtotal + lineTax;
+            lines.Add(line);
             subtotal += lineSubtotal;
             tax += lineTax;
         }
+        dbContext.PurchaseOrderLines.RemoveRange(entity.Lines.Where(x => !lines.Contains(x)));
         entity.Lines = lines;
         entity.Subtotal = subtotal;
         entity.TaxAmount = tax;

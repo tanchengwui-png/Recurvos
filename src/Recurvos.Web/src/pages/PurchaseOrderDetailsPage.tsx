@@ -44,7 +44,7 @@ export function PurchaseOrderDetailsPage() {
         <div className="page-header-copy"><h2>Purchase Order</h2><p className="muted">{document.purchaseOrderNumber}</p></div>
         <div className="invoice-detail-inline-actions">
           <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/orders")}>Back</button>
-          {document.status !== "Closed" && document.status !== "Cancelled" && document.status !== "PartiallyReceived" && document.status !== "FullyReceived" ? <button type="button" className="button button-secondary" onClick={() => navigate(`/purchases/orders/${document.id}/edit`)}>Edit</button> : null}
+          {document.status !== "Closed" && document.status !== "Cancelled" ? <button type="button" className="button button-secondary" onClick={() => navigate(`/purchases/orders/${document.id}/edit`)}>Edit</button> : null}
           <button type="button" className="button button-secondary" onClick={handlePrint}>Print</button>
           <button type="button" className="button button-primary" onClick={handleExportPdf}>Export PDF</button>
         </div>

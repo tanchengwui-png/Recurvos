@@ -74,7 +74,7 @@ export function PurchasePaymentsPage() {
       </ListToolbar>
       <ResponseToast message={message} tone="success" />
       <section className="card">
-        <ListCardHeader title="Purchase payments" count={pagination.totalItems} countLabel={pagination.totalItems === 1 ? "payment" : "payments"} actions={<div className="invoice-detail-inline-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/purchases/refunds")}>View refunds</button><button type="button" className="button button-secondary" onClick={() => navigate("/purchases/bills")}>Create from purchase bills</button></div>} />
+        <ListCardHeader title="Purchase payments" count={pagination.totalItems} countLabel={pagination.totalItems === 1 ? "payment" : "payments"} actions={<div className="invoice-detail-inline-actions"><button type="button" className="button button-secondary" onClick={() => navigate("/purchases/refunds")}>View refunds</button><button type="button" className="button button-primary" onClick={() => navigate("/purchases/payments/new")}>Create Payment</button></div>} />
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead><tr><th>Payment No</th><th>Date</th><th>Supplier</th><th>Total</th><th>Refunded</th><th>Status</th><th>Action</th></tr></thead>
@@ -84,7 +84,7 @@ export function PurchasePaymentsPage() {
                   colSpan={7}
                   title="No purchase payments yet"
                   description="Record a supplier payment from one or more purchase bills."
-                  actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/bills")}>Go to purchase bills</button>}
+                  actions={<button type="button" className="button button-primary" onClick={() => navigate("/purchases/payments/new")}>Create Payment</button>}
                 />
               ) : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>

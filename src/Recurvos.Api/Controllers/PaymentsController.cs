@@ -12,6 +12,14 @@ public sealed class PaymentsController(IPaymentService paymentService) : Control
     [HttpGet]
     public async Task<ActionResult<IReadOnlyCollection<PaymentDto>>> Get(CancellationToken cancellationToken) => Ok(await paymentService.GetAsync(cancellationToken));
 
+    [HttpPost]
+    [Authorize(Policy = "ManageBilling")]
+    public async Task<ActionResult<PaymentDto>> Create(CreateSalesPaymentRequest request, CancellationToken cancellationToken)
+    {
+        try { return Ok(await paymentService.CreateSalesPaymentAsync(request, cancellationToken)); }
+        catch (InvalidOperationException exception) { return Problem(statusCode: StatusCodes.Status400BadRequest, title: exception.Message); }
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<PaymentDto>> GetById(Guid id, CancellationToken cancellationToken)
     {

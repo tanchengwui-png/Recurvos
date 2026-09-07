@@ -10,6 +10,7 @@ using Recurvos.Infrastructure.Configuration;
 using Recurvos.Infrastructure.Persistence;
 using Recurvos.Infrastructure.Templates;
 using Microsoft.Extensions.Hosting;
+using System.Data;
 
 namespace Recurvos.Infrastructure.Services;
 
@@ -30,6 +31,41 @@ public sealed class PaymentService(
     private readonly AppUrlOptions _appUrlOptions = appUrlOptions.Value;
     private readonly StorageOptions _storageOptions = storageOptions.Value;
     private readonly IHostEnvironment _environment = environment;
+
+    public async Task<PaymentDto> CreateSalesPaymentAsync(CreateSalesPaymentRequest request, CancellationToken cancellationToken = default)
+    {
+        if (request.Allocations.Count == 0 || request.Allocations.Any(x => x.Amount <= 0m)) throw new InvalidOperationException("At least one positive invoice allocation is required.");
+        var invoiceIds = request.Allocations.Select(x => x.InvoiceId).ToList();
+        if (invoiceIds.Distinct().Count() != invoiceIds.Count) throw new InvalidOperationException("Each invoice can only be allocated once per payment.");
+        var companyId = GetCompanyId();
+        await using var transaction = dbContext.Database.IsRelational()
+            ? await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken)
+            : null;
+        var orderedInvoiceIds = invoiceIds.OrderBy(id => id).ToList();
+        var invoices = await dbContext.Invoices.Where(x => x.CompanyId == companyId && orderedInvoiceIds.Contains(x.Id)).OrderBy(x => x.Id).ToListAsync(cancellationToken);
+        if (invoices.Count != invoiceIds.Count) throw new InvalidOperationException("One or more invoices were not found in the active workspace.");
+        if (invoices.Any(x => x.CustomerId != request.CustomerId)) throw new InvalidOperationException("All allocated invoices must belong to the selected customer.");
+        if (invoices.Any(x => x.Status is InvoiceStatus.Voided or InvoiceStatus.Draft or InvoiceStatus.Uncollectible)) throw new InvalidOperationException("One or more invoices cannot receive payments.");
+        foreach (var allocation in request.Allocations)
+        {
+            var invoice = invoices.Single(x => x.Id == allocation.InvoiceId);
+            if (invoice.AmountDue <= 0m || allocation.Amount > invoice.AmountDue)
+                throw new InvalidOperationException($"Payment allocation for {invoice.InvoiceNumber} exceeds its current outstanding balance.");
+        }
+        var first = invoices[0];
+        var payment = new Payment { CompanyId = companyId, InvoiceId = request.Allocations.Count == 1 ? request.Allocations[0].InvoiceId : null, Amount = request.Allocations.Sum(x => x.Amount), Currency = first.Currency, GatewayName = request.Method.Trim(), ExternalPaymentId = string.IsNullOrWhiteSpace(request.Reference) ? null : request.Reference.Trim(), Status = PaymentStatus.Succeeded, PaidAtUtc = request.PaymentDateUtc.ToUniversalTime(), Allocations = request.Allocations.Select(x => new SalesPaymentAllocation { InvoiceId = x.InvoiceId, Amount = x.Amount }).ToList() };
+        dbContext.Payments.Add(payment);
+        foreach (var allocation in request.Allocations)
+        {
+            var invoice = invoices.Single(x => x.Id == allocation.InvoiceId);
+            invoice.AmountPaid += allocation.Amount;
+            invoice.AmountDue = Math.Max(0m, invoice.AmountDue - allocation.Amount);
+            invoice.Status = invoice.AmountDue <= 0m ? InvoiceStatus.Paid : InvoiceStatus.Open;
+        }
+        await dbContext.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
+        return Map(payment, Array.Empty<PaymentHistoryDto>());
+    }
 
     public async Task<IReadOnlyCollection<PaymentDto>> GetAsync(CancellationToken cancellationToken = default)
     {
@@ -338,12 +374,19 @@ public sealed class PaymentService(
                 continue;
             }
 
+            // Multi-invoice payments do not support payment-link retries; links remain
+            // a legacy single-invoice workflow.
+            if (!payment.InvoiceId.HasValue)
+            {
+                continue;
+            }
+
             var gateway = await ResolveGatewayAsync(payment.CompanyId, cancellationToken);
             var result = await gateway.CreatePaymentLinkAsync(new CreatePaymentLinkCommand
             {
                 CompanyId = payment.CompanyId,
                 GatewayConfigurationCompanyId = payment.CompanyId,
-                InvoiceId = payment.InvoiceId,
+                InvoiceId = payment.InvoiceId.Value,
                 InvoiceNumber = payment.Invoice?.InvoiceNumber ?? string.Empty,
                 Amount = payment.Amount,
                 Currency = payment.Currency,
@@ -546,6 +589,7 @@ public sealed class PaymentService(
             .Include(x => x.Attempts)
             .Include(x => x.Refunds)
             .Include(x => x.Disputes)
+            .Include(x => x.Allocations).ThenInclude(x => x.Invoice)
             .Where(x => x.CompanyId == companyId);
 
     private static PaymentDto Map(Payment payment, IReadOnlyCollection<PaymentHistoryDto> history) =>
@@ -568,7 +612,8 @@ public sealed class PaymentService(
             history,
             payment.Attempts.OrderBy(x => x.AttemptNumber).Select(x => new PaymentAttemptDto(x.AttemptNumber, x.Status, x.FailureCode, x.FailureMessage)).ToList(),
             payment.Refunds.OrderByDescending(x => x.CreatedAtUtc).Select(refund => RefundService.Map(refund, payment)).ToList(),
-            payment.Disputes.OrderByDescending(x => x.OpenedAtUtc).Select(x => new PaymentDisputeDto(x.Id, x.ExternalDisputeId, x.Amount, x.Reason, x.Status.ToString(), x.OpenedAtUtc, x.ResolvedAtUtc)).ToList());
+            payment.Disputes.OrderByDescending(x => x.OpenedAtUtc).Select(x => new PaymentDisputeDto(x.Id, x.ExternalDisputeId, x.Amount, x.Reason, x.Status.ToString(), x.OpenedAtUtc, x.ResolvedAtUtc)).ToList(),
+            payment.Allocations.Select(x => new SalesPaymentAllocationDto(x.Id, x.InvoiceId, x.Invoice?.InvoiceNumber ?? string.Empty, x.Amount)).ToList());
 
     private async Task<Dictionary<Guid, IReadOnlyCollection<PaymentHistoryDto>>> GetHistoryMapAsync(IEnumerable<Guid> paymentIds, CancellationToken cancellationToken)
     {

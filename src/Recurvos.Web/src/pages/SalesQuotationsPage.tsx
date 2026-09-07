@@ -42,7 +42,7 @@ export function SalesQuotationsPage() {
   function getActions(item: SalesQuotationListItem) {
     return [
       { label: "View details", onClick: () => navigate(`/sales/quotations/${item.id}`, { state: { backgroundLocation: location } }) },
-      ...(!item.isTransactionallyLocked && item.status !== "Converted" ? [{ label: "Edit", onClick: () => navigate(`/sales/quotations/${item.id}/edit`) }] : []),
+      { label: "Edit", onClick: () => navigate(`/sales/quotations/${item.id}/edit`) },
       ...(item.conversionStatus !== "FullyConverted" && item.status !== "Converted" ? [{ label: "Convert to Sales Order", disabled: item.status !== "Accepted", title: "Mark this quotation as accepted before converting it to a Sales Order.", onClick: () => navigate(`/sales/quotations/${item.id}`, { state: { backgroundLocation: location } }) }] : []),
       ...(item.status === "Draft" ? [{ label: "Mark as Sent", onClick: async () => { await api.patch(`/sales/quotations/${item.id}/status`, { status: "Sent" }); await load(); } }] : []),
       ...(item.status === "Sent" ? [{ label: "Mark as Accepted", onClick: async () => { await api.patch(`/sales/quotations/${item.id}/status`, { status: "Accepted" }); await load(); } }] : []),

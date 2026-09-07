@@ -48,7 +48,7 @@ export function PurchaseOrdersPage() {
   function getActions(item: PurchaseOrderListItem) {
     return [
       { label: "View details", onClick: () => navigate(`/purchases/orders/${item.id}`, { state: { backgroundLocation: location } }) },
-      ...(item.status !== "Closed" && item.status !== "Cancelled" && item.status !== "PartiallyReceived" && item.status !== "FullyReceived" ? [{ label: "Edit", onClick: () => navigate(`/purchases/orders/${item.id}/edit`) }] : []),
+      ...(item.status !== "Closed" && item.status !== "Cancelled" ? [{ label: "Edit", onClick: () => navigate(`/purchases/orders/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{ label: "Mark as Sent", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Sent" }); await load(); } }] : []),
       ...(item.status === "Sent" ? [{ label: "Approve", onClick: async () => { await api.patch(`/purchases/orders/${item.id}/status`, { status: "Approved" }); await load(); } }] : []),
       ...((item.status === "Approved" || item.status === "PartiallyReceived") ? [{ label: "Create GRN", onClick: () => navigate(`/purchases/grns/new?purchaseOrderId=${item.id}`) }] : []),

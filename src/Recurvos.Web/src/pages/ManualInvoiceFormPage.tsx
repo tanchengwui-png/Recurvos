@@ -3,13 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { HelperText } from "../components/ui/HelperText";
 import { FormPageHeader } from "../components/ui/FormPageHeader";
 import { SearchableSelect } from "../components/ui/SearchableSelect";
+import { QuickCreateProductModal } from "../components/QuickCreateProductModal";
 import { TransactionFormCard } from "../components/ui/TransactionFormCard";
 import { fetchProducts } from "../hooks/useProducts";
 import { api } from "../lib/api";
 import { getActiveCompanyId, getAuth } from "../lib/auth";
 import { formatCurrency } from "../lib/format";
-import { normalizeProductCode } from "../utils/products";
-import type { Customer, Invoice, MasterDataSnapshot, Product, ProductDetails } from "../types";
+import type { Customer, Invoice, MasterDataSnapshot, Product } from "../types";
 
 type Line = {
   productId: string;
@@ -38,11 +38,6 @@ export function ManualInvoiceFormPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [quickCreate, setQuickCreate] = useState<{ index: number; name: string } | null>(null);
-  const [quickPrice, setQuickPrice] = useState("0");
-  const [quickTaxCodeId, setQuickTaxCodeId] = useState("");
-  const [quickUom, setQuickUom] = useState("Unit");
-  const [quickIncomeAccountId, setQuickIncomeAccountId] = useState("");
-  const [quickSaving, setQuickSaving] = useState(false);
 
   useEffect(() => {
     const companyId = getActiveCompanyId() ?? undefined;
@@ -89,67 +84,7 @@ export function ManualInvoiceFormPage() {
   }
 
   function openQuickCreate(index: number, name: string) {
-    const defaultRevenueAccount = snapshot?.accounts.find((account) => account.isActive && account.type === "Revenue");
     setQuickCreate({ index, name });
-    setQuickPrice("0");
-    setQuickTaxCodeId("");
-    setQuickUom("Unit");
-    setQuickIncomeAccountId(defaultRevenueAccount?.id ?? "");
-  }
-
-  async function createProduct() {
-    const companyId = getActiveCompanyId();
-    const incomeAccount = snapshot?.accounts.find((account) => account.id === quickIncomeAccountId);
-    if (!quickCreate || !companyId || !incomeAccount) {
-      setError("Select an income account before adding the product.");
-      return;
-    }
-
-    setQuickSaving(true);
-    try {
-      const created = await api.post<ProductDetails>("/products", {
-        companyId,
-        name: quickCreate.name.trim(),
-        code: normalizeProductCode(quickCreate.name),
-        description: quickCreate.name.trim(),
-        productGroups: [],
-        trackInventory: false,
-        inventoryAccount: "",
-        isSelling: true,
-        salesPrice: Number(quickPrice || 0),
-        salesTaxCodeId: quickTaxCodeId || null,
-        salesTaxCode: "",
-        incomeAccountId: incomeAccount.id,
-        incomeAccount: incomeAccount.code,
-        isBuying: false,
-        purchasePrice: null,
-        purchaseTaxCodeId: null,
-        purchaseTaxCode: "",
-        expenseAccount: "",
-        baseUnitLabel: quickUom.trim() || "Unit",
-        hasMultipleUoms: false,
-        uomConversions: [],
-        hasCustomSalesPrices: false,
-        customSalesPrices: [],
-        hasCustomPurchasePrices: false,
-        customPurchasePrices: [],
-        isSubscriptionProduct: false,
-        isActive: true,
-      });
-      const product = created as unknown as Product;
-      setProducts((current) => [...current, product].sort((left, right) => left.name.localeCompare(right.name)));
-      updateLine(quickCreate.index, {
-        productId: product.id,
-        description: created.salesDescription || created.description || created.name,
-        unitAmount: created.salesPrice?.toString() ?? "0",
-        taxCodeId: created.salesTaxCodeId ?? "",
-      });
-      setQuickCreate(null);
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : "Unable to add product.");
-    } finally {
-      setQuickSaving(false);
-    }
   }
 
   async function submit() {
@@ -255,7 +190,8 @@ export function ManualInvoiceFormPage() {
                           ariaLabel="Product"
                           portalPopover
                           onCreate={getAuth()?.role === "Owner" || getAuth()?.role === "Admin" ? (name) => openQuickCreate(index, name) : undefined}
-                          createLabel="Add"
+                          createLabel="Add new product"
+                          persistentCreateAction
                         />
                       </td>
                       <td><input className="text-input" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} /></td>
@@ -289,19 +225,12 @@ export function ManualInvoiceFormPage() {
           <button type="button" className="button button-primary" disabled={saving} onClick={() => void submit()}>{saving ? "Creating..." : "Create invoice"}</button>
         </div>
       </TransactionFormCard>
-      {quickCreate ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => !quickSaving && setQuickCreate(null)}>
-          <div className="modal-card card" role="dialog" aria-modal="true" aria-labelledby="quick-product-title" onClick={(event) => event.stopPropagation()}>
-            <h3 id="quick-product-title">Add product</h3>
-            <label className="form-label">Product name<input className="text-input" value={quickCreate.name} onChange={(event) => setQuickCreate({ ...quickCreate, name: event.target.value })} /></label>
-            <label className="form-label">Sales price<input className="text-input" type="number" min="0" step="0.01" value={quickPrice} onChange={(event) => setQuickPrice(event.target.value)} /></label>
-            <label className="form-label">Tax code<select value={quickTaxCodeId} onChange={(event) => setQuickTaxCodeId(event.target.value)}><option value="">No tax</option>{snapshot?.taxCodes.filter((taxCode) => taxCode.isActive && (taxCode.scope === "Sales" || taxCode.scope === "Both")).map((taxCode) => <option key={taxCode.id} value={taxCode.id}>{`${taxCode.code} · ${taxCode.rate}%`}</option>)}</select></label>
-            <label className="form-label">UOM<input className="text-input" value={quickUom} onChange={(event) => setQuickUom(event.target.value)} /></label>
-            <label className="form-label">Income account<select value={quickIncomeAccountId} onChange={(event) => setQuickIncomeAccountId(event.target.value)}><option value="">Select income account</option>{snapshot?.accounts.filter((account) => account.isActive && account.type === "Revenue").map((account) => <option key={account.id} value={account.id}>{`${account.code} · ${account.name}`}</option>)}</select></label>
-            <div className="modal-actions"><button type="button" className="button button-secondary" disabled={quickSaving} onClick={() => setQuickCreate(null)}>Cancel</button><button type="button" className="button button-primary" disabled={quickSaving || !quickCreate.name.trim()} onClick={() => void createProduct()}>{quickSaving ? "Adding..." : "Add product"}</button></div>
-          </div>
-        </div>
-      ) : null}
+      {quickCreate ? <QuickCreateProductModal companyId={getActiveCompanyId() ?? ""} mode="sales" name={quickCreate.name} snapshot={snapshot} onClose={() => setQuickCreate(null)} onCreated={(created) => {
+        const product = created as unknown as Product;
+        setProducts((current) => [...current, product].sort((left, right) => left.name.localeCompare(right.name)));
+        updateLine(quickCreate.index, { productId: created.id, description: created.salesDescription || created.description || created.name, unitAmount: created.salesPrice?.toString() ?? "0", taxCodeId: created.salesTaxCodeId ?? "" });
+        setQuickCreate(null);
+      }} /> : null}
     </div>
   );
 }

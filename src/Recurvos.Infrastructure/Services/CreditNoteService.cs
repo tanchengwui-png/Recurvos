@@ -54,38 +54,50 @@ public sealed class CreditNoteService(
             throw new InvalidOperationException("Reason is required.");
         }
 
-        if (request.Lines.Count != 1)
+        if (request.Lines.Count == 0)
         {
-            throw new InvalidOperationException("Credit notes currently support one description and one amount only.");
+            throw new InvalidOperationException("At least one credit note line is required.");
         }
 
+        var previouslyCreditedByLine = invoice.CreditNotes
+            .Where(note => note.Status == CreditNoteStatus.Issued)
+            .SelectMany(note => note.Lines)
+            .Where(line => line.InvoiceLineId.HasValue)
+            .GroupBy(line => line.InvoiceLineId!.Value)
+            .ToDictionary(group => group.Key, group => group.Sum(line => line.Quantity));
+        var invoiceLines = invoice.LineItems.ToDictionary(line => line.Id);
+        var selectedLineIds = new HashSet<Guid>();
         var lines = request.Lines.Select(line =>
         {
-            if (string.IsNullOrWhiteSpace(line.Description))
+            if (!line.InvoiceLineId.HasValue || !invoiceLines.TryGetValue(line.InvoiceLineId.Value, out var sourceLine))
             {
-                throw new InvalidOperationException("Credit note description is required.");
+                throw new InvalidOperationException("Each credit note line must reference an invoice line.");
             }
 
-            if (line.Quantity != 1)
+            if (!selectedLineIds.Add(sourceLine.Id))
             {
-                throw new InvalidOperationException("Credit note quantity must be 1.");
+                throw new InvalidOperationException("An invoice line can only be credited once per credit note.");
             }
 
-            if (line.TaxAmount != 0)
+            var remainingQuantity = Math.Max(0m, sourceLine.Quantity - previouslyCreditedByLine.GetValueOrDefault(sourceLine.Id));
+            if (line.Quantity <= 0m || line.Quantity > remainingQuantity)
             {
-                throw new InvalidOperationException("Credit note amount must be entered as a single amount without tax split.");
+                throw new InvalidOperationException($"Credit quantity for {sourceLine.Description} cannot exceed the remaining quantity of {remainingQuantity:0.##}.");
             }
 
-            var subtotal = line.UnitAmount * line.Quantity;
+            var taxAmount = sourceLine.Quantity == 0m
+                ? 0m
+                : decimal.Round(sourceLine.TaxAmount * line.Quantity / sourceLine.Quantity, 2, MidpointRounding.AwayFromZero);
+            var subtotal = sourceLine.UnitAmount * line.Quantity;
             return new CreditNoteLine
             {
                 CompanyId = companyId,
-                InvoiceLineId = line.InvoiceLineId,
-                Description = line.Description.Trim(),
+                InvoiceLineId = sourceLine.Id,
+                Description = sourceLine.Description,
                 Quantity = line.Quantity,
-                UnitAmount = line.UnitAmount,
-                TaxAmount = line.TaxAmount,
-                LineTotal = subtotal + line.TaxAmount
+                UnitAmount = sourceLine.UnitAmount,
+                TaxAmount = taxAmount,
+                LineTotal = subtotal + taxAmount
             };
         }).ToList();
 

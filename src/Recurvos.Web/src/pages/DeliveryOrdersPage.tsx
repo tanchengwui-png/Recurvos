@@ -44,7 +44,7 @@ export function DeliveryOrdersPage() {
   function getActions(item: DeliveryOrderListItem) {
     return [
       { label: "View details", onClick: () => navigate(`/sales/delivery-orders/${item.id}`, { state: { backgroundLocation: location } }) },
-      ...(item.status === "Draft" ? [{ label: "Edit", onClick: () => navigate(`/sales/delivery-orders/${item.id}/edit`) }] : []),
+      ...(item.status !== "Cancelled" ? [{ label: "Edit", onClick: () => navigate(`/sales/delivery-orders/${item.id}/edit`) }] : []),
       ...(item.hasInvoiceableQuantity && item.status !== "Draft" && item.status !== "Cancelled" ? [{ label: "Create Invoice", onClick: () => navigate(`/sales/invoices/new?source=delivery-order&sourceId=${item.id}`) }] : []),
       ...(item.status === "Draft" ? [{
         label: "Mark as Delivered",

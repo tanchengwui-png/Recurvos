@@ -5,6 +5,9 @@ namespace Recurvos.Application.Sales;
 
 public sealed class SalesDocumentLineRequest
 {
+    // The persisted line being amended.  Keeping this identity is essential when
+    // checking quantities already consumed by child documents.
+    public Guid? LineId { get; set; }
     // Set only when updating an order that was converted from a quotation.
     // This preserves the direct document-chain relationship used for capacity checks.
     public Guid? SourceQuotationLineId { get; set; }
@@ -26,6 +29,7 @@ public sealed class SalesDocumentLineRequest
 
 public sealed class DeliveryOrderLineRequest
 {
+    public Guid? LineId { get; set; }
     public Guid? SalesOrderLineId { get; set; }
     public Guid? ProductId { get; set; }
     public Guid? TaxCodeId { get; set; }

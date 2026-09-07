@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { SearchableSelect } from "./ui/SearchableSelect";
 import { api } from "../lib/api";
+import { standardUomOptions } from "../lib/localeOptions";
 import { normalizeProductCode } from "../utils/products";
 import type { MasterDataSnapshot, ProductDetails } from "../types";
 
@@ -83,7 +85,19 @@ export function QuickCreateProductModal({ companyId, mode, name, snapshot, onClo
         <label className="form-label">Product name<input className="text-input" value={productName} onChange={(event) => setProductName(event.target.value)} /></label>
         <label className="form-label">{isSales ? "Sales price" : "Purchase price"}<input className="text-input" type="number" min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} /></label>
         <label className="form-label">Tax code<select value={taxCodeId} onChange={(event) => setTaxCodeId(event.target.value)}><option value="">No tax</option>{taxCodes.map((taxCode) => <option key={taxCode.id} value={taxCode.id}>{`${taxCode.code} · ${taxCode.rate}%`}</option>)}</select></label>
-        <label className="form-label">UOM<input className="text-input" value={uom} onChange={(event) => setUom(event.target.value)} /></label>
+        <label className="form-label">UOM
+          <SearchableSelect
+            value={uom}
+            onChange={setUom}
+            options={standardUomOptions}
+            placeholder="Select UOM"
+            searchPlaceholder="Search units..."
+            emptyText="No units found."
+            ariaLabel="UOM"
+            portalPopover
+            portalPopoverZIndex={1301}
+          />
+        </label>
         <label className="form-label">{isSales ? "Income" : "Expense"} account<select value={accountId} onChange={(event) => setAccountId(event.target.value)}><option value="">Select account</option>{accounts.map((account) => <option key={account.id} value={account.id}>{`${account.code} · ${account.name}`}</option>)}</select></label>
         <div className="modal-actions"><button type="button" className="button button-secondary" disabled={saving} onClick={onClose}>Cancel</button><button type="button" className="button button-primary" disabled={saving || !productName.trim()} onClick={() => void save()}>{saving ? "Adding..." : "Add product"}</button></div>
       </div>

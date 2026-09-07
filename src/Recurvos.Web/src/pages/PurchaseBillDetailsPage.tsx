@@ -45,7 +45,7 @@ export function PurchaseBillDetailsPage() {
         <div className="invoice-detail-inline-actions">
           <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/bills")}>Back</button>
           {document.amountDue > 0 && document.status !== "Cancelled" ? <button type="button" className="button button-secondary" onClick={() => navigate(`/purchases/credit-notes/new?purchaseBillId=${document.id}`)}>Create Credit Note</button> : null}
-          {document.amountDue > 0 && document.status !== "Cancelled" ? <button type="button" className="button button-secondary" onClick={() => navigate(`/purchases/payments/new?purchaseBillId=${document.id}`)}>Record Payment</button> : null}
+          {document.amountDue > 0 && document.status !== "Cancelled" ? <button type="button" className="button button-secondary" onClick={() => navigate(`/purchases/payments/new?supplierId=${document.contactId}&purchaseBillId=${document.id}`)}>Record Payment</button> : null}
           <button type="button" className="button button-secondary" onClick={handlePrint}>Print</button>
           <button type="button" className="button button-primary" onClick={handleExportPdf}>Export PDF</button>
         </div>

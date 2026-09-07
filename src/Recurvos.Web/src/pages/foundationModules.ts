@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { formatWarehouseAddress } from "../lib/warehouseAddress";
 
 export type FoundationFieldType = "text" | "number" | "textarea" | "checkbox" | "select";
 
@@ -69,6 +70,12 @@ function renderDate(value: unknown) {
 
 function renderPercent(value: unknown) {
   return typeof value === "number" ? `${value}%` : "-";
+}
+
+export function renderPriceLevelAdjustment(value: unknown) {
+  const adjustment = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(adjustment) || adjustment === 0) return "No adjustment";
+  return `${Math.abs(adjustment)}% ${adjustment < 0 ? "decrease" : "increase"}`;
 }
 
 function renderText(value: unknown) {
@@ -277,7 +284,7 @@ export const foundationModules: FoundationModuleConfig[] = [
     fields: [
       { key: "code", label: "Code", type: "text", required: true },
       { key: "name", label: "Name", type: "text", required: true },
-      { key: "addressJson", label: "Address JSON", type: "textarea" },
+      { key: "addressJson", label: "Address", type: "textarea" },
       { key: "isActive", label: "Active", type: "checkbox" },
     ],
     columns: [
@@ -297,7 +304,7 @@ export const foundationModules: FoundationModuleConfig[] = [
       },
       {
         title: "Address",
-        fields: [{ key: "addressJson", label: "Address JSON" }],
+        fields: [{ key: "addressJson", label: "Address", render: (value) => formatWarehouseAddress(typeof value === "string" ? value : "") }],
       },
     ],
   },
@@ -390,7 +397,7 @@ export const foundationModules: FoundationModuleConfig[] = [
     columns: [
       { key: "code", label: "Code", render: (item) => item.code },
       { key: "name", label: "Name", render: (item) => item.name },
-      { key: "adjustmentPercent", label: "Adjustment", render: (item) => renderPercent(item.adjustmentPercent) },
+      { key: "adjustmentPercent", label: "Adjustment", render: (item) => renderPriceLevelAdjustment(item.adjustmentPercent) },
       { key: "isActive", label: "Status", render: (item) => renderStatus(item.isActive) },
     ],
     filters: [statusFilter],
@@ -400,7 +407,7 @@ export const foundationModules: FoundationModuleConfig[] = [
         fields: [
           { key: "code", label: "Code" },
           { key: "name", label: "Name" },
-          { key: "adjustmentPercent", label: "Adjustment", render: renderPercent },
+          { key: "adjustmentPercent", label: "Adjustment", render: renderPriceLevelAdjustment },
           { key: "description", label: "Description" },
           { key: "isActive", label: "Status", render: renderStatus },
         ],

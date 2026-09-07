@@ -5,6 +5,7 @@ namespace Recurvos.Application.Purchases;
 
 public sealed class PurchaseDocumentLineRequest
 {
+    public Guid? LineId { get; set; }
     public Guid? ProductId { get; set; }
     public Guid? TaxCodeId { get; set; }
 
@@ -59,6 +60,7 @@ public sealed class PurchaseOrderStatusRequest
 
 public sealed class GoodsReceivedNoteLineRequest
 {
+    public Guid? LineId { get; set; }
     public Guid? PurchaseOrderLineId { get; set; }
     public Guid? ProductId { get; set; }
     public Guid? TaxCodeId { get; set; }
@@ -212,6 +214,8 @@ public sealed record PurchasePaymentDetailsDto(Guid Id, Guid CompanyId, string C
 
 public sealed class CreatePurchaseCreditNoteLineRequest
 {
+    public Guid? PurchaseBillLineId { get; set; }
+
     [Required, MaxLength(250)]
     public string Description { get; set; } = string.Empty;
 
@@ -240,7 +244,7 @@ public sealed class CreatePurchaseCreditNoteRequest
     public List<CreatePurchaseCreditNoteLineRequest> Lines { get; set; } = new();
 }
 
-public sealed record PurchaseCreditNoteLineDto(Guid Id, string Description, decimal Quantity, decimal UnitAmount, decimal TaxAmount, decimal LineTotal);
+public sealed record PurchaseCreditNoteLineDto(Guid Id, Guid? PurchaseBillLineId, string Description, decimal Quantity, decimal UnitAmount, decimal TaxAmount, decimal LineTotal);
 
 public sealed record PurchaseCreditNoteListItemDto(Guid Id, Guid CompanyId, string CompanyName, Guid PurchaseBillId, string PurchaseBillNumber, string PurchaseCreditNoteNumber, Guid ContactId, string ContactName, DateTime IssuedAtUtc, string Currency, decimal TotalReduction, PurchaseCreditNoteStatus Status);
 

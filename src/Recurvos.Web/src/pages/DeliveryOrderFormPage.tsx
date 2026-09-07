@@ -10,6 +10,7 @@ import { formatCurrency } from "../lib/format";
 import type { DeliveryOrder, SalesOrder, SalesOrderListItem, Warehouse } from "../types";
 
 type LineForm = {
+  lineId?: string;
   salesOrderLineId: string;
   productNameSnapshot: string;
   description: string;
@@ -64,6 +65,7 @@ export function DeliveryOrderFormPage() {
         setLines(record.lines.map((line) => {
           const sourceLine = order?.lines.find((item) => item.id === line.salesOrderLineId);
           return {
+            lineId: line.id,
             salesOrderLineId: line.salesOrderLineId ?? "",
             productNameSnapshot: line.productNameSnapshot,
             description: line.description,
@@ -196,6 +198,7 @@ export function DeliveryOrderFormPage() {
           referenceNo,
           notes,
           lines: activeLines.map((line) => ({
+            lineId: line.lineId ?? null,
             salesOrderLineId: line.salesOrderLineId,
             quantity: Number(line.quantity),
           })),

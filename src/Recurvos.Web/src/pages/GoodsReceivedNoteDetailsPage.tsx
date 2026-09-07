@@ -46,7 +46,7 @@ export function GoodsReceivedNoteDetailsPage() {
         <div className="page-header-copy"><h2>Goods Received Note</h2><p className="muted">{document.goodsReceivedNoteNumber}</p></div>
         <div className="invoice-detail-inline-actions">
           <button type="button" className="button button-secondary" onClick={() => navigate("/purchases/grns")}>Back</button>
-          {document.status === "Draft" ? <button type="button" className="button button-secondary" onClick={() => navigate(`/purchases/grns/${document.id}/edit`)}>Edit</button> : null}
+          {document.status !== "Cancelled" ? <button type="button" className="button button-secondary" onClick={() => navigate(`/purchases/grns/${document.id}/edit`)}>Edit</button> : null}
           <button type="button" className="button button-secondary" onClick={handlePrint}>Print</button>
           <button type="button" className="button button-primary" onClick={handleExportPdf}>Export PDF</button>
         </div>

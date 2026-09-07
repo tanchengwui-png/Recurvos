@@ -596,7 +596,11 @@ public sealed class MasterDataService(
         entity.Rate = request.Rate;
         entity.Scope = request.Scope;
         entity.IsSst = request.IsSst;
-        entity.MyInvoisTaxTypeCode = NormalizeOptionalCode(request.MyInvoisTaxTypeCode);
+        var myInvoisTaxTypeCode = NormalizeOptionalCode(request.MyInvoisTaxTypeCode);
+        var keepsLegacyValue = string.Equals(myInvoisTaxTypeCode, entity.MyInvoisTaxTypeCode, StringComparison.OrdinalIgnoreCase);
+        if (!MyInvoisTaxTypeCatalog.IsSupported(myInvoisTaxTypeCode) && !keepsLegacyValue)
+            throw new InvalidOperationException("Select a valid MyInvois tax type.");
+        entity.MyInvoisTaxTypeCode = myInvoisTaxTypeCode;
         entity.IsActive = request.IsActive;
     }
 

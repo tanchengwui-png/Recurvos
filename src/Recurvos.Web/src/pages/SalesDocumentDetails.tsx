@@ -191,7 +191,7 @@ export function mapQuotationDetails(document: SalesQuotation) {
     totalAmount: document.totalAmount,
     lines: document.lines,
     backPath: "/sales/quotations",
-    editPath: !document.isTransactionallyLocked ? `/sales/quotations/${document.id}/edit` : undefined,
+    editPath: `/sales/quotations/${document.id}/edit`,
     sourceSummary: [`Conversion: ${document.conversionStatus.replace(/([A-Z])/g, " $1").trim()}`, document.expiryDateUtc ? `Expiry: ${new Date(document.expiryDateUtc).toLocaleDateString()}` : ""].filter(Boolean).join(" | "),
   } satisfies SalesDocumentDetailsProps;
 }
@@ -216,7 +216,9 @@ export function mapOrderDetails(document: SalesOrder) {
     totalAmount: document.totalAmount,
     lines: document.lines,
     backPath: "/sales/orders",
-    editPath: (document.status === "Draft" || document.status === "Confirmed") && !document.lines.every((line) => line.invoicedQuantity >= line.quantity) ? `/sales/orders/${document.id}/edit` : undefined,
+    editPath: document.status !== "Closed" && document.status !== "Cancelled"
+      ? `/sales/orders/${document.id}/edit`
+      : undefined,
     sourceSummary: document.salesQuotationId ? "Source: converted from quotation" : undefined,
   } satisfies SalesDocumentDetailsProps;
 }
@@ -241,7 +243,9 @@ export function mapDeliveryOrderDetails(document: DeliveryOrder) {
     totalAmount: document.totalAmount,
     lines: document.lines,
     backPath: "/sales/delivery-orders",
-    editPath: document.status === "Draft" && !document.lines.every((line) => line.invoicedQuantity >= line.quantity) ? `/sales/delivery-orders/${document.id}/edit` : undefined,
+    editPath: document.status !== "Cancelled"
+      ? `/sales/delivery-orders/${document.id}/edit`
+      : undefined,
     sourceSummary: document.salesQuotationId ? "Source: direct quotation delivery" : document.salesOrderId ? `Source sales order: ${document.salesOrderNumber}` : "Standalone delivery order",
   } satisfies SalesDocumentDetailsProps;
 }

@@ -20,7 +20,9 @@ public static class InvoicePaymentStateCalculator
         }
 
         var successfulPayments = payments.Where(payment => payment.Status == PaymentStatus.Succeeded).ToList();
-        var grossPaid = successfulPayments.Sum(payment => payment.Amount);
+        var grossPaid = successfulPayments.Sum(payment => payment.Allocations.Count > 0
+            ? payment.Allocations.Where(allocation => allocation.InvoiceId == invoice.Id).Sum(allocation => allocation.Amount)
+            : payment.Amount);
         var refunded = GetRefundedAmount(successfulPayments);
         var netPaid = Math.Max(0, grossPaid - refunded);
         var credited = (creditNotes ?? invoice.CreditNotes)
@@ -29,10 +31,10 @@ public static class InvoicePaymentStateCalculator
 
         invoice.AmountPaid = netPaid;
         invoice.AmountDue = Math.Max(0, invoice.Total - netPaid - credited);
-        // A refund returns received money; it does not settle or write off the invoice.
-        // Any resulting balance must therefore make the invoice payable again.
         invoice.Status = invoice.AmountDue <= 0
             ? InvoiceStatus.Paid
-            : InvoiceStatus.Open;
+            : grossPaid > 0 && netPaid == 0 && refunded >= grossPaid
+                ? InvoiceStatus.Refunded
+                : InvoiceStatus.Open;
     }
 }

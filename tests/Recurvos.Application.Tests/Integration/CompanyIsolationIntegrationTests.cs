@@ -114,8 +114,8 @@ public sealed class CompanyIsolationIntegrationTests : IClassFixture<TestWebAppl
         (await verificationDb.Products.AnyAsync(x => x.CompanyId == companyAId && x.Code == "RESET-A")).Should().BeFalse();
         (await verificationDb.SalesQuotations.AnyAsync(x => x.CompanyId == companyAId)).Should().BeFalse();
         (await verificationDb.Products.AnyAsync(x => x.CompanyId == companyBId && x.Code == "RESET-B")).Should().BeTrue();
-        var companyBContact = await verificationDb.Customers.SingleAsync(x => x.Id == companyBContactId);
-        companyBContact.CompanyId.Should().Be(companyBId);
+        var persistedCompanyBContact = await verificationDb.Customers.SingleAsync(x => x.Id == companyBContactId);
+        persistedCompanyBContact.CompanyId.Should().Be(companyBId);
         (await verificationDb.Accounts.AnyAsync(x => x.CompanyId == companyAId && x.Code == "1100")).Should().BeTrue();
         (await verificationDb.AuditLogs.AnyAsync(x => x.CompanyId == companyAId && x.Action == "company.factory-reset")).Should().BeTrue();
     }

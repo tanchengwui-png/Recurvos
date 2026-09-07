@@ -145,7 +145,7 @@ public sealed class PreviewReceiptRequest
     public DateTime PaidAtUtc { get; set; }
 }
 
-public sealed record InvoiceLineItemDto(Guid? TaxCodeId, string Description, decimal Quantity, decimal UnitAmount, decimal TaxRate, decimal TaxAmount, decimal TotalAmount, decimal LineTotal);
+public sealed record InvoiceLineItemDto(Guid Id, Guid? TaxCodeId, string Description, decimal Quantity, decimal UnitAmount, decimal TaxRate, decimal TaxAmount, decimal TotalAmount, decimal LineTotal);
 
 public sealed record InvoiceHistoryDto(DateTime CreatedAtUtc, string Action, string Description);
 public sealed record WhatsAppRetryResultDto(bool Success, string Message, string? ExternalMessageId);

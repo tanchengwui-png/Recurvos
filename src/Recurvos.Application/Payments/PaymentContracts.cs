@@ -3,6 +3,22 @@ using Recurvos.Application.Refunds;
 
 namespace Recurvos.Application.Payments;
 
+public sealed class SalesPaymentAllocationRequest
+{
+    public Guid InvoiceId { get; set; }
+    public decimal Amount { get; set; }
+}
+
+public sealed class CreateSalesPaymentRequest
+{
+    public Guid CustomerId { get; set; }
+    public DateTime PaymentDateUtc { get; set; }
+    public string Method { get; set; } = "Manual";
+    public string? Reference { get; set; }
+    public string? Notes { get; set; }
+    public List<SalesPaymentAllocationRequest> Allocations { get; set; } = [];
+}
+
 public sealed class CreatePaymentLinkCommand
 {
     public Guid CompanyId { get; set; }
@@ -23,10 +39,11 @@ public sealed record PaymentLinkResult(string ExternalPaymentId, string PaymentU
 
 public sealed record PaymentAttemptDto(int AttemptNumber, PaymentStatus Status, string? FailureCode, string? FailureMessage);
 public sealed record PaymentHistoryDto(DateTime CreatedAtUtc, string Action, string Description);
+public sealed record SalesPaymentAllocationDto(Guid Id, Guid InvoiceId, string InvoiceNumber, decimal Amount);
 
 public sealed record PaymentDto(
     Guid Id,
-    Guid InvoiceId,
+    Guid? InvoiceId,
     string InvoiceNumber,
     decimal Amount,
     string Currency,
@@ -43,7 +60,8 @@ public sealed record PaymentDto(
     IReadOnlyCollection<PaymentHistoryDto> History,
     IReadOnlyCollection<PaymentAttemptDto> Attempts,
     IReadOnlyCollection<RefundDto> Refunds,
-    IReadOnlyCollection<PaymentDisputeDto> Disputes);
+    IReadOnlyCollection<PaymentDisputeDto> Disputes,
+    IReadOnlyCollection<SalesPaymentAllocationDto> Allocations);
 
 public sealed record PaymentDisputeDto(
     Guid Id,
@@ -66,6 +84,7 @@ public sealed record PublicPaymentStatusDto(
 
 public interface IPaymentService
 {
+    Task<PaymentDto> CreateSalesPaymentAsync(CreateSalesPaymentRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<PaymentDto>> GetAsync(CancellationToken cancellationToken = default);
     Task<PaymentDto?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<PublicPaymentStatusDto?> GetPublicStatusAsync(string externalPaymentId, CancellationToken cancellationToken = default);

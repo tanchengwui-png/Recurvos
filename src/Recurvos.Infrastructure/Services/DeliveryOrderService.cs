@@ -100,10 +100,9 @@ public sealed class DeliveryOrderService(
         var entity = await dbContext.DeliveryOrders.Include(x => x.Lines)
             .FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == id, cancellationToken);
         if (entity is null) return null;
-        if (entity.Status != DeliveryOrderStatus.Draft)
-            throw new InvalidOperationException("Only draft delivery orders can be edited.");
-        if (entity.Lines.Count > 0 && entity.Lines.All(line => line.InvoicedQuantity >= line.Quantity))
-            throw new InvalidOperationException("Fully invoiced delivery orders cannot be edited.");
+        if (entity.Status == DeliveryOrderStatus.Cancelled)
+            throw new InvalidOperationException("Cancelled delivery orders cannot be edited.");
+        await EnsureDeliveryAmendmentDoesNotExceedInvoicedAsync(entity, request.Lines, cancellationToken);
 
         if (!entity.SalesOrderId.HasValue && !request.SalesOrderId.HasValue)
             return await UpdateDirectAsync(entity, request, cancellationToken);
@@ -274,6 +273,24 @@ public sealed class DeliveryOrderService(
         }
 
         return salesOrder;
+    }
+
+    private async Task EnsureDeliveryAmendmentDoesNotExceedInvoicedAsync(DeliveryOrder deliveryOrder, IReadOnlyCollection<DeliveryOrderLineRequest> requests, CancellationToken cancellationToken)
+    {
+        var invoiced = await dbContext.InvoiceLineItems
+            .Where(x => x.Invoice!.DeliveryOrderId == deliveryOrder.Id && x.Invoice.Status != InvoiceStatus.Voided && x.DeliveryOrderLineId.HasValue)
+            .GroupBy(x => x.DeliveryOrderLineId!.Value)
+            .Select(x => new { LineId = x.Key, Quantity = x.Sum(y => y.Quantity) })
+            .ToDictionaryAsync(x => x.LineId, x => x.Quantity, cancellationToken);
+        foreach (var line in deliveryOrder.Lines.Where(x => invoiced.ContainsKey(x.Id)))
+        {
+            var amendment = requests.SingleOrDefault(x => x.LineId == line.Id);
+            var used = invoiced[line.Id];
+            if (amendment is null)
+                throw new InvalidOperationException($"Line '{line.Description}' cannot be deleted because {used} units have already been invoiced.");
+            if (amendment.Quantity < used)
+                throw new InvalidOperationException($"Quantity for '{line.Description}' cannot be reduced below {used} because {used} units have already been invoiced.");
+        }
     }
 
     private async Task<Guid> ValidateWarehouseAsync(Guid companyId, Guid? warehouseId, CancellationToken cancellationToken)

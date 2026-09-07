@@ -852,6 +852,7 @@ export type PurchasePaymentListItem = {
 
 export type PurchaseCreditNoteLine = {
   id: string;
+  purchaseBillLineId?: string | null;
   description: string;
   quantity: number;
   unitAmount: number;
@@ -1152,7 +1153,7 @@ export type Invoice = {
   currency: string;
   companyAddressSnapshot?: string | null;
   pdfPath?: string | null;
-  lineItems: { taxCodeId?: string | null; description: string; quantity: number; unitAmount: number; taxRate: number; taxAmount: number; totalAmount: number; lineTotal: number }[];
+  lineItems: { id: string; taxCodeId?: string | null; description: string; quantity: number; unitAmount: number; taxRate: number; taxAmount: number; totalAmount: number; lineTotal: number }[];
   history: { createdAtUtc: string; action: string; description: string }[];
   creditNotes: CreditNote[];
   refunds: Refund[];

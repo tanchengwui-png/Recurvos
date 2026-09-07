@@ -13,6 +13,10 @@ public sealed class MasterDataController(IMasterDataService masterDataService) :
     public async Task<ActionResult<MasterDataSnapshotDto>> Get(CancellationToken cancellationToken) =>
         Ok(await masterDataService.GetSnapshotAsync(cancellationToken));
 
+    [HttpGet("myinvois-tax-types")]
+    public ActionResult<IReadOnlyList<MyInvoisTaxTypeDto>> ListMyInvoisTaxTypes() =>
+        Ok(MyInvoisTaxTypeCatalog.All);
+
     [HttpGet("warehouses")]
     public async Task<ActionResult<IReadOnlyCollection<WarehouseDto>>> ListWarehouses([FromQuery] MasterDataQueryRequest request, CancellationToken cancellationToken) =>
         Ok(await masterDataService.ListWarehousesAsync(request, cancellationToken));

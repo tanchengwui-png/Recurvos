@@ -98,8 +98,9 @@ public sealed class GoodsReceivedNoteService(
         var entity = await dbContext.GoodsReceivedNotes.Include(x => x.Lines)
             .FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == id, cancellationToken);
         if (entity is null) return null;
-        if (entity.Status != GoodsReceivedNoteStatus.Draft)
-            throw new InvalidOperationException("Only draft GRNs can be edited.");
+        if (entity.Status == GoodsReceivedNoteStatus.Cancelled)
+            throw new InvalidOperationException("Cancelled GRNs cannot be edited.");
+        await EnsureGrnAmendmentDoesNotExceedBilledAsync(entity, request.Lines, cancellationToken);
 
         if (!entity.PurchaseOrderId.HasValue)
         {
@@ -323,6 +324,22 @@ public sealed class GoodsReceivedNoteService(
         }
 
         return purchaseOrder;
+    }
+
+    private async Task EnsureGrnAmendmentDoesNotExceedBilledAsync(GoodsReceivedNote grn, IReadOnlyCollection<GoodsReceivedNoteLineRequest> requests, CancellationToken cancellationToken)
+    {
+        var billed = await dbContext.PurchaseBillLines
+            .Where(x => x.PurchaseBill!.GoodsReceivedNoteId == grn.Id && x.PurchaseBill.Status != PurchaseBillStatus.Cancelled && x.GoodsReceivedNoteLineId.HasValue)
+            .GroupBy(x => x.GoodsReceivedNoteLineId!.Value)
+            .Select(x => new { LineId = x.Key, Quantity = x.Sum(y => y.Quantity) })
+            .ToDictionaryAsync(x => x.LineId, x => x.Quantity, cancellationToken);
+        foreach (var line in grn.Lines.Where(x => billed.ContainsKey(x.Id)))
+        {
+            var amendment = requests.SingleOrDefault(x => x.LineId == line.Id);
+            var used = billed[line.Id];
+            if (amendment is null) throw new InvalidOperationException($"Line '{line.Description}' cannot be deleted because {used} units have already been billed.");
+            if (amendment.Quantity < used) throw new InvalidOperationException($"Quantity for '{line.Description}' cannot be reduced below {used} because {used} units have already been billed.");
+        }
     }
 
     private async Task<Guid> ValidateWarehouseAsync(Guid companyId, Guid? warehouseId, CancellationToken cancellationToken)

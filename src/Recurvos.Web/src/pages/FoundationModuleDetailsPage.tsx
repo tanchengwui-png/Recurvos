@@ -53,12 +53,12 @@ export function FoundationModuleDetailsPage({ moduleKey }: { moduleKey: string }
           <h2>{moduleConfig.label}</h2>
           <p className="muted">{item.code}</p>
         </div>
-        <div className="invoice-detail-inline-actions">
-          <button type="button" className="button button-secondary" onClick={() => navigate(moduleConfig.path)}>Back</button>
-          <button type="button" className="button button-primary" onClick={() => navigate(`${moduleConfig.path}/${item.id}/edit`)}>Edit</button>
-        </div>
       </header>
       {error ? <HelperText tone="error">{error}</HelperText> : null}
+      <div className="foundation-detail-actions">
+        <button type="button" className="button button-secondary" onClick={() => navigate(moduleConfig.path)}>Back</button>
+        <button type="button" className="button button-primary" onClick={() => navigate(`${moduleConfig.path}/${item.id}/edit`)}>Edit</button>
+      </div>
       <section className="card invoice-detail-panel">
         <div className="invoice-detail-hero">
           <div className="invoice-detail-hero-copy">

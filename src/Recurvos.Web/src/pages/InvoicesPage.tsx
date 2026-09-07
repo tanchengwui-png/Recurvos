@@ -142,7 +142,7 @@ export function InvoicesPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [confirmState, setConfirmState] = useState<{ title: string; description: string; details?: ReactNode; confirmDisabled?: boolean; action: () => Promise<void> } | null>(null);
   const [paymentForm, setPaymentForm] = useState<{ invoiceId: string; amount: string; method: string; reference: string; paidAtUtc: string; proofFile: File | null; useFullBalance: boolean } | null>(null);
-  const [creditNoteForm, setCreditNoteForm] = useState<{ invoiceId: string; invoiceNumber: string; customerName: string; currency: string; eligibleCreditAmount: number; reason: string; issuedAtUtc: string; description: string; amount: string } | null>(null);
+  const [creditNoteForm, setCreditNoteForm] = useState<{ invoice: Invoice; reason: string; issuedAtUtc: string; quantities: Record<string, string>; removedLineIds: string[] } | null>(null);
   const [adjustPaymentForm, setAdjustPaymentForm] = useState<{ invoiceId: string; invoiceNumber: string; currency: string; invoiceTotal: number; paidAmount: number; mode: "reverse" | "refund"; selectedPaymentId: string; amount: string; reason: string } | null>(null);
   const [billingReadiness, setBillingReadiness] = useState<BillingReadiness | null>(null);
   const [featureAccess, setFeatureAccess] = useState<FeatureAccess | null>(null);
@@ -507,17 +507,7 @@ export function InvoicesPage() {
   }
 
   function openRecordPaymentForm(invoice: Invoice) {
-    setAdjustPaymentForm(null);
-    setCreditNoteForm(null);
-    setPaymentForm({
-      invoiceId: invoice.id,
-      amount: String(invoice.balanceAmount),
-      method: "Bank transfer",
-      reference: "",
-      paidAtUtc: new Date().toISOString().slice(0, 10),
-      proofFile: null,
-      useFullBalance: true,
-    });
+    navigate(`/payments/new?customerId=${encodeURIComponent(invoice.customerId)}&invoiceId=${encodeURIComponent(invoice.id)}`);
   }
 
   async function generatePaymentLink(invoice: Invoice) {
@@ -626,17 +616,7 @@ export function InvoicesPage() {
         onClick: () => {
           setAdjustPaymentForm(null);
           setPaymentForm(null);
-          setCreditNoteForm({
-            invoiceId: item.id,
-            invoiceNumber: item.invoiceNumber,
-            customerName: item.customerName,
-            currency: item.currency,
-            eligibleCreditAmount: item.eligibleCreditAmount,
-            reason: "",
-            issuedAtUtc: new Date().toISOString().slice(0, 10),
-            description: `Credit note for invoice ${item.invoiceNumber}`,
-            amount: "",
-          });
+          setCreditNoteForm({ invoice: item, reason: "", issuedAtUtc: new Date().toISOString().slice(0, 10), quantities: Object.fromEntries(item.lineItems.map((line) => [line.id, String(Math.max(0, line.quantity - item.creditNotes.filter((note) => note.status === "Issued").flatMap((note) => note.lines).filter((creditLine) => creditLine.invoiceLineId === line.id).reduce((sum, creditLine) => sum + creditLine.quantity, 0)))])), removedLineIds: [] });
         },
       }] : []),
     ];
@@ -1022,9 +1002,7 @@ export function InvoicesPage() {
         {creditNoteForm ? (
           <div ref={creditNoteFormRef} className="form-stack" style={{ marginTop: "1rem" }}>
             <p className="eyebrow">Issue credit note</p>
-            <HelperText>
-              {`This credit note is for invoice ${creditNoteForm.invoiceNumber} (${creditNoteForm.customerName}). Current creditable invoice amount is ${formatCurrency(creditNoteForm.eligibleCreditAmount, creditNoteForm.currency)}. The maximum credit allowed is ${formatCurrency(creditNoteForm.eligibleCreditAmount, creditNoteForm.currency)}.`}
-            </HelperText>
+            <HelperText>{`This credit note is for invoice ${creditNoteForm.invoice.invoiceNumber} (${creditNoteForm.invoice.customerName}). Current creditable invoice amount is ${formatCurrency(creditNoteForm.invoice.eligibleCreditAmount, creditNoteForm.invoice.currency)}.`}</HelperText>
             <label className="form-label">
               Reason
               <input className="text-input" value={creditNoteForm.reason} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, reason: event.target.value } : current)} />
@@ -1033,35 +1011,16 @@ export function InvoicesPage() {
               Issued date
               <input className="text-input" type="date" value={creditNoteForm.issuedAtUtc} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, issuedAtUtc: event.target.value } : current)} />
             </label>
-            <label className="form-label">
-              Description
-              <input className="text-input" value={creditNoteForm.description} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, description: event.target.value } : current)} />
-            </label>
-            <label className="form-label">
-              Credit amount
-              <input className="text-input" type="number" min="0.01" step="0.01" max={String(creditNoteForm.eligibleCreditAmount)} value={creditNoteForm.amount} onChange={(event) => setCreditNoteForm((current) => current ? { ...current, amount: event.target.value } : current)} />
-            </label>
-            <HelperText>
-              {(() => {
-                const amount = Number(creditNoteForm.amount || 0);
-                if (!Number.isFinite(amount) || amount <= 0) {
-                  return "Enter the credit amount to preview the new outstanding balance.";
-                }
-
-                const nextOutstanding = Math.max(0, creditNoteForm.eligibleCreditAmount - amount);
-                const capExceeded = amount > creditNoteForm.eligibleCreditAmount;
-                return capExceeded
-                  ? `This exceeds the cap. Maximum allowed is ${formatCurrency(creditNoteForm.eligibleCreditAmount, creditNoteForm.currency)}.`
-                  : `New outstanding after this credit note: ${formatCurrency(nextOutstanding, creditNoteForm.currency)}.`;
-              })()}
-            </HelperText>
+            <div className="table-scroll table-scroll-bounded"><table className="catalog-table"><thead><tr><th>Item</th><th>Original Qty</th><th>Remaining Qty</th><th>Credit Qty</th><th>Unit Price</th><th>Tax</th><th>Credit Amount</th><th /></tr></thead><tbody>{creditNoteForm.invoice.lineItems.filter((line) => !creditNoteForm.removedLineIds.includes(line.id)).map((line) => {
+              const remainingQuantity = Math.max(0, line.quantity - creditNoteForm.invoice.creditNotes.filter((note) => note.status === "Issued").flatMap((note) => note.lines).filter((creditLine) => creditLine.invoiceLineId === line.id).reduce((sum, creditLine) => sum + creditLine.quantity, 0));
+              const quantity = Number(creditNoteForm.quantities[line.id]) || 0;
+              const taxAmount = line.quantity > 0 ? Number((line.taxAmount * quantity / line.quantity).toFixed(2)) : 0;
+              return <tr key={line.id}><td>{line.description}</td><td>{line.quantity}</td><td>{remainingQuantity}</td><td><input className="text-input" type="text" inputMode="decimal" value={creditNoteForm.quantities[line.id] ?? ""} onChange={(event) => { const value = event.target.value; if (value === "" || /^\d*(?:\.\d*)?$/.test(value)) setCreditNoteForm((current) => current ? { ...current, quantities: { ...current.quantities, [line.id]: value } } : current); }} onBlur={() => setCreditNoteForm((current) => current ? { ...current, quantities: { ...current.quantities, [line.id]: Number(current.quantities[line.id]) > 0 ? String(Math.min(Number(current.quantities[line.id]), remainingQuantity)) : "" } } : current)} /></td><td>{formatCurrency(line.unitAmount, creditNoteForm.invoice.currency)}</td><td>{`${line.taxRate}% (${formatCurrency(taxAmount, creditNoteForm.invoice.currency)})`}</td><td>{formatCurrency((quantity * line.unitAmount) + taxAmount, creditNoteForm.invoice.currency)}</td><td><button type="button" className="button button-secondary button-compact" onClick={() => setCreditNoteForm((current) => current ? { ...current, removedLineIds: [...current.removedLineIds, line.id] } : current)}>Remove</button></td></tr>;
+            })}</tbody></table></div>
             <div className="button-stack">
               <button type="button" className="button button-primary" disabled={
                 !creditNoteForm.reason.trim()
-                || !creditNoteForm.description.trim()
-                || !Number.isFinite(Number(creditNoteForm.amount))
-                || Number(creditNoteForm.amount) <= 0
-                || Number(creditNoteForm.amount) > creditNoteForm.eligibleCreditAmount
+                || !Object.values(creditNoteForm.quantities).some((value) => Number(value) > 0)
               } onClick={() => setConfirmState({
                 title: "Issue credit note",
                 description: "Issue this credit note against the invoice?",
@@ -1072,15 +1031,10 @@ export function InvoicesPage() {
 
                   try {
                     const created = await api.post<CreditNote>("/credit-notes", {
-                      invoiceId: creditNoteForm.invoiceId,
+                      invoiceId: creditNoteForm.invoice.id,
                       reason: creditNoteForm.reason,
                       issuedAtUtc: new Date(creditNoteForm.issuedAtUtc).toISOString(),
-                      lines: [{
-                        description: creditNoteForm.description,
-                        quantity: 1,
-                        unitAmount: Number(creditNoteForm.amount),
-                        taxAmount: 0,
-                      }],
+                      lines: creditNoteForm.invoice.lineItems.filter((line) => Number(creditNoteForm.quantities[line.id]) > 0).map((line) => ({ invoiceLineId: line.id, quantity: Number(creditNoteForm.quantities[line.id]) })),
                     });
                     setConfirmState(null);
                     setCreditNoteForm(null);

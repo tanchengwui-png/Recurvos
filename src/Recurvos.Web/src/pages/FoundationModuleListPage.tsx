@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { EmptyTableRow } from "../components/EmptyTableRow";
+import { ListCardHeader } from "../components/ListCardHeader";
+import { ListToolbar } from "../components/ListToolbar";
 import { RowActionMenu } from "../components/RowActionMenu";
+import { TablePagination } from "../components/TablePagination";
 import { HelperText } from "../components/ui/HelperText";
+import { useClientPagination } from "../hooks/useClientPagination";
 import { api } from "../lib/api";
 import { foundationModules, type FoundationModuleConfig, type FoundationRecord } from "./foundationModules";
 
@@ -21,6 +25,10 @@ function buildQuery(search: string, filters: Record<string, string>) {
   });
 
   return query.toString();
+}
+
+function pluralize(label: string) {
+  return label.endsWith("y") ? `${label.slice(0, -1)}ies` : `${label}s`;
 }
 
 export function FoundationModuleListPage({ moduleKey }: { moduleKey: string }) {
@@ -63,33 +71,33 @@ export function FoundationModuleListPage({ moduleKey }: { moduleKey: string }) {
     void load();
   }, [module, search, filters]);
 
+  const pagination = useClientPagination(items, [moduleKey, search, filters]);
+
   if (!module) {
     return <div className="page"><section className="card"><p className="muted">Foundation module not found.</p></section></div>;
   }
 
   const moduleConfig = module;
+  const recordLabel = items.length === 1 ? moduleConfig.singularLabel : pluralize(moduleConfig.singularLabel);
 
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="page-header-copy">
-          <h2>{moduleConfig.label}</h2>
-          <p className="page-subtitle">{moduleConfig.description}</p>
-        </div>
-        <button type="button" className="button button-primary" onClick={() => navigate(`${moduleConfig.path}/new`)}>
-          Create {moduleConfig.singularLabel}
-        </button>
-      </header>
       {error ? <HelperText tone="error">{error}</HelperText> : null}
-      <div className="catalog-toolbar card subtle-card">
+      <ListToolbar>
         <input className="text-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={moduleConfig.searchPlaceholder} />
         {(moduleConfig.filters ?? []).map((filter) => (
           <select key={filter.key} value={filters[filter.key] ?? ""} onChange={(event) => setFilters((current) => ({ ...current, [filter.key]: event.target.value }))}>
             {filter.options.map((option) => <option key={option.label} value={option.value}>{option.label}</option>)}
           </select>
         ))}
-      </div>
+      </ListToolbar>
       <section className="card">
+        <ListCardHeader
+          title={moduleConfig.label}
+          count={items.length}
+          countLabel={recordLabel}
+          actions={<button type="button" className="button button-primary" onClick={() => navigate(`${moduleConfig.path}/new`)}>Create {moduleConfig.singularLabel}</button>}
+        />
         <div className="table-scroll table-scroll-bounded">
           <table className="catalog-table">
             <thead>
@@ -106,7 +114,7 @@ export function FoundationModuleListPage({ moduleKey }: { moduleKey: string }) {
                   description={`Create a ${moduleConfig.singularLabel} to start building your foundation data.`}
                   actions={<button type="button" className="button button-primary" onClick={() => navigate(`${moduleConfig.path}/new`)}>Create {moduleConfig.singularLabel}</button>}
                 />
-              ) : items.map((item) => (
+              ) : pagination.pagedItems.map((item) => (
                 <tr key={item.id}>
                   {moduleConfig.columns.map((column) => <td key={column.key}>{column.render(item)}</td>)}
                   <td className="actions-cell">
@@ -137,6 +145,7 @@ export function FoundationModuleListPage({ moduleKey }: { moduleKey: string }) {
             </tbody>
           </table>
         </div>
+        <TablePagination currentPage={pagination.currentPage} pageSize={pagination.pageSize} totalItems={items.length} totalPages={pagination.totalPages} rangeStart={pagination.rangeStart} rangeEnd={pagination.rangeEnd} onPageChange={pagination.setCurrentPage} onPageSizeChange={pagination.setPageSize} />
       </section>
       <ConfirmModal
         open={confirmState !== null}

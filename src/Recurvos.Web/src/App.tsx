@@ -41,6 +41,7 @@ const MasterDataPage = lazy(() => import("./pages/MasterDataPage").then((module)
 const NewSubscriptionPage = lazy(() => import("./pages/NewSubscriptionPage").then((module) => ({ default: module.NewSubscriptionPage })));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage").then((module) => ({ default: module.OnboardingPage })));
 const PaymentsPage = lazy(() => import("./pages/PaymentsPage").then((module) => ({ default: module.PaymentsPage })));
+const SalesPaymentFormPage = lazy(() => import("./pages/SalesPaymentFormPage").then((module) => ({ default: module.SalesPaymentFormPage })));
 const PlatformAuditLogsPage = lazy(() => import("./pages/PlatformAuditLogsPage").then((module) => ({ default: module.PlatformAuditLogsPage })));
 const PlatformAccountBillingRolloutPage = lazy(() => import("./pages/PlatformAccountBillingRolloutPage").then((module) => ({ default: module.PlatformAccountBillingRolloutPage })));
 const PlatformDashboardPage = lazy(() => import("./pages/PlatformDashboardPage").then((module) => ({ default: module.PlatformDashboardPage })));
@@ -244,6 +245,7 @@ function AppRoutes() {
             <Route path="/customers/new" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
             <Route path="/customers/:id/edit" element={<TenantRoute><CustomerFormPage /></TenantRoute>} />
             <Route path="/customers/:id/statement" element={<TenantRoute><CustomerStatementPage /></TenantRoute>} />
+            <Route path="/finance/statements" element={<TenantRoute><CustomerStatementPage /></TenantRoute>} />
             <Route path="/products" element={<TenantRoute><ProductsPage /></TenantRoute>} />
             <Route path="/product-groups" element={<TenantRoute><ProductGroupsPage /></TenantRoute>} />
             <Route path="/products/new" element={<TenantRoute><ProductFormPage /></TenantRoute>} />
@@ -304,6 +306,7 @@ function AppRoutes() {
             <Route path="/finance/balance-sheet" element={<TenantRoute><BalanceSheetPage /></TenantRoute>} />
             <Route path="/finance/cash-flow" element={<TenantRoute><CashFlowPage /></TenantRoute>} />
             <Route path="/payments" element={<TenantRoute><PaymentsPage /></TenantRoute>} />
+            <Route path="/payments/new" element={<TenantRoute><SalesPaymentFormPage /></TenantRoute>} />
             <Route path="/foundation" element={<TenantRoute><FoundationOverviewPage /></TenantRoute>} />
             <Route path="/foundation/chart-of-accounts" element={<TenantRoute><FoundationModuleListPage moduleKey="chart-of-accounts" /></TenantRoute>} />
             <Route path="/foundation/chart-of-accounts/new" element={<TenantRoute><FoundationModuleFormPage moduleKey="chart-of-accounts" /></TenantRoute>} />

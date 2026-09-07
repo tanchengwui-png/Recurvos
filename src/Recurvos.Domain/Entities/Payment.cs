@@ -5,7 +5,7 @@ namespace Recurvos.Domain.Entities;
 
 public sealed class Payment : CompanyOwnedEntity
 {
-    public Guid InvoiceId { get; set; }
+    public Guid? InvoiceId { get; set; }
     public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "MYR";
@@ -21,6 +21,7 @@ public sealed class Payment : CompanyOwnedEntity
     public DateTime? ReceiptEmailedAtUtc { get; set; }
     public DateTime? PaidAtUtc { get; set; }
     public Invoice? Invoice { get; set; }
+    public ICollection<SalesPaymentAllocation> Allocations { get; set; } = new List<SalesPaymentAllocation>();
     public ICollection<PaymentAttempt> Attempts { get; set; } = new List<PaymentAttempt>();
     public ICollection<Refund> Refunds { get; set; } = new List<Refund>();
     public ICollection<Dispute> Disputes { get; set; } = new List<Dispute>();

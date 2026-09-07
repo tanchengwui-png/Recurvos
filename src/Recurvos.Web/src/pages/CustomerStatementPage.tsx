@@ -6,7 +6,9 @@ import { ResponseToast } from "../components/ui/Toast";
 import { useClipboardWithFallback } from "../hooks/useClipboardWithFallback";
 import { api } from "../lib/api";
 import { formatCurrency } from "../lib/format";
-import type { Customer, StatementOfAccountReport } from "../types";
+import { printFinanceReport } from "../lib/financeReportPrint";
+import { resolveActiveCompanyId } from "../lib/auth";
+import type { CompanyLookup, Customer, StatementOfAccountReport } from "../types";
 
 type StatementType = "customer" | "supplier";
 type ColumnKey = "date" | "document" | "description" | "debit" | "credit" | "balance";
@@ -214,6 +216,7 @@ export function CustomerStatementPage() {
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedContact, setSelectedContact] = useState<Customer | null>(null);
+  const [contacts, setContacts] = useState<Customer[]>([]);
   const [statement, setStatement] = useState<StatementOfAccountReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -240,7 +243,13 @@ export function CustomerStatementPage() {
     async function load() {
       if (!id) {
         setSelectedContact(null);
-        setLoading(false);
+        try {
+          setContacts(await api.get<Customer[]>("/customers"));
+        } catch (loadError) {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load contacts.");
+        } finally {
+          setLoading(false);
+        }
         return;
       }
 
@@ -573,16 +582,11 @@ export function CustomerStatementPage() {
 
   async function exportPdf(config: StatementActionConfig) {
     const report = await loadStatementForAction(config);
-    const popup = window.open("", "_blank", "noopener,noreferrer,width=960,height=720");
-    if (!popup) {
-      throw new Error("Allow popups to export the statement as PDF.");
-    }
-
-    popup.document.open();
-    popup.document.write(buildPrintableHtml(report, config));
-    popup.document.close();
-    popup.focus();
-    popup.print();
+    buildPrintableHtml(report, config);
+    const companies = await api.get<CompanyLookup[]>("/companies").catch(() => []);
+    const company = companies.find((item) => item.id === resolveActiveCompanyId(companies));
+    const columns = columnOptions.filter((option) => config.columns.includes(option.key));
+    await printFinanceReport({ title: statementLabel, company, period: `${config.startDate || "—"} to ${config.endDate || "—"}`, sections: [{ title: `${selectedContact?.legalName || selectedContact?.name || report.contactName} · ${report.contactType}`, columns: columns.map((column) => ({ label: column.label, numeric: ["debit", "credit", "balance"].includes(column.key) })), rows: report.rows.map((row) => columns.map((column) => column.key === "date" ? formatDate(row.dateUtc) : column.key === "document" ? row.documentNumber : column.key === "description" ? row.description : column.key === "debit" ? formatCurrency(row.debit, row.currencyCode || report.currencyCode) : column.key === "credit" ? formatCurrency(row.credit, row.currencyCode || report.currencyCode) : formatCurrency(row.balance, report.currencyCode))), total: columns.map((column) => column.key === "description" ? "Closing balance" : column.key === "balance" ? formatCurrency(report.closingBalance, report.currencyCode) : "") }, { title: "Aging summary", columns: [{ label: "Current", numeric: true }, { label: "1–30 days", numeric: true }, { label: "31–60 days", numeric: true }, { label: "61–90 days", numeric: true }, { label: "91+ days", numeric: true }, { label: "Total", numeric: true }], rows: [[formatCurrency(report.aging.current, report.currencyCode), formatCurrency(report.aging.days1To30, report.currencyCode), formatCurrency(report.aging.days31To60, report.currencyCode), formatCurrency(report.aging.days61To90, report.currencyCode), formatCurrency(report.aging.days91Plus, report.currencyCode), formatCurrency(report.aging.totalOutstanding, report.currencyCode)]] }] });
   }
 
   async function exportExcel(config: StatementActionConfig) {
@@ -679,6 +683,9 @@ export function CustomerStatementPage() {
   }
 
   if (!selectedContact) {
+    if (!id) {
+      return <div className="page"><header className="page-header"><div className="page-header-copy"><h2>Statement of Account</h2><p className="muted">Select a customer or supplier to view their statement.</p></div></header><section className="card"><label className="form-label">Contact<select value="" onChange={(event) => { if (event.target.value) navigate(`/customers/${event.target.value}/statement`); }}><option value="">Select a contact</option>{contacts.filter((contact) => contact.status === "Active").map((contact) => <option key={contact.id} value={contact.id}>{contact.legalName || contact.name}</option>)}</select></label></section></div>;
+    }
     return (
       <div className="page">
         <section className="card">

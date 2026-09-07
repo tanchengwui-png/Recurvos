@@ -52,9 +52,9 @@ public sealed class SalesQuotationConversionIntegrationTests : IClassFixture<Tes
 
         await using var scope = _factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var quotation = await db.SalesQuotations.SingleAsync(x => x.Id == context.QuotationId);
-        quotation.Status.Should().Be(SalesQuotationStatus.Accepted);
-        quotation.ConvertedSalesOrderId.Should().BeNull();
+        var persistedQuotation = await db.SalesQuotations.SingleAsync(x => x.Id == context.QuotationId);
+        persistedQuotation.Status.Should().Be(SalesQuotationStatus.Accepted);
+        persistedQuotation.ConvertedSalesOrderId.Should().BeNull();
         (await db.SalesOrders.CountAsync(x => x.SalesQuotationId == context.QuotationId)).Should().Be(2);
     }
 

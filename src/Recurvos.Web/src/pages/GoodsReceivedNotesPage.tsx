@@ -44,7 +44,7 @@ export function GoodsReceivedNotesPage() {
   function getActions(item: GoodsReceivedNoteListItem) {
     return [
       { label: "View details", onClick: () => navigate(`/purchases/grns/${item.id}`, { state: { backgroundLocation: location } }) },
-      ...(item.status === "Draft" ? [{ label: "Edit", onClick: () => navigate(`/purchases/grns/${item.id}/edit`) }] : []),
+      ...(item.status !== "Cancelled" ? [{ label: "Edit", onClick: () => navigate(`/purchases/grns/${item.id}/edit`) }] : []),
       ...(item.status === "Draft" ? [{
         label: "Mark as Received",
         onClick: () => setConfirmState({

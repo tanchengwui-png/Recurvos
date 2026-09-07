@@ -8,6 +8,12 @@ public sealed class LegacySchemaRepairService(AppDbContext dbContext)
     public async Task EnsureAsync(CancellationToken cancellationToken = default)
     {
         await dbContext.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "PurchaseCreditNoteLines"
+            ADD COLUMN IF NOT EXISTS "PurchaseBillLineId" uuid NULL;
+            CREATE INDEX IF NOT EXISTS "IX_PurchaseCreditNoteLines_PurchaseBillLineId" ON "PurchaseCreditNoteLines" ("PurchaseBillLineId");
+            """, cancellationToken);
+
+        await dbContext.Database.ExecuteSqlRawAsync("""
             ALTER TABLE "Companies"
             ADD COLUMN IF NOT EXISTS "LegalName" character varying(200) NULL;
             """, cancellationToken);

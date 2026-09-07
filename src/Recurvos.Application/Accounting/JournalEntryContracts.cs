@@ -13,6 +13,7 @@ public sealed class JournalEntryLineRequest
 
 public sealed class JournalEntryUpsertRequest
 {
+    // Retained for compatibility; the active workspace is authoritative.
     [Required] public Guid? CompanyId { get; set; }
     [Required] public DateTime JournalDateUtc { get; set; }
     [Required, MaxLength(3)] public string Currency { get; set; } = "MYR";

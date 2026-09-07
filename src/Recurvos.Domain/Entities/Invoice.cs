@@ -43,6 +43,7 @@ public sealed class Invoice : CompanyOwnedEntity
     public Subscription? Subscription { get; set; }
     public ICollection<InvoiceLineItem> LineItems { get; set; } = new List<InvoiceLineItem>();
     public ICollection<Payment> Payments { get; set; } = new List<Payment>();
+    public ICollection<SalesPaymentAllocation> PaymentAllocations { get; set; } = new List<SalesPaymentAllocation>();
     public ICollection<PaymentConfirmationSubmission> PaymentConfirmations { get; set; } = new List<PaymentConfirmationSubmission>();
     public ICollection<Refund> Refunds { get; set; } = new List<Refund>();
     public ICollection<CreditNote> CreditNotes { get; set; } = new List<CreditNote>();

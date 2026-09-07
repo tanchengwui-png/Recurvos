@@ -99,10 +99,8 @@ public sealed class SalesQuotationService(
         var entity = await dbContext.SalesQuotations.Include(x => x.Lines)
             .FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == id, cancellationToken);
         if (entity is null) return null;
-        var hasActiveChildren = await dbContext.SalesOrders.AnyAsync(x => x.SalesQuotationId == entity.Id && x.Status != SalesOrderStatus.Cancelled, cancellationToken)
-            || await dbContext.DeliveryOrders.AnyAsync(x => x.SalesQuotationId == entity.Id && x.Status != DeliveryOrderStatus.Cancelled, cancellationToken);
-        if (hasActiveChildren)
-            throw new InvalidOperationException("Converted quotations cannot be edited.");
+        // Quotations are historical snapshots after conversion.  Amendments do
+        // not propagate to the already-created documents.
 
         var companyId = await ValidateCommonAsync(request.CompanyId, request.ContactId, request.DocumentDateUtc, request.ExpiryDateUtc, request.Lines, cancellationToken);
         if (entity.CompanyId != companyId)
@@ -659,10 +657,9 @@ public sealed class SalesOrderService(
         var entity = await dbContext.SalesOrders.Include(x => x.Lines)
             .FirstOrDefaultAsync(x => OwnedCompanyIdsQuery().Contains(x.CompanyId) && x.Id == id, cancellationToken);
         if (entity is null) return null;
-        if (entity.Status is SalesOrderStatus.Closed or SalesOrderStatus.Cancelled or SalesOrderStatus.PartiallyDelivered or SalesOrderStatus.FullyDelivered)
-            throw new InvalidOperationException("Delivered, closed, or cancelled sales orders cannot be edited.");
-        if (entity.Lines.Count > 0 && entity.Lines.All(line => line.InvoicedQuantity >= line.Quantity))
-            throw new InvalidOperationException("Fully invoiced sales orders cannot be edited.");
+        if (entity.Status is SalesOrderStatus.Closed or SalesOrderStatus.Cancelled)
+            throw new InvalidOperationException("Closed or cancelled sales orders cannot be edited.");
+        await EnsureOrderAmendmentDoesNotExceedConsumptionAsync(entity, request.Lines, cancellationToken);
         if (request.SalesQuotationId != entity.SalesQuotationId)
             throw new InvalidOperationException("The source quotation cannot be changed.");
         var companyId = await ValidateCommonAsync(request.CompanyId, request.ContactId, request.Lines, request.SalesQuotationId, id, cancellationToken);
@@ -679,8 +676,6 @@ public sealed class SalesOrderService(
         entity.Notes = request.Notes.Trim();
         entity.SalesQuotationId = request.SalesQuotationId;
         entity.UpdatedAtUtc = DateTime.UtcNow;
-        dbContext.SalesOrderLines.RemoveRange(entity.Lines);
-        entity.Lines.Clear();
         await ApplyLinesAsync(entity, request.Lines, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         if (transaction is not null) await transaction.CommitAsync(cancellationToken);
@@ -763,11 +758,33 @@ public sealed class SalesOrderService(
         return companyId.Value;
     }
 
+    private async Task EnsureOrderAmendmentDoesNotExceedConsumptionAsync(SalesOrder order, IReadOnlyCollection<SalesDocumentLineRequest> requests, CancellationToken cancellationToken)
+    {
+        var consumed = await dbContext.DeliveryOrderLines
+            .Where(x => x.DeliveryOrder!.SalesOrderId == order.Id && x.DeliveryOrder.Status != DeliveryOrderStatus.Cancelled && x.SalesOrderLineId.HasValue)
+            .Select(x => new { LineId = x.SalesOrderLineId!.Value, x.Quantity })
+            .Concat(dbContext.InvoiceLineItems.Where(x => x.Invoice!.SalesOrderId == order.Id && x.Invoice.Status != InvoiceStatus.Voided && x.SalesOrderLineId.HasValue)
+                .Select(x => new { LineId = x.SalesOrderLineId!.Value, x.Quantity }))
+            .GroupBy(x => x.LineId).Select(x => new { LineId = x.Key, Quantity = x.Sum(y => y.Quantity) })
+            .ToDictionaryAsync(x => x.LineId, x => x.Quantity, cancellationToken);
+
+        foreach (var line in order.Lines.Where(x => consumed.ContainsKey(x.Id)))
+        {
+            var amendment = requests.SingleOrDefault(x => x.LineId == line.Id);
+            var used = consumed[line.Id];
+            if (amendment is null)
+                throw new InvalidOperationException($"Line '{line.Description}' cannot be deleted because {used} units have already been delivered or invoiced.");
+            if (amendment.Quantity < used)
+                throw new InvalidOperationException($"Quantity for '{line.Description}' cannot be reduced below {used} because {used} units have already been delivered or invoiced.");
+        }
+    }
+
     private async Task ApplyLinesAsync(SalesOrder entity, IReadOnlyCollection<SalesDocumentLineRequest> requests, CancellationToken cancellationToken)
     {
         var subtotal = 0m;
         var tax = 0m;
         var order = 1;
+        var existing = entity.Lines.ToDictionary(x => x.Id);
         var lines = new List<SalesOrderLine>();
         foreach (var request in requests)
         {
@@ -776,23 +793,26 @@ public sealed class SalesOrderService(
             var lineSubtotal = Math.Round(request.Quantity * request.UnitPrice, 2, MidpointRounding.AwayFromZero);
             var lineTax = Math.Round(lineSubtotal * (taxRate / 100m), 2, MidpointRounding.AwayFromZero);
             var productName = ResolveProductSnapshot(request.ProductId, entity.CompanyId, cancellationToken);
-            lines.Add(new SalesOrderLine
-            {
-                SortOrder = order++,
-                ProductId = request.ProductId,
-                TaxCodeId = taxCode?.Id,
-                ProductNameSnapshot = productName,
-                Description = request.Description.Trim(),
-                Quantity = request.Quantity,
-                UnitPrice = request.UnitPrice,
-                TaxRate = taxRate,
-                TaxAmount = lineTax,
-                LineTotal = lineSubtotal + lineTax,
-                SourceQuotationLineId = request.SourceQuotationLineId,
-            });
+            var line = request.LineId.HasValue && existing.TryGetValue(request.LineId.Value, out var persisted)
+                ? persisted
+                : new SalesOrderLine();
+            line.SortOrder = order++;
+            line.ProductId = request.ProductId;
+            line.TaxCodeId = taxCode?.Id;
+            line.ProductNameSnapshot = productName;
+            line.Description = request.Description.Trim();
+            line.Quantity = request.Quantity;
+            line.UnitPrice = request.UnitPrice;
+            line.TaxRate = taxRate;
+            line.TaxAmount = lineTax;
+            line.LineTotal = lineSubtotal + lineTax;
+            line.SourceQuotationLineId = request.SourceQuotationLineId;
+            lines.Add(line);
             subtotal += lineSubtotal;
             tax += lineTax;
         }
+        var removed = entity.Lines.Where(x => !lines.Contains(x)).ToList();
+        dbContext.SalesOrderLines.RemoveRange(removed);
         entity.Lines = lines;
         entity.Subtotal = subtotal;
         entity.TaxAmount = tax;
